@@ -54,8 +54,10 @@ uv run pytest                                 # 위 묶음을 한 번에(파일�
 # CI(.github/workflows/ci.yml): locked(3 OS × py3.12~3.14)·minimal(선택 의존성 없이)·lowest·latest·audit
 ```
 
-> ⚠ `pyproject.toml`을 고치면 다음 `uv run`이 lock을 자동 재작성한다(이 uv 버전은 무관한
-> 마커까지 바꿈). 버전만 올릴 땐 `uv.lock`의 `equion` 버전 한 줄만 직접 고친다.
+> ⚠ uv는 **0.13.7 이상**(`pyproject.toml`의 `[tool.uv] required-version` — CI의 setup-uv도 이 값을 따른다).
+> 옛 uv(0.5.x)는 pyproject를 고치면 lock의 무관한 마커까지 다시 썼고, 저장소 최상위에서 `uv run equion`이 실패했다.
+> `pyproject.toml`의 의존성·버전을 고치면 다음 `uv run`이 lock을 갱신하므로 `git diff uv.lock`으로 바뀐 줄을 확인한다.
+> 줄바꿈은 `.gitattributes`가 LF로 고정한다(Windows의 `core.autocrlf`와 무관 — 문서 도구·`equion new`도 LF로 쓴다).
 > 패키지는 설치형(hatchling, `[project.scripts] equion`)이라 `uv sync`가 편집 가능 설치한다(D6).
 
 ## 파일 구조
@@ -96,7 +98,7 @@ uv run pytest                                 # 위 묶음을 한 번에(파일�
 | `examples/` | `start/`·`tutorial/` 스크립트와 `notebooks/` — **문서에서 자동 생성**(`build_docs.py`), 손으로 고치지 않는다 |
 | `.github/` | `workflows/ci.yml`(locked 3 OS × py3.12~3.14 · minimal · lowest · latest · audit) · `release.yml`(태그 → 휠·설치 시험, PyPI는 `PYPI_PUBLISH` 변수로만) · `dependabot.yml` |
 | `out/` · `WT/` | CLI 보고서 `out/<실행ID>/` · 워크파일 `.eqw/`·Work Table `.wt/` 번들(자동 생성·git 제외) |
-| 루트 파일 | `README.md`(저장소 소개) · `README.en.md`(English) · `LICENSE`(MIT) · `THIRD-PARTY-NOTICES.md`(포함한 외부 자료 고지 — 수치표·plotly.js) · `CHANGELOG.md` · `CLAUDE.md` · `VERSION` · `pyproject.toml` · `uv.lock` · `.python-version` · `.gitignore` |
+| 루트 파일 | `README.md`(저장소 소개) · `README.en.md`(English) · `LICENSE`(MIT) · `THIRD-PARTY-NOTICES.md`(포함한 외부 자료 고지 — 수치표·plotly.js) · `CHANGELOG.md` · `CLAUDE.md` · `VERSION` · `pyproject.toml` · `uv.lock` · `.python-version` · `.gitignore` · `.gitattributes`(줄바꿈 LF) |
 
 ## 방정식 파일 규칙
 

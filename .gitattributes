@@ -1,0 +1,13 @@
+# 줄바꿈: 저장소·작업 폴더 모두 LF(OS·git 전역 설정 core.autocrlf와 무관).
+# 문서 도구(docs/build_docs.py·docs/make_api.py)와 `equion new`가 LF로 쓰므로 작업 폴더도 LF여야
+# Windows에서 문서를 다시 만들 때 줄바꿈이 섞이지 않는다. 패키지의 CRLF 입력 처리는 시험이 합성 자료로 따로 본다.
+* text=auto eol=lf
+
+# 바이너리(줄바꿈 변환·diff 없음)
+*.gz      binary
+*.npz     binary
+*.parquet binary
+*.pkl     binary
+*.xlsx    binary
+*.png     binary
+*.ico     binary
