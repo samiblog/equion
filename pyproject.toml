@@ -37,6 +37,12 @@ dev = [
     "plotly>=5.24",   # 선택 기능 검사(figure())
 ]
 
+[tool.uv]
+# uv 판 하한 — 옛 uv(0.5.x)는 pyproject를 고치면 uv.lock의 무관한 마커까지 다시 썼고, 저장소 최상위에서
+# `uv run equion`이 같은 이름의 equion/ 폴더를 스크립트로 실행했다. CI(astral-sh/setup-uv)도 이 값을 읽어
+# 맞는 판을 설치한다(version 입력이 없을 때). 하한이라 더 새 uv는 그대로 쓴다 — 새 판 기능에 기댈 때만 올린다.
+required-version = ">=0.13.7"
+
 # 설치형 패키지(DECISIONS D6): `uv sync`가 이 저장소를 .venv에 편집 가능 설치하고 `equion` 명령을 만든다.
 # 다른 PC에는 `pipx install <저장소 경로 또는 git URL>` · `uv tool install …`.
 [build-system]
