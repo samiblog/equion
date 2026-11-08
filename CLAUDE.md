@@ -15,11 +15,13 @@ Simulation(HS)·전망·시나리오를 수행한다. **방정식(회귀 체계)
 - **이름(D16)**: 패키지·import·명령 `equion`(별칭 `import equion as eqn`), 데스크톱 앱 **Equion Desk**
   (설치 파일 `EquionDesk-<버전>-setup.exe`, Windows 전용 — D29). 0.5.0에서 `macromodel` → `equion`으로 바꿨다 —
   옛 `.mmw` 워크파일·`macromodel-run` 보고서·레거시 pickle(`macromodel.*` 경로)·`MACROMODEL_PARAMS`는 계속 읽는다.
-- Equion **0.7.0** (2026-10-30, 공개 버전 하나 — 엔진 형식 표시 `ENGINE_VERSION`은 내부 값). 결정 D1~D30(`docs/DECISIONS.md`),
+- Equion **0.7.0** (2026-10-30, 공개 버전 하나 — 엔진 형식 표시 `ENGINE_VERSION`은 내부 값). 결정 D1~D39(`docs/DECISIONS.md`),
   진행 `docs/ROADMAP.md`, 바뀐 점 `CHANGELOG.md`. 사용자 문서 첫 페이지 `docs/README.md`(D27), 문서 검사 `docs/build_docs.py`.
 - **세 단계(D1)**: ① 라이브러리 — 워크파일 API `import equion as eqn` (완료) ② CLI `equion run` (완료)
-  ③ 데스크톱 앱 Equion Desk(lectern 스타일, **Windows 전용**(D29) — 패키지는 3 OS 그대로) — **향후 프로젝트, 지금은 기획만**.
-  만들 때는 이 저장소 `desk/`의 별도 패키지 `equion-desk`(uv workspace, 의존은 `equion-desk → equion` 한쪽만, D28).
+  ③ 데스크톱 앱 Equion Desk(lectern 스타일, **Windows 전용**(D29) — 패키지는 3 OS 그대로) — **개발 계획 확정(D31)**:
+  `docs/DESK_DEVPLAN.md`(기준) · 기획 자료 `docs/DESK*.md`(근거 — 다르면 개발 계획을 따른다). 패키지 0.8(단계 E: 프로젝트·자료 회차·
+  작업 명령·기록·스크립트 — D32~D38)을 먼저, 그 위에 Desk 1차판(단계 D). 앱은 이 저장소 `desk/`의 별도 패키지 `equion-desk`
+  (uv workspace, 의존은 `equion-desk → equion` 한쪽만, D28).
 
 ## 실행 환경
 
@@ -94,7 +96,7 @@ uv run pytest                                 # 위 묶음을 한 번에(파일�
 | 위치 | 내용 |
 |------|------|
 | `tests/` | `test_engine.py` · `test_workfile.py` · `test_cli.py` · `test_stats.py` · `test_scenarios.py`(상황별 시나리오) · `test_ast_formula.py` · `test_100_equations.py` · `test_error_equations.py` · `test_docs.py`. 모두 예제 자료·합성 자료로 돈다. 기준값 `fixtures/{stats,estimation,data}_reference.json` — 만드는 `fixtures/make_*_reference.py`는 statsmodels·linearmodels·mpmath가 있는 **별도 환경**에서만(`PYTHONPATH=.`). `uv run pytest`가 파일마다 `test_suite()`를 부른다 |
-| `docs/` | **사용자 문서(D27, Markdown 원본)**: `README.md`(첫 페이지) · `start/`(설치·첫 모델·치트시트) · `tutorial/`(1~8) · `howto/`(레시피) · `explain/`(방정식 문법 `equations.md`·추정·풀이·시나리오·동태·검증·엔진 API) · `reference/`(`api.md` **자동 생성** — `make_api.py` · 명령줄·함수·출력·오류·파일 형식·예제 자료) · `cases/`(Klein형) · `eviews.md` · `en/`. 도구 `build_docs.py`·`make_api.py`. 프로젝트 문서 `DECISIONS.md`(D-번호) · `ROADMAP.md`. `USER_GUIDE.md`·`EQUATION_GUIDE.md`·`API.md`는 새 위치 안내만 |
+| `docs/` | **사용자 문서(D27, Markdown 원본)**: `README.md`(첫 페이지) · `start/`(설치·첫 모델·치트시트) · `tutorial/`(1~8) · `howto/`(레시피) · `explain/`(방정식 문법 `equations.md`·추정·풀이·시나리오·동태·검증·엔진 API) · `reference/`(`api.md` **자동 생성** — `make_api.py` · 명령줄·함수·출력·오류·파일 형식·예제 자료) · `cases/`(Klein형) · `eviews.md` · `en/`. 도구 `build_docs.py`·`make_api.py`. 프로젝트 문서 `DECISIONS.md`(D-번호) · `ROADMAP.md` · Desk 개발 계획 `DESK_DEVPLAN.md`와 기획 자료 `DESK*.md`. `USER_GUIDE.md`·`EQUATION_GUIDE.md`·`API.md`는 새 위치 안내만 |
 | `examples/` | `start/`·`tutorial/` 스크립트와 `notebooks/` — **문서에서 자동 생성**(`build_docs.py`), 손으로 고치지 않는다 |
 | `.github/` | `workflows/ci.yml`(locked 3 OS × py3.12~3.14 · minimal · lowest · latest · audit) · `release.yml`(태그 → 휠·설치 시험, PyPI는 `PYPI_PUBLISH` 변수로만) · `dependabot.yml` |
 | `out/` · `WT/` | CLI 보고서 `out/<실행ID>/` · 워크파일 `.eqw/`·Work Table `.wt/` 번들(자동 생성·git 제외) |
@@ -164,9 +166,10 @@ uv run pytest                                 # 위 묶음을 한 번에(파일�
 
 ## 다음 단계 (참고)
 
-- **ROADMAP 0.8 후보**: 외부 데이터 연결(ECOS·KOSIS), `equion new --template`·오류 메시지의 문서 안내, 비선형(계수) 시스템 추정.
+- **0.8(진행 — 개발 계획 단계 E)**: E1 프로젝트·조립 → E2 자료 정의·회차 → E3 작업 명령·기록 → E4 분석·노트·보고서 →
+  E5 Equion 스크립트(`.eqs`)·재연 → E6 안내·문서. 묶음마다 완료 기준은 `docs/DESK_DEVPLAN.md`. 0.9 후보: 외부 데이터(ECOS·KOSIS), 비선형 시스템 추정.
 - **공개 전 확인(D30)**: 이름 상표(D16 — KIPRIS·USPTO). 공개 뒤 `macro_model`은 이 저장소의 태그를 가져다 쓰고 패키지 코드를 지운다.
-- P3 데스크톱 앱(lectern 스택, Windows 전용 pywebview(WebView2), Python 콘솔 — 프로그램 실행은 CLI와 같은
-  `cli.runner`·`cli.report`)은 향후 프로젝트로 기획만 둔다.
+- P3 데스크톱 앱(lectern 스택, Windows 전용 pywebview(WebView2), 설치 폴더 안 Python 런타임 하나 — D39, 명령 창은 앱 안의 터미널 —
+  D9 변경)은 0.8 뒤 단계 D(D0 시험판만 E와 나란히).
 - **엔진 후속(선택)**: Model의 `.wt` 역참조 → 주기 값객체, `compare_and_plot`/`show_hs_summary` 본문의 reporting 완전 이관,
   시나리오 결과 번들 저장.

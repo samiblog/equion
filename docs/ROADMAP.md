@@ -70,10 +70,25 @@
 - [x] 공개 API 전체 docstring(매개변수·돌려주는 것·오류·예제)
 - [x] 옛 `USER_GUIDE.md`는 새 위치 안내로, 엔진 수준 API는 `docs/explain/engine.md`로
 
-## 다음 (0.8 후보)
+## 0.8 — 프로젝트·작업 명령·기록·스크립트 (진행, 2026-11-09 — D31~D38)
 
-- [ ] 외부 데이터 연결(ECOS·KOSIS 먼저 — 사본 원칙·출처 정의 파일) — 0.7에서 미룸
-- [ ] `equion new --template`(분기 모델·시나리오·전망 뼈대 고르기), 오류 메시지에서 문서 절 안내
+Equion Desk 개발 계획(`DESK_DEVPLAN.md`)의 단계 E. 끝나면 Desk 없이도 Lectern 터미널과 Claude로 "자료를 넣고 `equion run monthly.eqs`"가 된다.
+수치 코어(파서·IR·풀이·통계)는 고치지 않는다 — 워크파일 API 위의 새 층.
+
+- [ ] E1 프로젝트·조립: `equion.toml`·블록·채택표·이름·조립 검사·블록 HS·바꿔 끼우기·항등식 검사·`eqn.project()`, 예제 프로젝트
+      `equion new --template desk`(가상 분기 모형) — `assemble`·`ident` (D32)
+- [ ] E2 자료 정의·회차: 원자료·출처 해시, `series.toml`(불러오기 틀)·`derived.txt`, 회차·값의 종류, 틀 검사, 상대 기간 —
+      `data add·build·use·diff·impact` (D34)
+- [ ] E3 작업 명령·기록: `work/` 기록·조립 명세·알아서 한 것·`summary.md`(md 렌더러), 바뀜 기록·제안 —
+      `est`·`adopt`·`compare`·`hs`·`sim`·`export`·`work`·`propose`·`history` (D33·D35)
+- [ ] E4 분석·노트·보고서: 등록부·`an`·`note`·`report`, 묶음 (D37)
+- [ ] E5 스크립트·재연: `.eqs` 해석기·`run x.eqs`·`check x.eqs`·`--replay`·`script new·export`, `DATA/raw/inbox/` (D36)
+- [ ] E6 안내·문서: AI용 모형 작업 안내·`equion` 스킬 초안, 튜토리얼 "프로젝트와 스크립트", 레퍼런스, CHANGELOG
+- [ ] `tomlkit` 의존성(D38), 오류 메시지에서 문서 절 안내
+
+## 다음 (0.9 후보)
+
+- [ ] 외부 데이터 연결(ECOS·KOSIS 먼저 — 받은 파일을 원자료로, 출처 정의 파일 `equion data fetch`) — 0.8에서 옮김(D31)
 - (한국 모델의 방정식 정련은 비공개 저장소 `macro_model`의 일이다 — D30)
 - [ ] 비선형 시스템 추정(NLS·FIML의 계수 비선형식), X-13 대체(필요하면 별도 결정)
 
@@ -84,22 +99,25 @@
 - [ ] `macro_model`이 `equion`을 판 번호로 가져다 쓰고 패키지 코드를 지운다(공개 뒤)
 - (2026-10-30에는 보류로 정했다 — 주인이 공개를 원해 앞당김)
 
-## P3 — 데스크톱 앱 Equion Desk (lectern 스타일, Windows 전용 — D29) — 향후 프로젝트(기획만)
+## P3 — 데스크톱 앱 Equion Desk (lectern 스타일, Windows 전용 — D29) — 개발 계획 확정 (2026-11-09, D31)
 
-지금은 기획만 남긴다(2026-10-30). 아래는 시작할 때의 계획이며, Equion 완성도를 높인 뒤 착수 여부를 정한다.
+기획 자료(`DESK*.md`)와 개발 계획(`DESK_DEVPLAN.md`)을 따른다. 0.8(단계 E)을 먼저 끝내고 그 명령 위에 화면을 얹는다 — D0만 E와 나란히.
+설치 파일 `EquionDesk-<버전>-setup.exe` 하나(Windows 전용, WebView2 — D29), 설치 폴더 안 Python 런타임 하나(D39). 코드는 이 저장소의
+`desk/`에 별도 패키지 `equion-desk`(uv workspace, 의존 방향 `equion-desk → equion`, 태그 `desk-vX.Y.Z` — D28).
 
-설치 파일 `EquionDesk-<버전>-setup.exe` 하나(Windows 전용, 화면 엔진 WebView2 — D29). 패키지 `equion`은 Windows·macOS·Linux
-그대로 지원한다. 앱은 `equion` 패키지를 내장하고, 프로그램 실행은 CLI와 같은 `equion.cli.runner`를 쓴다. 코드는 **이 저장소의 `desk/`에 별도 패키지
-`equion-desk`**로 둔다(uv workspace, 의존 방향 `equion-desk → equion`, 태그 `desk-vX.Y.Z` — D28).
+**1차판 equion-desk 0.1 (단계 D)** — 저장소 주인과 가까운 동료용, 서명 없는 설치본, 한국어 화면
 
-- [ ] 3-0 시험판: Windows(WebView2)에서 창·lectern 테마 렌더링 확인
-- [ ] 3-1 뼈대: 툴바·프로젝트 탭·사이드바·객체 탭·상태줄, 설정·단일 인스턴스
-- [ ] 3-2 객체 창: 시리즈 표·방정식 결과·모델(블록·변수·식)·그래프·시나리오 비교
-- [ ] 3-3 Python 콘솔(D9)·프로그램 편집·실행(CLI와 같은 실행기)
-- [ ] 3-4 시나리오·전망 화면
-- [ ] 3-5 설치본: Windows(PyInstaller + Inno Setup, WebView2 설치 도우미 포함), GitHub Actions `windows-latest` 빌드
-- [ ] 3-6 한국어·English, 사용설명서(F1)
-- [ ] 3-7 (배포를 시작할 때) 코드 서명 여부 결정
+- [ ] D0 시험판(E와 나란히): 런타임 묶기·격리 실행·Lectern 테마 창·터미널·작업 프로세스 — 추정 1초(S1), PC 여덟 가지 설치(S10)
+- [ ] D1 뼈대: Lectern 0.69.1에서 복사(창·서버·단일 인스턴스·탭·사이드바·터미널·설정·감시), 작업 줄·작업 기록 띠·바뀜 알림, md·카드 보기, 초안
+- [ ] D2 식·자료: W1 식 작업대, W4 자료 작업대(불러오기 화면·회차), 분석 메뉴·분석 탭
+- [ ] D3 조립·HS·흐름: W0 조립, W2 모형(HS·전후 비교·원인 따라가기), 흐름 화면(스크립트), 회차 바꾼 뒤 할 일
+- [ ] D4 전망·보고서: W3(가정·보정항·기준선·시나리오·회차 비교), 보기, 보고서로 보내기, 엑셀로
+- [ ] D5 Claude·마감·설치본: 맡기기·제안 받기, 제안 카드, 바뀜 기록·되돌리기, `equion desk show`, 설치본·Windows CI·예제 프로젝트·도움말
+
+**2차판** — 노트 ▶ 실행 화면, 후보 묶음·시나리오 폼, 기초 분석(기술 통계·히스토그램·상관·ACF·PACF), 두 기록 비교, 회차 비교 요인 나누기 화면,
+시점이 열인 표 불러오기, 묶어 보내기·이정표, Lectern 수정(LC1~LC6), 영문 화면
+
+**배포를 넓힐 때** — 코드 서명(D29), 인터넷 없는 PC용 큰 설치본 · **미래** — scikit-learn 선택 확장 팩(Keras 제외)
 
 ## 하지 않기로 한 것
 

@@ -55,7 +55,7 @@ Equion은 방정식 하나의 추정부터 비선형 연립방정식 모델의 �
 
 - [EViews 사용자를 위한 안내](eviews.md) — 개념·명령 대응
 - [바뀐 점](../CHANGELOG.md) · [English](en/README.md)
-- 프로젝트 문서: [설계 결정](DECISIONS.md) · [로드맵](ROADMAP.md) · 예전 통합 안내 [USER_GUIDE](USER_GUIDE.md)(새 위치 안내)
+- 프로젝트 문서: [설계 결정](DECISIONS.md) · [로드맵](ROADMAP.md) · [Equion Desk 개발 계획](DESK_DEVPLAN.md) · 예전 통합 안내 [USER_GUIDE](USER_GUIDE.md)(새 위치 안내)
 
 ## 문서를 쓰는 사람에게
 
