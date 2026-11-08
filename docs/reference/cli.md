@@ -1,0 +1,181 @@
+# 명령줄 참조
+
+`equion`은 설치하면 생기는 명령입니다(`uv run equion …` 또는 `python -m equion …`도 같다). 아래 도움말은 실제 출력입니다.
+배우는 순서는 [튜토리얼 8](../tutorial/08-cli.md).
+
+```python
+import os
+import subprocess
+import sys
+
+
+def helptext(*args):
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", COLUMNS="110")
+    r = subprocess.run([sys.executable, "-m", "equion", *args], capture_output=True, text=True, encoding="utf-8", env=env)
+    print(r.stdout.rstrip())
+
+
+helptext("--help")
+```
+<!-- out -->
+```text
+사용법: equion [-h] [--version] 명령 ...
+
+Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·정보·새 프로젝트
+
+인자:
+  명령
+    run       스크립트를 실행하고 보고서 폴더를 남긴다
+    check     실행 없이 방정식 파일·스크립트를 검사한다
+    info      데이터·워크파일·방정식 파일·보고서 폴더 요약(경로 없으면 실행 환경)
+    convert   옛 저장 형식(레거시 pickle·.wt·.mmw)을 워크파일(.eqw)로
+    new       새 프로젝트 폴더(예시 데이터·방정식·스크립트)
+
+옵션:
+  -h, --help  도움말을 보이고 끝낸다
+  --version   버전을 보이고 끝낸다
+
+종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(--fail-on) · 3 입력 오류 · 130 중단
+```
+
+## 종료 코드
+
+| 코드 | 뜻 |
+|---|---|
+| 0 | 성공 |
+| 1 | 스크립트 오류(예외·문법 오류) · `sys.exit(문자열)` |
+| 2 | 풀이 실패 조건(`--fail-on`)에 걸림 — 사유는 화면과 manifest의 `fail_reasons` |
+| 3 | 입력 오류: 파일 없음·방정식 문법·모델 구조·merge 실패·잘못된 명령줄 인자 |
+| 130 | Ctrl+C로 중단 |
+
+스크립트의 `sys.exit(n)`(정수)은 그대로 n입니다. 이 약속은 자동화가 기대므로 바꾸지 않습니다(DECISIONS D15).
+
+## equion run
+
+```python
+helptext("run", "--help")
+```
+<!-- out -->
+```text
+사용법: equion run [-h] [--smpl S:E] [--set 이름=값] [--params FILE.json] [--out 폴더] [--run-id ID] [--format 목록]
+                [--no-report] [--plotlyjs {copy,cdn}] [--fail-on {failed,fallback,partial,never}]
+                [--threads N] [-q | -v] [--log FILE] [-i] [--watch] [--interval 초] [--dry-run] [--redact]
+                script
+
+평범한 Python 스크립트를 실행한다. 스크립트에 넘길 인자는 -- 뒤에 쓴다.
+
+인자:
+  script                실행할 .py 스크립트
+
+옵션:
+  -h, --help            도움말을 보이고 끝낸다
+  --smpl S:E            새로 여는 워크파일의 기본 표본(예: 2000Q1:2022Q4, @all)
+  --set 이름=값            스크립트 매개변수(eqn.params)를 덮는다. 여러 번 쓸 수 있다
+  --params FILE.json    매개변수 JSON 파일(--set이 그 위에 덮는다)
+  --out 폴더              보고서를 둘 폴더(기본: out)
+  --run-id ID           보고서 하위 폴더 이름(기본: 날짜-시각_스크립트이름)
+  --format 목록           출력 형식 csv·xlsx·json·html 중 쉼표로(기본: csv,html)
+  --no-report           보고서 폴더를 만들지 않는다
+  --plotlyjs {copy,cdn}
+                        그래프 스크립트: copy(보고서에 넣음, 인터넷 없이 열림·기본) · cdn
+  --fail-on {failed,fallback,partial,never}
+                        이 상태의 기간이 있으면 종료 코드 2(기본: failed)
+  --threads N           BLAS 스레드 수 고정(재현성)
+  -q, --quiet           요약 줄과 오류만 보인다
+  -v, --verbose         엔진 상세 로그까지 보인다
+  --log FILE            실행 로그를 이 파일에도 쓴다
+  -i, --interactive     실행 뒤 스크립트 변수를 가진 Python 대화창으로
+  --watch               스크립트·입력 파일이 바뀌면 다시 실행한다(Ctrl+C로 끝)
+  --interval 초          --watch 확인 간격(기본 1초)
+  --dry-run             실행하지 않고 문법·설정만 확인한다
+  --redact              공유용 보고서: 작업 폴더·실행 파일 경로·git 브랜치를 빼고 경로를 줄인다
+```
+
+- 스크립트는 `.py` 파일. 인코딩 선언(`# -*- coding: cp949 -*-`)과 BOM을 따른다. 스크립트가 작업 폴더를 바꿔도 보고서는 실행한 자리 기준.
+- `--run-id`는 `--out` 안의 폴더 이름 하나(경로 구분자·`..`·빈 값 불가). 같은 ID면 이전 보고서를 지우고 다시 쓴다(보고서가 아닌 폴더는 지우지 않음).
+- 비밀 값: `eqn.secret("이름")`으로 읽은 값과 이름이 key·token·secret·password 같은 `--set` 값은 보고서·로그에서 `***`로 가린다.
+- `-- 인자…`: `--` 뒤는 스크립트의 `sys.argv`로 간다.
+
+## equion check
+
+```python
+helptext("check", "--help")
+```
+<!-- out -->
+```text
+사용법: equion check [-h] [--data FILE] [--freq {Q,M,A}] [--smpl S:E] [--json] [--strict] path
+
+인자:
+  path            방정식 파일(.txt) 또는 스크립트(.py)
+
+옵션:
+  -h, --help      도움말을 보이고 끝낸다
+  --data FILE     데이터 파일·워크파일 — 변수 존재와 결측 입력까지 검사
+  --freq {Q,M,A}  주기(데이터가 없거나 추론이 안 될 때)
+  --smpl S:E      결측 입력을 볼 구간(기본: 데이터 전체)
+  --json          결과를 JSON으로
+  --strict        경고도 실패(종료 코드 3)로 본다
+```
+
+방정식 파일(.txt)은 문법·구조(목표변수 중복·정해지지 않는 변수)·블록, `--data`를 주면 변수 존재와 결측 입력까지, 스크립트(.py)는
+Python 문법만 봅니다. 식이 하나도 없는 파일은 오류입니다. 방정식 파일은 UTF-8(BOM 무관), cp949는 경고하고 읽습니다.
+
+## equion info
+
+```python
+helptext("info", "--help")
+```
+<!-- out -->
+```text
+사용법: equion info [-h] [--freq {Q,M,A}] [--all] [--json] [path]
+
+인자:
+  path            경로
+
+옵션:
+  -h, --help      도움말을 보이고 끝낸다
+  --freq {Q,M,A}  데이터 주기(추론이 안 될 때)
+  --all           시리즈별 마지막 관측까지
+  --json          결과를 JSON으로
+```
+
+경로 없이 부르면 실행 환경(판·플랫폼·BLAS·스레드), 데이터 파일·워크파일·방정식 파일·보고서 폴더면 그 요약.
+
+## equion new · equion convert
+
+```python
+helptext("new", "--help")
+helptext("convert", "--help")
+```
+<!-- out -->
+```text
+사용법: equion new [-h] [--bare] [--force] path
+
+인자:
+  path        만들 폴더
+
+옵션:
+  -h, --help  도움말을 보이고 끝낸다
+  --bare      예시 없이 빈 뼈대만
+  --force     비어 있지 않은 폴더에도 쓴다(같은 이름 파일을 덮음)
+사용법: equion convert [-h] [--allow-pickle] [--name NAME] src dst
+
+인자:
+  src             원본: 레거시 pickle 파일 · .wt/ 번들 · .mmw/ · 데이터 파일
+  dst             만들 워크파일 경로(.eqw가 붙는다)
+
+옵션:
+  -h, --help      도움말을 보이고 끝낸다
+  --allow-pickle  레거시 pickle을 연다(열 때 코드가 실행될 수 있음 — 믿을 수 있는 파일만)
+  --name NAME     워크파일 이름
+```
+
+## 환경변수
+
+| 이름 | 뜻 |
+|---|---|
+| `EQUION_PARAMS` | 스크립트 매개변수 JSON(`--set`이 그 위에 덮는다). 옛 이름 `MACROMODEL_PARAMS`도 읽는다 |
+| `EQUION_THREADS` | `--threads`가 다시 실행할 때 쓴다(직접 둘 필요 없음) |
+| `PYTHONIOENCODING` | 화면 출력 인코딩. 한글을 못 쓰는 출력(영문 Windows 파이프)에서도 Equion은 멈추지 않고 `\uXXXX`로 바꿔 쓴다 |
+
+관련: [파일 형식 — 보고서 폴더·manifest](formats.md) · [명령줄 레시피](../howto/cli.md)

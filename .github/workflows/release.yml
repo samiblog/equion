@@ -1,0 +1,74 @@
+# 배포 — 태그(v*)를 올리면 휠·소스 묶음을 만들고 세 OS에서 설치해 시험한 뒤 작업 결과물로 남긴다(DECISIONS D19).
+# PyPI 올리기는 꺼져 있다. 켜려면(저장소 주인이 직접):
+#   1) PyPI에서 이 저장소·이 워크플로(release.yml)·환경 이름 'pypi'로 Trusted Publisher를 등록
+#   2) GitHub 저장소 Settings → Environments에 'pypi' 환경을 만들고(승인자 지정 권장)
+#   3) Settings → Variables에 PYPI_PUBLISH = true
+# 토큰·비밀번호는 쓰지 않는다(OIDC 신뢰 배포).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - name: 태그와 패키지 버전이 같은지
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          V=$(grep -m1 '^version' pyproject.toml | sed -E 's/.*"(.*)".*/\1/')
+          test "v$V" = "${GITHUB_REF_NAME}" || { echo "태그 ${GITHUB_REF_NAME} ≠ 패키지 버전 $V"; exit 1; }
+          test "$V" = "$(cat VERSION)" || { echo "VERSION 파일과 다름"; exit 1; }
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  test-install:
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: 휠 설치(저장소 밖 환경) → 명령·검사
+        shell: bash
+        run: |
+          uv venv -p 3.13 ../wheel-env
+          WHL=$(ls dist/*.whl)
+          VIRTUAL_ENV=../wheel-env uv pip install "$WHL"
+          PY=../wheel-env/bin/python; [ -x "$PY" ] || PY=../wheel-env/Scripts/python.exe
+          cd ..
+          "$PY" -m equion --version
+          "$PY" -c "import equion, equion.assets as a; assert len(a.plotly_js()) > 1_000_000; print(equion.__version__)"
+
+  publish:
+    needs: [build, test-install]
+    if: startsWith(github.ref, 'refs/tags/v') && vars.PYPI_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # 신뢰 배포(OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

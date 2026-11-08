@@ -1,0 +1,440 @@
+# 설계 결정 기록
+
+Equion(옛 이름 macromodel)의 큰 설계 결정을 번호(D-n)로 남긴다. 결정을 바꿀 때는 지우지 말고 그 항목에
+'변경'을 덧붙인다. 엔진 v3의 설계·검증은 `IMPROVEMENTS.md` §9에 있다.
+
+> 이 저장소는 2026-11-08에 `macro_model`에서 패키지만 떼어 새 기록으로 시작했다(D30). 아래에 나오는 `IMPROVEMENTS.md`·
+> `REPO_SPLIT.md`·`PRESENTATION.md`, 한국 모델의 자료·방정식·드라이버(`DATA/`·`EQUATIONS/`·`HS/`·`scripts/`·`kmodel/`)와
+> 한국 모델 시험(`tests/test_korea_model.py`·`compare_hs.py`)은 비공개 저장소 `macro_model`에 남아 있다.
+
+> 0.5.0에서 이름이 바뀌었다(D16): 패키지·명령 `macromodel` → `equion`, 별칭 `mm` → `eqn`, 워크파일
+> `.mmw` → `.eqw`. 아래 옛 항목의 이름은 당시 그대로 두었다 — 지금 이름으로 읽는다.
+
+---
+
+## D1. 세 단계, 코어 하나 (2026-10-29)
+
+- **결정**: 프로그램을 ① 라이브러리(Python에서 import) ② CLI(`python -m macromodel run 스크립트.py`)
+  ③ 데스크톱 앱(Windows/Linux)으로 나눈다. 세 단계는 하나의 **세션 코어**(워크파일·객체 목록·
+  출력 수집기) 위의 앞단이고, 같은 스크립트가 노트북·CLI·앱에서 그대로 돈다.
+- **이유**: 기능을 한 곳에서만 만들고, 사용 방식(대화형·자동화·화면)만 바꿔 끼운다.
+- **순서**: P1 라이브러리 → P2 CLI → P3 데스크톱 (`ROADMAP.md`).
+- **변경 (2026-11-08, D29)**: 데스크톱 앱은 **Windows 전용**. 라이브러리·CLI는 Windows·macOS·Linux 그대로.
+
+## D2. 라이브러리 API는 워크파일 중심 객체 API (2026-10-29, 제안 L1-A)
+
+- **결정**: `wf = mm.wfopen(...)`, `wf.smpl(...)`, `wf.genr("X = …")`, `wf.equation("e").ls("…")`,
+  `m = wf.model("m")`, `m.merge(...)`, `m.append(...)`, `m.scenario(...)`, `m.solve()` 처럼 **이름 붙은
+  객체가 워크파일에 등록**되는 방식. 작업 흐름은 EViews 사용자에게 익숙하게, **문법은 Python**이다.
+- **고르지 않은 것**: 지금 API에 별칭만 붙이기(L1-B) — 객체 목록·결과 시리즈 감각이 약함.
+  명령 문자열 실행기(L1-C) — EViews 문법을 받아들이는 길이라 하지 않는다(D13).
+- **기존 API**: `WorkTable`/`Model`/`Equation`은 내부 계층으로 그대로 두고 하위호환을 유지한다.
+
+## D3. 진입은 최상위 `mm.*` (제안 L2)
+
+- `import macromodel as mm` 후 `mm.wfopen` · `mm.wfcreate` · `mm.show` · `mm.params` · `mm.verbose`.
+- **변경 (0.5.0, D16)**: `import equion as eqn` 후 `eqn.wfopen` · `eqn.show` · `eqn.params` …
+
+## D4. 시나리오 결과는 별칭 시리즈로 워크파일에 (제안 L3)
+
+- `m.solve()`는 활성 시나리오의 별칭(기준선 `_0`, 그 밖 `_이름` 또는 지정)을 붙인 시리즈
+  (`RGDPSA_0`, `RGDPSA_1` …)를 워크파일에 쓴다. 풀이 구간 밖은 NaN. 그래프·내보내기·앱 표시가
+  같은 시리즈를 쓴다. 결과 객체(`SolveResult`)도 함께 돌려준다.
+
+## D5. CLI 스크립트 약속과 명령줄 처리 (제안 S1·C1)
+
+- 스크립트는 **평범한 Python** — 인자는 `p = mm.params(oil=1.0)`로 받고 CLI `--set oil=1.5`가 덮는다.
+- 명령줄은 표준 `argparse`(의존성 없음, lectern과 같음).
+- **완료(0.4.0)**: `macromodel/cli/`. 세부 약속은 D15.
+
+## D6. 설치형 패키지로 전환 (제안 C2) — P2에서
+
+- `pyproject.toml`의 `package = false`를 바꾸고 `macromodel` 명령을 등록한다. `uv.lock`이 바뀐다.
+- **완료(0.4.0)**: 빌드 백엔드 hatchling, `[project.scripts] macromodel = "macromodel.cli:main"`. `uv sync`가
+  저장소를 편집 가능 설치하고, 다른 PC에는 `pipx install`·`uv tool install`.
+
+## D7. 데스크톱 앱은 lectern 스택 (제안 D1) — P3에서
+
+- pywebview + 로컬 HTTP 서버(Flask/werkzeug) + 빌드 단계 없는 순수 JS, 라이브러리는 `web/vendor`에
+  내장, PyInstaller onedir. 화면 구성·스타일은 사용자의 lectern(github.com/samiblog/lectern)을 따른다.
+- 기존 Vue 대시보드(약 1.2천 줄)는 재사용하지 않는다(lectern 원칙: 번들러·프레임워크 없음) — 0.4.0에서 삭제(D11).
+
+## D8. 리눅스 창 엔진은 `pywebview[pyside6]` (제안 W1) — P3에서
+
+- Qt WebEngine(Chromium)이라 Windows의 WebView2와 같은 렌더링, LGPL. `pywebview[qt]`(PyQt6, GPL)는
+  MIT 앱 배포와 어긋나므로 쓰지 않는다. 대가: 리눅스 배포본이 수백 MB.
+- **폐지 (2026-11-08, D29)**: 앱이 Windows 전용이 되어 Linux 창 엔진이 필요 없다(PySide6를 쓰지 않는다).
+
+## D9. 명령 창은 앱 안의 Python 해석기 (제안 K1) — P3에서
+
+- 콘솔에서 친 명령은 라이브러리 API(D2)이고, 객체 창과 같은 워크파일을 공유한다.
+
+## D10. lectern 코드는 복사해 가져온다 (제안 R1) — P3에서
+
+- 테마·아이콘·i18n·설명서 보기·xterm/CodeMirror/Plotly 내장본. 같은 소유자의 MIT 코드이며
+  `THIRD-PARTY-NOTICES`에 출처를 적는다. 공용 패키지 분리는 하지 않는다.
+
+## D11. 기존 웹 대시보드는 당분간 병행 (제안 B1)
+
+- 다중 사용자 웹 대시보드(FastAPI + Vue)는 그대로 두고, 데스크톱 1차판 뒤 통합 여부를 정한다.
+- **변경 (2026-10-29, 제안 B3)**: 웹 대시보드를 **삭제**한다 — 백엔드 `macromodel/dashboard/`, 프론트엔드
+  `frontend/`, `scripts/dashboard.py`·`usermgmt.py`, 대시보드 전용 `reporting/api.py`, `tests/test_dashboard_api.py`,
+  의존성 fastapi·uvicorn·httpx. 화면은 P3 데스크톱 앱 하나로 간다. 코드는 git 이력(0.3.0까지)에 남는다.
+
+## D12. 앱 이름은 일단 'macromodel' (제안 N)
+
+- 제품·창 제목·아이콘에 'EViews'를 쓰지 않는다(D13). 이름은 나중에 바꿀 수 있다.
+- **변경 (2026-10-29, D16)**: 앱 이름은 **Equion Desk**.
+
+## D13. EViews 관련 법적 원칙 (2026-10-29)
+
+- **배경**: 작업 흐름과 기능을 EViews 사용자에게 익숙하게 만들되 법적 문제가 없어야 한다.
+  (법률 자문이 아니다 — 공개·상업 배포 전에는 변호사 검토를 받는다.)
+- **할 수 있는 것** (보호 대상이 아님 / 위험 낮음):
+  - 기능·계량경제 방법(OLS·2SLS·NLS·Gauss-Seidel·Newton·Fair-Taylor·조정항·시나리오) — 학술 지식.
+  - 작업 개념(워크파일·표본·모델·시나리오)과 명령 이름(`smpl`·`genr`·`ls`·`merge`·`solve` 등)을
+    Python API로 다시 구현 — 한국 저작권법 제101조의2(프로그램 언어·규약·해법 제외), EU 판례
+    SAS v WPL(기능·프로그래밍 언어·데이터 형식은 저작권 보호 밖), 미국 Google v. Oracle(재구현의
+    공정이용)의 취지.
+  - 사실에 맞는 비교·호환 설명("EViews 사용자에게 익숙한 흐름")과 상표 고지.
+- **하지 않는 것**:
+  - 'EViews' 이름·로고를 제품명·앱 이름·아이콘·창 제목·패키지·도메인에 쓰기, 'EViews 무료판/
+    클론' 같은 홍보.
+  - EViews 설명서·도움말 문장, 예제 프로그램·예제 데이터, 화면 캡처, 아이콘·그림을 복사하기
+    (SAS v WPL에서도 설명서 문장 복사는 침해로 판단됨). 문서·출력 표는 우리 말과 구성으로 쓴다.
+  - EViews 프로그램을 역설계·디컴파일하거나 리소스를 뽑아 쓰기, `.wf1` 같은 비공개 파일 형식을
+    역설계해 읽기 — EViews에서 xlsx/csv로 내보낸 것을 읽는다.
+  - EViews 프로그램 문법(.prg)을 그대로 받아들이는 실행기(L1-C).
+  - 화면은 EViews의 그림·대화상자 모양이 아니라 lectern(사용자 자신의 디자인)을 따른다.
+- **주의**: EViews를 가진 사용자가 결과를 비교해 보는 것은 보통 사용이지만, 비교 결과를 외부에
+  공개할 때는 그 라이선스(EULA)의 벤치마크·공개 조항을 확인한다.
+- **상표 고지**: README에 "EViews는 S&P Global Inc.의 등록상표이며, 이 프로젝트는 EViews·S&P
+  Global과 관계가 없다"를 둔다.
+
+## D14. Python 완전 연동을 핵심 특징으로 (2026-10-29)
+
+- **결정**: 모든 객체가 pandas·numpy와 바로 오가고, 스크립트는 평범한 Python이다.
+  - `wf["X"]`는 pandas Series, `wf["X"] = 어떤 Series·배열`, `wf.genr("X", 함수)`로 임의 Python 계산.
+  - 방정식의 `.results`·`.resid`·`.fitted`, 모델의 결과 표는 그대로 statsmodels·scikit-learn·plotly 등
+    Python 생태계로 이어진다. 외부 추정 결과는 `.fixed(…, coefs)`로 모델에 넣는다.
+  - 반복·함수·클래스·외부 API(데이터 수집 등)는 Python 그 자체로 쓴다 — 별도 스크립트 언어가 없다.
+- **이유**: EViews와 다른 이 프로그램의 가장 큰 장점이며, 라이브러리·CLI·앱 콘솔(D9)이 같은
+  Python이라 배운 것이 그대로 이어진다.
+- **변경 (0.6.0, D17)**: `.results`는 statsmodels 결과가 아니라 자체 `equion.stats.Results`다. 진단·강건 표준오차는
+  Equion 메서드로(`eq.diagnostics()`·`eq.ls(…, cov="hac")`), 그 밖의 분석은 pandas 잔차·계수로 이어 간다.
+
+## D15. 명령줄 세부 약속 (2026-10-29, P2)
+
+- **종료 코드**: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(`--fail-on`) · 3 입력 오류 · 130 중단. 스크립트의
+  `sys.exit(n)`은 n. argparse의 사용법 오류(기본 2)도 **3**으로 바꾼다 — 2는 풀이 실패 전용(자동화가 구분).
+  입력 오류 = 파일 없음·DSL 문법·모델 구조·`merge` 실패(`MergeError`).
+- **`--fail-on` 기본은 `failed`**: 엔진 기본 정책(`on_fail='actual'`)의 실패대체(fallback)와 입력 결측의
+  일부식 제외(partial)는 성공으로 본다. 더 엄격하게는 `fallback`·`partial`.
+- **보고서 폴더** `out/<날짜-시각_스크립트>/`(또는 `--run-id`): `report.html`·`manifest.json`
+  (`format: macromodel-run`, `format_version: 1`)·`run.log`·`tables/`·`graphs/`·`plotly.min.js`. 그래프 스크립트를
+  폴더에 넣어 인터넷 없이 열린다(`--plotlyjs cdn`으로 끌 수 있음). 같은 `--run-id`는 이전 보고서일 때만
+  지우고 다시 쓴다.
+- **`--smpl`**: 스크립트가 여는 워크파일의 처음 표본이자, `mm.params`에 `smpl`이 있으면 그 값. 스크립트가
+  `wf.smpl(...)`을 직접 부르면 그것이 우선한다(스크립트가 주인).
+- **`--threads N`**: BLAS 스레드 환경변수(OMP·OPENBLAS·MKL·VECLIB)를 정해 **하위 프로세스로 다시 실행**한다
+  (numpy가 이미 올라온 뒤에는 바꿀 수 없어서). **`--watch`**도 매 실행을 하위 프로세스로 돌려 상태가 섞이지
+  않게 하고, 스크립트와 그 실행이 읽은 입력 파일(manifest `inputs`)을 감시한다.
+- **실행기 재사용**: `cli.runner.run_script`·`cli.report.write_report`는 P3 앱의 프로그램 실행(F5)에서 그대로 쓴다.
+- **고르지 않은 것**: Click/Typer(의존성), 보고서 템플릿 엔진(Jinja 등 — 의존성), 그래프 PNG(kaleido 필요).
+
+## D16. 이름: 패키지 Equion, 데스크톱 앱 Equion Desk (2026-10-29, 0.5.0)
+
+- **결정**: 1·2단계(라이브러리 + 명령줄)를 하나의 패키지 **`equion`**으로(PyPI·import·명령 이름 같음),
+  3단계는 그 패키지를 내장한 독립 설치 파일 **Equion Desk**로 한다. Desk는 Equion의 완성도가 높아진 뒤 만든다.
+- **뜻**: **Equ**ation + Un**ion** — 개별 방정식을 묶어 연립 체계를 만든다. 매크로 모델에 한정하지 않는다.
+- **기준**: EViews(및 Stata·GAUSS·RATS·Estima·EQS 등)가 연상되지 않을 것, 쓰임새(macro·korea)로 좁히지
+  않을 것, 짧고 칠 수 있을 것. 2026-10-29 PyPI에 같은 이름이 없고 웹에서 같은 이름의 소프트웨어를 찾지
+  못했다. 상표(KIPRIS 9·42류, USPTO) 확인은 공개 배포 전에 한다.
+- **별칭 `eqn`**: `eq`는 방정식 객체 변수 이름(`eq = wf.equation(...)`)과 겹치므로 쓰지 않는다.
+- **앱 이름을 따로 둔 이유**: Windows는 파일 이름 대소문자를 구분하지 않아 앱 `Equion.exe`와 pip 명령
+  `equion.exe`가 PATH에서 부딪힐 수 있다. 설치 파일은 lectern 규칙 `EquionDesk-<버전>-setup.exe`
+  (Linux `EquionDesk-<버전>-x86_64.AppImage`).
+- **하위호환**: 옛 워크파일 `.mmw`·형식 이름 `macromodel-workfile`, 보고서 `macromodel-run`, 환경변수
+  `MACROMODEL_PARAMS`, 레거시 pickle의 `macromodel.*` 모듈 경로(`equion/_compat.py`의 이름 바꿔 찾는
+  unpickler)를 계속 읽는다. `import macromodel`은 지원하지 않는다(별칭 패키지를 두지 않음).
+- **고르지 않은 것**: Statera(같은 이름 업무 소프트웨어, Stata 연상), Equilibra(Python CGE 패키지
+  `equilibria`와 거의 같음), Zygos(법률 소프트웨어 회사), Simeq(설명적 이름 — 상표로 약함), Simora.
+- 저장소 이름(`macro_model`)은 그대로다 — 패키지와 한국 모델이 한 저장소에 있다.
+- **변경 (2026-11-08, D29)**: 앱은 Windows 전용 — 설치 파일은 `EquionDesk-<버전>-setup.exe` 하나, AppImage는 만들지 않는다.
+
+## D17. 회귀·검정은 자체 구현, 외부 회귀 패키지에 의존하지 않는다 (2026-10-29, 0.6.0)
+
+- **배경(검사 결과)**: statsmodels는 이 코드에서 OLS 한 줄에만 쓰였는데 53MB와 간접 의존성 6개 이상(0.15에서 `formulaic`
+  추가)을 끌어왔고, 릴리스가 느리며(3년 정식판 7회, 최대 공백 276일) pandas·scipy 새 버전과 충돌한 이력이 있다
+  (의존성 명세의 `pandas!=2.1.0`·`scipy!=1.9.2`). 수치로는 문제가 없었다(0.14.4~0.15.0 계수 차이 0) — 위험은 구조적이었다.
+- **결정**:
+  - OLS는 무어-펜로즈 유사역행렬(SVD, 기준 1e-15)로 직접 푼다. 0.5.0까지와 **같은 연산 순서**라 분기·연·월 모델 OLS 식
+    135개의 계수·표준오차·t·p·F·로그우도·AIC·BIC·잔차·공분산이 **차이 0**, HS 기준선 CSV가 바이트 그대로다.
+  - 강건 공분산(HC0~3·HAC)·진단 검정·단위근/공적분 검정을 `equion/stats`에 직접 구현한다(scipy는 분포 함수와 최적화만).
+  - 검정의 수치표(MacKinnon 1994·2010, MacKinnon-Haug-Michelis 1999)는 공개 자료값을 옮기고 출처를
+    `THIRD-PARTY-NOTICES.md`에 둔다(statsmodels의 정리본 — BSD 3-Clause 고지 포함). 계산 코드는 직접 쓴다.
+  - 검증 기준값은 statsmodels로 **한 번** 계산해 `tests/fixtures/stats_reference.json`에 고정하고(만드는 스크립트는 별도
+    환경용), 테스트는 외부 패키지 없이 돈다. 외부 구현이 부정확한 곳은 따르지 않는다 — 재귀 잔차는 갱신 공식 대신 시점별
+    직접 최소제곱(statsmodels 값은 이 자료에서 상대 3e-4 어긋남), TSLS는 정규방정식 대신 유사역행렬(도구=회귀변수일 때
+    OLS와 1e-11 이내, 이전 5e-10).
+  - NLS는 IR 기호 미분으로 해석적 자코비안을 넘긴다 — 선형식에서 OLS와 1e-14(이전 수치미분 3.7e-7, scipy 1.14에서 1.3e-6).
+  - 기간·주기 연산은 `equion/data/periods.py` 한 곳에서만 pandas를 부른다(주기 추론은 개월 차로 직접 — pandas 4에서
+    `infer_freq` 반환형이 바뀜). pandas 3.1에서 우리 코드의 경고 0, pandas 2.2·scipy 1.14 조합에서도 전 테스트 통과.
+- **기본값 선택**: ADF·Engle-Granger 시차 선택은 SIC(BIC), 최대 시차 ⌈12(n/100)^¼⌉; KPSS 대역폭은 Hobijn 등(1998);
+  HAC 시차 ⌊4(n/100)^(2/9)⌋, HC1·HAC는 n/(n−k) 보정, 강건 공분산의 t·p도 t 분포.
+- **원칙**: 새 필수 의존성은 결정 기록으로만 더한다. 외부 자료를 옮기면 고지한다.
+
+## D18. 로그·버전 하나·공개 API·보안 기본값 (2026-10-29, 0.7.0)
+
+- **로그**: 라이브러리 안에서는 `print` 대신 `logging`(`equion` · `equion.engine` · `equion.workfile`). 기본으로 메시지만
+  찍는 처리기를 붙이되 찍는 순간의 `sys.stdout`으로 보내 노트북·`redirect_stdout`·`run.log` 수집과 맞물린다.
+  애플리케이션이 직접 다루려면 `eqn.log.use_own_handler(False)`. `eqn.verbose(0|1|2)`는 그 위의 편의 장치.
+- **버전 하나**: 공개 버전은 패키지 버전(`equion.__version__`·`equion --version`·보고서) 하나다. `ENGINE_VERSION`은
+  번들·워크파일 형식 표시용 내부 값으로만 남긴다. 보고서 `manifest.json`의 `versions`에서 `engine`을 빼고
+  `format_version`을 2로 올렸다(D15 약속대로).
+- **공개 API 등급**: 공개(`wfopen`·`wfcreate`·`Workfile`·`show`·`params`·`secret`·`verbose`·`spool`·`stats`·`log`·CLI) /
+  고급(`Data`·`Equation`·`Model`·`Scenario`·`WorkTable`·`Workspace` — 엔진 API) / 내부(그 밖). `__all__`도 이 순서.
+  `_legacy/`는 1.0에서 없앤다(가져오면 DeprecationWarning).
+- **보안 기본값**:
+  - 방정식 텍스트 한도: 길이 20,000자 · 중첩 250 · 시차 1,000 · 시차 범위 100 · 항 500. 넘으면 바로 `DSLError`
+    (극단 입력이 멈추거나 재귀 한계로 죽던 것을 막음). 퍼징 3,000개 × 2경로로 DSLError/ValueError 외 예외 없음을 검사.
+  - 비밀 값: `eqn.secret("이름")`·민감한 이름(`key·token·secret·passw·pwd·credential·auth`)의 매개변수는 보고서
+    `manifest.json`·`report.html`·`run.log`에서 `***`로 가린다. 공유용 `--redact`는 작업 폴더·실행 파일 경로·git
+    브랜치를 빼고 절대 경로를 상대 경로로.
+  - 레거시 pickle은 기본으로 열지 않는다(`allow_pickle=True` 또는 `EQUION_ALLOW_PICKLE=1`) — pickle은 여는 순간 코드가
+    실행될 수 있다. `equion convert`로 새 형식으로 바꾼다. pickle 저장은 DeprecationWarning.
+  - 워크파일·번들의 표는 `.npz`(`allow_pickle=False`로 읽음) — 열어도 코드가 실행되지 않고 pyarrow가 필요 없다.
+    워크파일 `FORMAT_VERSION` 2. 0.6.0까지의 parquet은 pyarrow가 있으면 계속 읽는다.
+- **뒤로 미룬 것**: 신뢰 폴더(처음 여는 폴더의 스크립트 실행 확인)는 데스크톱 앱(P3)에서.
+
+## D19. 범위 의존성 + 잠금 파일, 선택 기능, CI (2026-10-29, 0.7.0)
+
+- **배경**: 0.6.0까지는 `pyproject.toml`에 버전을 `==`로 고정했다. 이 저장소에선 재현성이 좋지만, 다른 패키지와 함께
+  설치하면(pip·pipx·데스크톱 앱) 충돌하고 보안 갱신을 받지 못한다.
+- **결정**:
+  - `pyproject.toml`은 **범위**(`numpy>=2.1,<3` · `pandas>=2.2.2,<4` · `scipy>=1.14,<2` · `openpyxl>=3.1,<4`,
+    Python `>=3.12`), 이 저장소의 실행 환경은 **`uv.lock`이 정확한 버전·해시로 고정**한다(커밋된 HS 기준선은 lock 기준).
+    하한·상한은 말로만 두지 않고 CI가 실제로 검사한다 — 하한(Python 3.12 · numpy 2.1.0 · pandas 2.2.2 · scipy 1.14.0 ·
+    openpyxl 3.1.0)과 최신판(Python 3.14 · numpy 2.5 · pandas 3.1 · scipy 1.18)에서 전 테스트 통과, 하한 환경의 분기 HS는
+    기준선과 상대 1e-10 이내·상태 열 동일.
+  - **선택 기능**: pyarrow(`equion[parquet]` — 옛 parquet 읽기)와 plotly(`equion[plot]` — `figure()` 객체·
+    `compare_and_plot`)를 필수에서 뺐다. 그래프는 그림 정의(JSON)를 직접 만들고 plotly.js(MIT, gzip 1.5MB)를 패키지에
+    내장해 그린다 — 보고서는 인터넷 없이 열리고, 코어 설치가 pyarrow·plotly 몫만큼 가벼워진다(데스크톱 앱에도 유리).
+    `equion[all]`은 둘 다. 개발 그룹(dev)에는 둘 다 넣어 선택 경로도 검사한다.
+  - **CI**(`.github/workflows/ci.yml`): locked(Linux·Windows·macOS × Python 3.12~3.14) · minimal(선택 의존성 없이) ·
+    lowest · latest(주간 일정은 사전 공개판까지) · baseline(드라이버 3종 → `tests/compare_hs.py`로 허용오차 비교) ·
+    audit(pip-audit, 잠근 해시 그대로). 각 테스트 파일은 그대로 `python tests/test_x.py`로 돌고, pytest는 파일마다
+    `test_suite()` 하나로 묶어 부른다.
+  - **Windows 인코딩**: 패키지 코드의 파일·하위 프로세스 입출력은 모두 `encoding="utf-8"`(`-X warn_default_encoding`으로
+    검사). 명령줄은 표준출력이 UTF-8이 아니면(영문 Windows 파이프 cp1252, 한글 cp949에 없는 '—') 그 문자만 `\uXXXX`로
+    써서 멈추지 않는다 — 0.6.0까지는 `UnicodeEncodeError`로 끝났다. 보고서 경로는 어느 OS에서나 `/`.
+  - **갱신**: dependabot(uv·GitHub Actions, 주간). numpy·pandas·scipy는 한 묶음 PR — 기준선을 한 번에 확인.
+  - **배포**: `release.yml`은 태그(`v*`)에서 휠을 만들고 세 OS에서 설치 시험까지 한다. PyPI 올리기는 저장소 주인이
+    신뢰 배포(OIDC)를 등록하고 `PYPI_PUBLISH` 변수를 켤 때만 — 토큰을 쓰지 않는다.
+
+## D20. 추정법 확장 — WLS·GMM·LIML·PDL·누락/불필요 변수 (2026-10-29, 0.7.0)
+
+- **추가**: `wf.equation(…).wls(spec, weights=식, wtype=…)` · `.gmm(spec, inst, weight='white'|'hac', lags, iterate)` ·
+  `.liml(spec, inst)`, 선형식의 항 `pdl(X, 시차, 차수[, 제약])`(+ `.lag_distribution()`), 검정 `.omitted(…)`·`.redundant(…)`.
+  모두 `equion/stats/regression.py`·`diagnostics.py`의 자체 구현이고, 풀이에서는 지금까지의 식과 똑같이 IR로 풀린다
+  (WLS·GMM·LIML은 계수만 다른 선형식, PDL 항은 시차들의 선형결합 IR).
+- **정의(기준 구현과 같게)**:
+  - WLS: 가중치 ∝ 1/분산(statsmodels WLS와 같음). 잔차는 가중 전 값(y − Xb — 풀이·add-factor와 같은 뜻), R²·SSR·DW·F·
+    강건 공분산은 가중 잔차로, 가중 전 R²·SSR·DW는 따로(`unweighted_*`). `wtype`은 가중 계열이 1/분산·분산·
+    1/표준편차·표준편차 중 무엇인지.
+  - GMM: 1단계 TSLS 잔차로 W = S⁻¹(중심화하지 않음), 2단계(또는 반복). 공분산은 최종 잔차의 S로 만든 샌드위치(작은 표본
+    보정 없음), J = 그 계수를 낸 가중행렬로 잰 목적함수 n·ḡᵀWḡ — linearmodels IVGMM과 같은 정의.
+  - LIML: κ = (YᵀM_Z Y)⁻¹(YᵀM_{Z₁}Y)의 최소 고윳값, 일반 공분산 σ²[Xᵀ(I − κM_Z)X]⁻¹(σ² = ê'ê/(n−k)), 강건 공분산의
+    meat는 P_Z x — linearmodels IVLIML과 같은 선택. 외생 회귀변수는 도구 목록에 같은 값의 열이 있는 것.
+  - PDL: β = Bγ, 다항식은 가운데 시차 c = ⌊k/2⌋ 기준 (i − c)^j. 제약(가까운 끝 β₋₁ = 0, 먼 끝 β_{k+1} = 0)은 γ를 영공간으로
+    줄여 건다. 계수 이름 PDL01…(식 전체에서 이어 번호), Wald의 c(n) 번호에도 그대로 들어간다.
+  - 누락/불필요 변수: F와 LR(= n·log(SSR_작은식/SSR_큰식)). 누락 검정은 새 항까지 관측되는 공통 표본에서 두 식을 모두 다시
+    추정(statsmodels compare_f_test/compare_lr_test와 같은 값). OLS·WLS 식에만.
+- **수치 정확도 결정**: GMM은 정규방정식 (GᵀWG)b = GᵀWḡ 대신 S^-½로 희게 만든 최소제곱을 유사역행렬로 풀고, 공분산은
+  M⁺(W^½ŜW^½)M⁺ᵀ로 계산한다. 이 자료에서 linearmodels(정규방정식)는 계수가 50자리 계산과 상대 2.4e-7, 세 행렬 곱 공분산은
+  4e-8 어긋났고, 이렇게 바꾼 Equion은 둘 다 2e-10 이내다. 그래서 GMM의 기준값은 mpmath 50자리 직접 계산이고 linearmodels는
+  교차 확인(1e-5)으로만 쓴다(D17의 원칙: 외부 구현이 부정확한 곳은 독립 계산과 비교).
+- **기준값**: `tests/fixtures/estimation_reference.json`(`make_estimation_reference.py` — statsmodels·linearmodels·mpmath가
+  있는 별도 환경에서만). PDL은 기준값 없이 독립 계산과 비교(차수 = 시차 수면 개별 시차 OLS, 제약이 있으면 제약 최소제곱의
+  투영 공식).
+
+## D21. AR(p) 오차·오차수정모형·예측 평가 (2026-10-29, 0.7.0)
+
+- **AR(p) 오차**: 선형 추정식에 `ar(1) ar(2)`·`ar(1 to 4)`. yₜ = xₜb + uₜ, uₜ = Σρₚuₜ₋ₚ + εₜ를 조건부 최소제곱(NLS, IR 기호
+  미분 자코비안)으로 푼다. 풀이 IR은 xₜb + Σρₚ(yₜ₋ₚ − xₜ₋ₚb) — 동적 풀이에서 u가 ρ로 이어져(uₜ₊ₕ = ρʰ⁺¹uₜ₋₁) 따로
+  잔차를 들고 다닐 필요가 없고, "실측을 넣은 풀이 잔차 = 추정 잔차 εₜ"가 그대로 성립한다. ls·fixed에서만(도구변수·가중 없음).
+  계수 이름 AR(1)…, c(n) 번호는 쓴 항 다음. 저장은 정규형 `ar(p)` 글자로.
+- **전역 최소를 고른다**: 조건부 제곱합은 ρ에 대해 국소 최소가 여럿일 수 있다(이 자료의 소비식 `log(RCPSA) c log(RGDPSA)
+  ar(1)`: OLS에서 출발하면 ρ = 0.81, 전역 최소는 ρ = 0.986). ρ를 고정하면 b가 준차분 OLS로 정해지므로 ρ만의 집중 목적함수를
+  격자(AR(1))·여러 시작점 Nelder-Mead(AR(p≥2))로 넓게 찾고 LM으로 다듬어 더 작은 제곱합을 고른다 — 추정량의 정의를
+  따른다. OLS 출발점의 국소 최소와 다르면 결과에 알린다(`stats['ar_note']`·결과표). OLS 출발점에서만 수렴시키는 프로그램과
+  값이 다를 수 있는 곳이라 기록한다.
+- **오차수정모형** `wf.ecm(name, y, x, method='two-step'|'nls', lags)`: 두 단계는 장기 OLS(`이름_lr`)의 계수를 숫자로 넣은
+  EC(-1) 식을 단기식 항으로 쓴다 — 모델에서 y·x를 따라 움직인다. NLS는 `d(y) = c(1)*(y(-1) − c(2) − c(3)*x(-1)) + …`
+  (장기 계수의 표준오차가 바로 나옴, 시작값은 두 단계 결과). 장기 잔차의 Engle-Granger 검정·조정 속도·반감기를 함께 보인다.
+  검증: NLS 형은 제약 없는 ECM(OLS)의 정확한 재모수화라 α = π, a = −c₀/π, b = −θ/π가 1e-6 안에서 같다.
+- **예측 평가**: `eqn.stats.forecast_evaluate/forecast_table`, `wf.forecast_eval(실측, 예측…)` — RMSE·MAE·MAPE·Theil U1·
+  MSE 분해(편의·분산·공분산)·Theil U2. `diebold_mariano`·`wf.dm_test` — 직사각 커널 장기 분산(0 이하면 Bartlett),
+  Harvey-Leybourne-Newbold 보정 + t(n−1) 기본.
+
+## D22. 시스템 추정 — OLS·SUR·2SLS·3SLS·FIML·식 사이 제약 (2026-10-29, 0.7.0)
+
+- **객체**: `wf.system(name).append(식…, "@inst …")` → `.ols()`·`.sur(iterate)`·`.tsls()`·`.three_sls()`·`.fiml()`,
+  `restrict=["c(2) = c(5)"]`, `.wald(…)`, 결과 `.coefs`·`.stderrs`·`.resid`·`.sigma`·`.equation_stats()`. `wf.model(…).merge(시스템)`은
+  추정한 계수를 고정한 식(이름 `시스템_목표변수`)을 만들어 넣는다 — 모델 풀이·시나리오는 지금까지와 같다.
+- **식 쓰기**: c(n) 꼴(`Y = c(1) + c(2)*X`) 또는 추정식 꼴(`Y c X` — 계수 번호는 쓰인 번호 다음부터 자동). 여러 식에 같은
+  c(n)을 쓰면 그것이 식 사이 제약(EViews 시스템과 같은 관례)이고, 일반 선형 제약은 `restrict`(b = b₀ + Nθ). 계수에 선형인 식만
+  (IR로 ∂식/∂c(n)에 계수가 남지 않는지 확인). 표본은 모든 식(과 도구)이 함께 관측되는 기간. 항등식·ar 항은 시스템에 넣지 않는다.
+- **정의**: Σ̂ = ÊᵀÊ/T(자유도 보정 없음), SUR·3SLS의 공분산 (X̃ᵀ(Σ̂⁻¹⊗I)X̃)⁻¹, OLS·2SLS는 식 사이 상관을 반영한 샌드위치 —
+  linearmodels SUR·IV3SLS 기본값과 같다(계수·표준오차 1e-9 이내, 공유 계수 = 같은 제약의 restrict). GLS는 Σ̂^-½로 희게 만든
+  자료에 유사역행렬(D20과 같은 이유). z값·p값은 정규분포.
+- **FIML**: 집중 로그우도 −(Tm/2)(1 + log 2π) − (T/2)log|Σ̂(b)| + Σₜ log|det ∂εₜ/∂yₜ|. 내생변수는 각 식의 목표변수,
+  ∂ε/∂y와 그 계수 미분은 IR 기호 미분으로 정확히 만든다(로그 좌변의 1/Y 같은 변환 야코비안도 들어간다). 해석적 기울기로 BFGS,
+  뉴턴 단계로 마무리(기울기 1e-10까지), 공분산은 관측 정보(헤시안). 외부 기준 구현이 없어 알려진 동치로 검증: 우변에 현시점
+  내생변수가 없으면 FIML = 반복 SUR, 정확 식별이면 FIML = 3SLS = 2SLS, 과대 식별이면 로그우도가 3SLS보다 크고 기울기 ≈ 0,
+  표준오차 = 로그우도의 수치 헤시안.
+- **저장**: 워크파일에는 식·도구·추정법·제약을 적고, 열 때 다시 추정한다(결정적이라 같은 값).
+
+## D23. VAR·VECM (2026-10-29, 0.7.0)
+
+- **객체**: `wf.var(name, series, lags, trend='n'|'c'|'ct')` → `.coefs`·`.stderrs`·`.sigma`·`.lag_order(maxlags)`·
+  `.granger(caused, causing)`·`.granger_table()`·`.irf(h, orth)`·`.irf_graph`·`.fevd(h)`·`.forecast(steps)`·`.stability()`.
+  `wf.vecm(name, series, lags_diff, rank, deterministic='n'|'co'|'ci'|'lo'|'li'|조합)` → `.alpha`·`.beta`(위 r×r = I)·`.gamma`·
+  `.forecast`. 시리즈는 이름이나 식(`dlog(RGDPSA)`), 표본은 smpl 안에서 모두 관측되는 구간. 둘 다 `model.merge(…)`로
+  계수를 고정한 식이 된다(VAR 추세는 `@trend − s0 + 1`, VECM의 EC 항은 β를 숫자로 넣은 식) — VAR·VECM 잔차와 같은 잔차.
+- **정의**: statsmodels VAR·VECM과 같다(계수·표준오차·Σ_u(자유도 보정)·AIC·BIC·HQ·FPE·같은 표본의 시차 선택·Granger F와
+  자유도·직교 충격반응(촐레스키)·분산분해·예측 1e-9 이내, VECM 결정항 7종 α·β·Γ·결정항·Σ·예측 1e-7 이내 — VECM 'co'의 고윳값은
+  Johansen 검정(det=0)과 1e-10). 계산은 자체(유사역행렬 OLS, S₁₁^-½ 대칭 고유문제).
+
+## D24. 모델 분석 — 동태 안정성·시나리오 기여도 분해 (2026-10-29, 0.7.0)
+
+- **안정성** `model.stability(period, scenario, measure)`: 그 시점 값(실측 또는 시나리오 풀이값)에서 모든 식의 잔차를 현시점·
+  과거 내생변수로 미분(IR 기호 미분 — 수치 미분 아님)해 동반행렬을 만들고 고윳값을 본다. 기본 `measure='relative'`는 양수
+  변수를 상대 편차로 재서 로그식의 근이 성장률만큼 부풀지 않게 한다(log Y = a + b·log Y(-1)이면 근 = b, 수준 편차면 b·Yₜ/Yₜ₋₁).
+  차분식 목표처럼 수준이 적분된 변수는 근 1을 가진다(VAR로 만든 모델 = VAR 근 + 변수마다 1로 확인). `stability_path`는 기간별
+  최대 모듈러스. 선행 변수(MCE) 모델은 대상이 아니다.
+- **진단 결과(기록)**: 분기 모델은 2015Q1 최대 |λ| ≈ 1.01~1.02(BOPSBSA·RCINSA·RDJSA가 함께 움직임), 연간 모델은 2008년
+  1.86 등 매년 1을 넘고 가장 큰 근이 URATE(96%)·EACTP에 실린다 — IMPROVEMENTS §9.7 ⑥(연간 모델 동태 불안정)의 출발점.
+- **기여도 분해** `model.decompose(vars, scenario, base, method)`: 시나리오의 항목(외생 경로·고정·조정항·충격·목표추적·잔차 사용
+  — 기준선에 이미 같은 값으로 있는 것은 뺌)별로 기준선 대비 차이를 나눈다. 기본 Shapley(모든 부분집합을 풀어 평균 기여 —
+  비선형 모델에서도 합이 정확히 전체, 항목 8개까지), `single`은 하나씩 + 상호작용. 결과 표·쌓은 막대 그래프(kind='stacked').
+
+## D25. 큰 모델 — 희소 자코비안·stacked-time MCE (2026-10-29, 0.7.0)
+
+- **희소 자코비안**: 블록 컴파일러가 같은 기호 미분 코드로 0이 아닌 칸의 값만 돌려주는 함수(`jac_data`·`jac_pattern`)도 만든다.
+  Newton은 `jacobian='auto'`(기본)에서 블록이 100변수 이상이면 scipy.sparse LU(열 스케일링 그대로), 그보다 작으면 지금까지의
+  밀집 풀이 — 한국 모델(가장 큰 블록 46)의 HS는 바이트 그대로. `'sparse'`·`'dense'`로 강제할 수 있다. 폴백(hybr·lm)은 밀집.
+  검증: 분기 모델 HS를 희소로 풀면 밀집과 상대 2e-10·상태 같음, 150변수 동시 블록은 직접 선형 해와 1e-10.
+- **stacked-time MCE** `mce=True, mce_method='stacked'`: 모든 기간(start…end)의 미지수를 한 번에 감쇠 Newton으로 푼다.
+  행 = (기간, 식), 열 = (기간, 미지수), 자코비안은 식마다 잎(변수·시차/선행)별 기호 미분(`compile_equation_full`)으로 만든
+  희소 행렬. 기간별 식·미지수 집합(결측 입력 제외·exclude·control)과 시작값은 Fair-Taylor 1회로 정한다. 지평 밖 선행값은
+  terminal 조건(actual·hold). Fair-Taylor는 그대로 기본값.
+  검증: 선형(로그) 선행 모형에서 삼중대각 선형계의 직접 해와 1e-10(Fair-Taylor는 수렴 기준 때문에 2e-8), 선행 계수가 1보다
+  커서 Fair-Taylor가 발산하는 모형도 stacked는 수렴하고 식을 1e-9로 만족.
+
+## D26. 자료 — 메타데이터·페이지·주기 변환·시간 분할·계절조정 (2026-10-29, 0.7.0)
+
+- **메타데이터** `wf.meta(이름, desc=…, unit=…, source=…, notes=…, agg=…)`, `wf.metadata()` 표. `agg`(mean·sum·first·last·
+  max·min)는 낮은 주기로 바꿀 때의 기본 집계다. 워크파일에 함께 저장된다.
+- **페이지** `wf.page(이름, 주기)`: 다른 주기의 워크파일을 같은 작업 단위에 둔다(이 워크파일 전체를 덮는 기간). 저장하면
+  `<워크파일>.eqw/pages/<이름>.eqw`로 함께 쓰이고 열 때 같이 열린다(페이지 안 페이지도).
+- **주기 변환** `wf.convert(시리즈, to=페이지|주기, method, indicator, conversion)`:
+  높은 → 낮은 주기는 mean·sum·first·last·max·min(하위 기간이 하나라도 비면 결측 — 부분연도 방지, 연간 빌더의 min_count와 같은
+  원칙), 낮은 → 높은 주기는 constant·split·linear·denton·chow-lin. 페이지로 보내면 그 페이지에 쓰고 메모(출처·방법)를 남긴다.
+- **시간 분할**: Denton은 비례 1차 차분(Cholette 수정) — KKT 연립으로 풀고 제약(sum·average·first·last)을 정확히 만족, 지표가
+  길면 외삽(statsmodels dentonm과 1e-8). Chow-Lin은 AR(1) 오차 GLS, ρ는 집중 로그우도 최대(격자 → Brent), 고정 ρ의 GLS 식·
+  합 제약을 독립 계산과 비교.
+- **계절조정** `wf.seas(시리즈, method='stl'|'classical', model='additive'|'multiplicative')` → `이름_SA`·`이름_SF`.
+  STL은 원 알고리즘(Cleveland 외 1990)의 loess·저역통과·강건 가중치를 그대로 옮겼다(statsmodels STL과 계절·추세·가중치
+  1e-9, 기본·강건·창 지정 4가지). 승법 STL은 로그에서 분해해 되돌린다. 고전 분해는 statsmodels seasonal_decompose와 같은
+  정의(중심 이동평균 + 위치별 평균). X-13 같은 외부 프로그램은 쓰지 않는다(외부 실행 파일 의존을 만들지 않음).
+
+## D27. 문서 체계 — Markdown 원본·실행되는 문서·예제 자료 (2026-10-30)
+
+- **결정**: 사용자 문서는 저장소의 Markdown이 원본이다. 정적 사이트 생성기는 쓰지 않는다(GitHub에서 그대로 읽힘). 구성은 네 부분과 사례:
+  시작하기(`docs/start`) · 튜토리얼(`docs/tutorial`, 차례로 배우기) · 레시피(`docs/howto`, 할 일별) · 해설(`docs/explain`, 원리) ·
+  참조(`docs/reference`, 찾아보기) · 사례 연구(`docs/cases`) · EViews 사용자 안내(`docs/eviews.md`) · 영문(`docs/en`). 첫 페이지 `docs/README.md`.
+- **실행되는 문서**: 문서의 `python` 블록은 파일마다 새 임시 폴더에서 위에서부터 실행한다. `<!-- out -->` 다음 `text` 블록은
+  실행 출력으로 채우고(`python docs/build_docs.py`), `--check`는 출력이 숫자 허용오차 안에서 같은지, 링크·앵커, 공개 API의 설명·예제,
+  docstring 예제(doctest)를 확인한다(`tests/test_docs.py` → CI). 출력 비교는 `.python-version`과 `uv.lock`의 numpy·pandas 판에서만
+  한다(다른 판에서는 실행만). 시작하기·튜토리얼은 `examples/`의 스크립트·노트북으로 내보낸다 — 예제를 고치려면 문서를 고친다.
+- **예제 자료** `eqn.datasets`: 참 모형을 아는 가상 자료(`toy_q`·`toy_a`·`toy_m`·`klein_like`)를 패키지에 넣는다(고정 시드,
+  `equion/datasets/_make.py`). 문서·docstring 예제는 이것만 쓰므로 저장소 밖에서도 돈다. 한국 모델 자료는 사례 연구에서만 쓴다.
+  실제 Klein 모형 I 자료는 이용 조건이 분명하지 않아 넣지 않고, 사용자가 구한 파일을 여는 `eqn.datasets.klein(path)`만 둔다.
+- **언어**: 한국어가 원본. 영어는 시작 문서(`docs/en`)와 자동 생성 API 참조(서명)만. 메시지·표 머리말은 한국어로 두고, 영문 문서에
+  용어 대응표를 둔다.
+- **API 참조**: `docs/reference/api.md`는 docstring에서 만든다(`python docs/make_api.py`, CI가 `--check`). 공개 함수·메서드의
+  docstring은 요약 · 매개변수 · 돌려주는 것 · 오류 · 예(`>>>`) · 관련 순서로 쓰고, 공개 함수에는 예제가 있어야 한다.
+- **완료 기준**: 새 기능은 코드 + 시험 + docstring(예제) + 튜토리얼이나 해설의 절 + 필요한 레시피가 있어야 끝난다.
+- **이유**: 분석 패키지는 자세한 문서와 그에 맞는 예제가 있어야 쓰인다. 문서 출력이 코드와 어긋나지 않게 하는 가장 확실한 방법은
+  문서를 시험처럼 돌리는 것이다.
+
+## D28. Equion Desk는 같은 저장소의 별도 패키지로 (2026-11-08, P3에서)
+
+- **결정**: 데스크톱 앱 Equion Desk는 이 저장소의 `desk/` 폴더에 별도 Python 패키지 `equion-desk`(자체 `pyproject.toml`)로 둔다.
+  루트의 `equion` 패키지와 uv workspace로 묶어(`[tool.uv.workspace] members = ["desk"]`) 잠금 파일 `uv.lock`은 하나를 함께 쓰고,
+  설치는 따로 된다 — `pip install equion`에는 앱 의존성이 딸려 오지 않는다.
+
+  ```text
+  desk/
+    pyproject.toml     이름 equion-desk · 의존성: equion(같은 저장소), pywebview[pyside6] …
+    equion_desk/       창·로컬 서버·콘솔
+    web/               lectern 스타일 화면(순수 JS, vendor 내장 — D7·D10)
+    build/             PyInstaller·Inno Setup·AppImage 스크립트
+    tests/
+  ```
+
+- **경계**:
+  - 의존 방향은 `equion-desk → equion` 한쪽만. 패키지는 앱을 import하지 않는다(시험으로 확인).
+  - 앱 의존성(pywebview[pyside6]·로컬 서버·PyInstaller 등)은 `desk/pyproject.toml`에만 둔다. 패키지의 필수 의존성(D17·D19)은 그대로.
+  - CI: 패키지 검사(3 OS × Python 3판)는 지금 그대로. 앱 빌드(설치 파일·AppImage)는 `desk/`가 바뀔 때와 앱 태그에서만 돌린다.
+  - 출시 태그를 나눈다: 패키지 `vX.Y.Z`, 앱 `desk-vX.Y.Z`. 앱은 같은 커밋의 패키지를 품고 배포된다(D7).
+  - 라이선스: 패키지는 MIT 그대로. 앱 배포본에 들어가는 Qt(PySide6, LGPL — D8)·lectern 코드(D10)·화면용 JS 라이브러리의 고지는
+    `desk/`에 따로 둔다.
+  - 설치 파일(.exe·.AppImage)은 커밋하지 않고 GitHub Releases에 올린다. 화면용 JS 내장본만 커밋한다.
+  - 앱 설치본에는 예제 자료(`eqn.datasets`)만 넣는다. 한국 모델 자료(`DATA/`·`EQUATIONS/`·`HS/`)는 넣지 않는다.
+- **이유**: 세 단계는 코어 하나 위의 앞단이다(D1). 앱의 Python 콘솔은 라이브러리 API를(D9), 프로그램 실행은 명령줄과 같은
+  `cli.runner`·`cli.report`를 쓰므로 패키지와 앱이 함께 바뀌는 일이 많다 — 한 저장소면 그런 변경이 커밋 하나·CI 한 번으로 끝나고
+  두 저장소 사이의 판 맞추기가 없다. 운영자가 한 사람이라 이슈·PR·문서·결정이 한 곳에 있는 편이 낫다.
+- **저장소 분리 계획과의 관계**: `REPO_SPLIT.md`(보류)는 패키지와 **한국 모델**을 나누는 계획이다. 나누게 되면 Desk는 패키지 쪽
+  (`equion` 저장소)으로 함께 간다 — 이 결정과 부딪히지 않는다.
+- **지금 할 일은 없다**: P3는 향후 프로젝트(기획만, ROADMAP). 시작할 때 이 구성으로 만든다.
+- **변경 (2026-11-08, D29)**: 앱이 Windows 전용이 되어 — 의존성은 `pywebview[pyside6]` 대신 pywebview(Windows의 WebView2,
+  Windows에서만 설치되게 표시), `build/`는 PyInstaller·Inno Setup만, 설치 파일은 `.exe`만, Qt(LGPL) 고지는 없다.
+  앱 빌드 CI는 `windows-latest`에서만 돌린다. 나머지(같은 저장소의 `desk/` 별도 패키지, 의존 방향, 태그, 자료)는 그대로.
+
+## D29. Equion Desk는 Windows 전용, 패키지는 세 OS 그대로 (2026-11-08, P3에서)
+
+- **결정**: 데스크톱 앱 Equion Desk는 lectern처럼 **Windows 전용**으로 만든다. 패키지 `equion`(라이브러리·명령줄)은 지금처럼
+  Windows·macOS·Linux를 모두 지원하고, CI도 3 OS × Python 3판 그대로 둔다.
+- **앱 구성**:
+  - 창: pywebview의 Windows 기본 엔진인 Edge WebView2 하나. Linux용 PySide6(Qt)는 쓰지 않는다 — D8 폐지.
+  - 설치 파일: `EquionDesk-<버전>-setup.exe`(PyInstaller onedir + Inno Setup) 하나. AppImage는 만들지 않는다(D16 변경).
+  - WebView2 런타임: Windows 11에는 기본으로 있고 Windows 10도 대부분 있다. 없는 PC를 위해 설치 파일에 Microsoft의 설치 도우미
+    (Evergreen bootstrapper)를 넣는다.
+  - `desk/`(D28)의 앱 의존성(pywebview 등)은 Windows에서만 설치되게 표시한다(`sys_platform == 'win32'`) — Linux·macOS에서 잠금
+    파일과 패키지 검사가 영향을 받지 않는다.
+  - CI: 앱 빌드·앱 시험은 `windows-latest`에서만(`desk/`가 바뀔 때와 앱 태그 `desk-vX.Y.Z`). 패키지 CI는 그대로.
+  - 라이선스 고지: Qt(LGPL) 고지가 없어진다. lectern 코드(D10)·화면용 JS 라이브러리·WebView2 설치 도우미의 고지는 `desk/`에 둔다.
+- **개발과 확인**: 앱의 로컬 서버·화면 로직·시험은 어느 OS에서나 만들 수 있게 짠다(서버 코드는 플랫폼에 묶지 않는다). 실제 창
+  확인과 설치 파일 시험은 Windows(사용자 PC·Windows CI)에서 한다.
+- **나중에 정할 것**: 코드 서명 — 서명하지 않은 exe는 처음 실행할 때 Windows SmartScreen 경고가 뜬다. 배포를 시작할 때 정한다.
+- **이유**: 저장소 주인의 결정(lectern과 같은 방식). 화면 엔진이 하나라 렌더링 차이가 없고, Linux 배포본(수백 MB)·Qt LGPL 의무·
+  두 OS 빌드가 사라진다. 패키지는 노트북·서버 자동화·CI에서 여러 OS로 쓰이고, 3 OS 검사는 플랫폼마다 다른 결과를 찾아
+  수치 품질을 지키므로(예: 0.7.x의 계열상관 LM 고침) 그대로 둔다.
+- **바뀌는 결정**: D1(데스크톱 앱 Windows 전용) · D8(폐지) · D16(AppImage 없음) · D28(앱 의존성·빌드·고지·CI) — 각 결정에 변경 표시.
+
+## D30. 저장소 분리 실행 — 공개 패키지 `equion` / 비공개 한국 모델 `macro_model` (2026-11-08)
+
+- **결정**: 보류했던 저장소 분리(`REPO_SPLIT.md`)를 지금 한다. 저장소 주인은 패키지를 공개하되 자료는 넣지 않기로 했다.
+  - 새 저장소 `samiblog/equion`(공개 예정): 패키지 `equion/`·시험·사용자 문서·예제(`examples/`)·CI·배포 워크플로.
+    Desk(D28·D29)도 나중에 여기의 `desk/`에 둔다.
+  - 지금 저장소 `samiblog/macro_model`(비공개): 한국 모델 — 자료(`DATA/`)·방정식(`EQUATIONS/`)·HS 기준선(`HS/`)·드라이버
+    (`scripts/`)·드라이버 지원 코드(`kmodel/`)·노트북·한국 모델 회귀 시험(`tests/test_korea_model.py`·`compare_hs.py`)·사례 연구
+    (`docs/cases/korea.md`)·개선 기록(`IMPROVEMENTS.md`). 패키지는 `equion`을 판 번호(git 태그, 나중에 PyPI)로 가져다 쓴다.
+- **깨끗한 기록으로 시작**: 새 저장소는 자료가 한 번도 들어간 적 없는 첫 커밋에서 시작한다. 지금 저장소의 기록에는 자료의 지난
+  판이 있고, 닫히지 않은 PR이 옛 커밋을 붙들고 있어 기록을 고쳐 쓰는 것으로는 막을 수 없다. 전체 기록은 비공개 저장소에 남는다.
+- **패키지 시험은 예제 자료만**: 시험·기준값(`tests/fixtures`)을 `eqn.datasets`로 다시 만들었다(D27의 예제 자료). 한국 모델로 하던
+  검사(추정 45/45·HS 92/92·기준선·명령줄 예시)는 `tests/test_korea_model.py`로 옮겼다.
+- **공개 전 확인**: 이름 상표(D16 — KIPRIS·USPTO), 새 기록의 작성자는 noreply 주소, 문서의 개인 경로.
+- **이유**: 공개하면 CI가 무료이고 누구나 설치·기여할 수 있다. 패키지와 한국 모델은 바뀌는 속도와 쓰는 사람이 다르다(REPO_SPLIT §1).

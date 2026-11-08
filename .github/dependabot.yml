@@ -1,0 +1,20 @@
+# 의존성 갱신 제안(DECISIONS D19). uv.lock이 바뀌는 PR은 CI가 고정 판(locked)·하한·최신판으로 검사 묶음과 문서 예제를 다시 돌린다.
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      numeric-core:            # 수치 결과에 닿는 것은 함께 — 한 PR에서 기준선을 한 번에 확인
+        patterns: ["numpy", "pandas", "scipy"]
+      optional:
+        patterns: ["pyarrow", "plotly", "openpyxl"]
+      dev:
+        dependency-type: "development"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

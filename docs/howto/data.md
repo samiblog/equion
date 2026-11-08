@@ -1,0 +1,182 @@
+# 레시피: 자료
+
+자료를 들이고 다듬는 짧은 처방. 이 문서의 예제는 위에서부터 이어서 돕니다(모두 패키지의 예제 자료를 씁니다).
+
+```python
+import numpy as np
+import pandas as pd
+import equion as eqn
+
+wf = eqn.datasets.load("toy_q")
+```
+<!-- out -->
+```text
+[toy_q] 열기 toy_q.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 10
+```
+
+## R1. 첫 열이 날짜가 아닌 파일 열기
+
+`wfopen`은 첫 열을 날짜로 읽습니다. 날짜가 다른 열에 있거나 이름이 붙은 열이면 pandas로 읽어 정리한 뒤 워크파일에 넣습니다.
+
+```python
+raw = pd.DataFrame({"name": ["a", "b", "c", "d"], "date": ["2020Q1", "2020Q2", "2020Q3", "2020Q4"],
+                    "SALES": [10.0, 11.0, 12.5, 13.0]})
+raw[["date", "SALES"]].to_csv("sales.csv", index=False)       # 날짜를 첫 열로
+w1 = eqn.wfopen("sales.csv")
+print(w1.freq, w1.to_pandas(labels=True)["SALES"].tolist())
+```
+<!-- out -->
+```text
+[sales] 열기 sales.csv — 분기(Quarterly) 2020Q1~2020Q4 · 시리즈 1
+Q [10.0, 11.0, 12.5, 13.0]
+```
+
+기간 라벨(`2020Q1`·`2020M3`·`2020-03`·`2020`)과 날짜(`2020-01-01`, 분기 말일 `2020-03-31`도 그 분기로)를 모두 읽습니다.
+주기를 알아내지 못하면 `eqn.wfopen(path, freq="Q")`로 정해 줍니다.
+
+## R2. 여러 파일을 한 워크파일로
+
+```python
+wf.write("part_a.csv", ["Y", "CN"])
+wf.write("part_b.csv", ["I", "G"])
+w2 = eqn.wfcreate("merged", "Q", "1970Q1", "2019Q4")
+w2.read("part_a.csv")
+w2.read("part_b.csv")
+print(w2.series())
+```
+<!-- out -->
+```text
+[toy_q] write part_a.csv — 2열 200행
+[toy_q] write part_b.csv — 2열 200행
+[merged] 새 워크파일 — 분기(Quarterly) 1970Q1~2019Q4 (200기)
+[merged] read part_a.csv — 시리즈 2
+[merged] read part_b.csv — 시리즈 2
+['Y', 'CN', 'I', 'G']
+```
+
+파일의 날짜가 워크파일 끝보다 뒤면 기간을 늘리고, 앞이면 그 값은 읽지 않고 알려 줍니다. 주기가 다른 파일은
+[R7](#r7-월간-지표로-분기-자료를-월간으로-나누기)처럼 그 주기의 페이지에 읽습니다.
+
+## R3. 빠진 기간이 있는 자료
+
+파일에 기간이 빠져 있으면 빈 칸(NaN)으로 채워 열립니다. 빈 칸을 메우는 규칙은 pandas로 고른 뒤 다시 넣습니다.
+
+```python
+gap = wf.to_pandas(["Y"], labels=True).iloc[:8].drop(index=["1970Q3"])     # 한 분기 빠짐
+gap.to_csv("gap.csv")
+w3 = eqn.wfopen("gap.csv")
+print(w3.to_pandas(labels=True)["Y"].round(1).tolist())
+w3["Y"] = w3["Y"].interpolate()                                             # 선형 보간
+print(round(w3.elem("Y", "1970Q3"), 1))
+```
+<!-- out -->
+```text
+[gap] 열기 gap.csv — 분기(Quarterly) 1970Q1~1971Q4 · 시리즈 1 · 빠진 기간 1개는 빈 칸으로
+[291.5, 294.7, nan, 295.9, 299.7, 306.7, 310.0, 308.5]
+295.3
+```
+
+## R4. 이름 바꾸기·복사하기 — 그리고 `C`라는 열
+
+시리즈 이름 바꾸기는 복사 후 지우기입니다. `C`(상수항)·함수 이름(`LOG`·`D` …)인 열은 방정식에 쓸 수 없으므로 열 때 경고하고,
+다른 이름으로 옮겨 씁니다.
+
+```python
+raw = pd.DataFrame({"period": ["2020Q1", "2020Q2", "2020Q3"], "C": [1.0, 2.0, 3.0]})
+raw.to_csv("with_c.csv", index=False)
+import warnings
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    w4 = eqn.wfopen("with_c.csv")
+print(str(caught[0].message)[:60])
+w4.data.rename(columns={"C": "CONS"}).to_csv("renamed.csv", index_label="period")
+print(eqn.wfopen("renamed.csv").series())
+```
+<!-- out -->
+```text
+[with_c] 열기 with_c.csv — 분기(Quarterly) 2020Q1~2020Q3 · 시리즈 1
+[경고] 방정식에서 쓸 수 없는 열 이름: C — C는 상수항, LOG·EXP·ABS·SQRT·D·DLOG는
+[renamed] 열기 renamed.csv — 분기(Quarterly) 2020Q1~2020Q3 · 시리즈 1
+['CONS']
+```
+
+이미 열린 워크파일 안에서는 `wf["NEW"] = wf["OLD"]` 다음 `del wf["OLD"]`.
+
+## R5. 파생 시리즈를 한꺼번에
+
+```python
+for v in ("Y", "CN", "I"):
+    wf.genr(f"G_{v} = {v}.yoy")              # 전년동기대비 %
+    wf.genr(f"L_{v} = log({v})")
+print(wf.series("G_*"), round(wf.elem("G_Y", "2019Q4"), 2))
+```
+<!-- out -->
+```text
+['G_Y', 'G_CN', 'G_I'] -0.35
+```
+
+## R6. 분기 ↔ 연간
+
+```python
+ya = wf.convert("Y", "A")                                # 흐름(agg='sum')은 합
+ra = wf.convert("R", "A")                                # 금리(agg='mean')는 평균
+print(round(float(ya.iloc[-1]), 1), round(float(ra.iloc[-1]), 3))
+ann = wf.page("ann", "A")                                # 연간 합을 다시 분기로 나눌 때는 연간 페이지에서
+wf.convert("Y", ann, name="YA")
+print(round(float(ann.convert("YA", "Q", method="split").iloc[:4].sum()), 1) == round(float(ya.iloc[0]), 1))
+```
+<!-- out -->
+```text
+2498.6 2.892
+[ann] 새 워크파일 — 연(Annual) 1970~2019 (50기)
+[toy_q] 페이지 ann — 연(Annual) 1970~2019
+[toy_q] Y → ann.YA (sum, Q→A)
+True
+```
+
+하위 기간이 하나라도 비면 그 연도는 빈 칸입니다(부분 연도 방지). 일부만 있어도 계산하려면 `complete=False`.
+
+## R7. 월간 지표로 분기 자료를 월간으로 나누기
+
+분기 `Y`를 월간 산업생산 `IP`의 움직임을 따라 나누되, 석 달 합이 분기 값과 정확히 같게(Chow-Lin).
+
+```python
+mon = wf.page("mon", "M")
+mon.read(eqn.datasets.path("toy_m"))
+wf.convert("Y", mon, method="chow-lin", indicator="IP", name="Y_M", start="2000Q1", end="2019Q4")
+q_back = mon.convert("Y_M", "Q").loc["2010-01-01":"2010-10-01"].round(3).tolist()
+print(q_back == wf["Y"].loc["2010-01-01":"2010-10-01"].round(3).tolist())
+```
+<!-- out -->
+```text
+[mon] 새 워크파일 — 월(Monthly) 1970M1~2019M12 (600기)
+[toy_q] 페이지 mon — 월(Monthly) 1970M1~2019M12
+[mon] read toy_m.csv — 시리즈 3
+[toy_q] Y → mon.Y_M (chow-lin, Q→M)
+True
+```
+
+지표가 없으면 `method="denton"`(매끄럽게 나눔), 지표가 있으면 `denton`(지표 비례)이나 `chow-lin`(지표에 회귀)을 고릅니다.
+
+## R8. pandas와 오가기
+
+워크파일 ↔ DataFrame은 언제든 바꿀 수 있습니다.
+
+```python
+df = wf.to_pandas(["Y", "CN", "I"], smpl=False)
+df["SHARE"] = df["CN"] / df["Y"]                         # pandas로 계산
+wf["SHARE"] = df["SHARE"]                                # 다시 워크파일로(날짜로 맞춰 들어간다)
+print(round(wf.elem("SHARE", "2019Q4"), 4))
+new = eqn.wfcreate("from_df", "Q", "1970Q1", "2019Q4")
+for c in df.columns:
+    new[c] = df[c]
+print(new.series())
+```
+<!-- out -->
+```text
+0.738
+[from_df] 새 워크파일 — 분기(Quarterly) 1970Q1~2019Q4 (200기)
+['Y', 'CN', 'I', 'SHARE']
+```
+
+관련: [튜토리얼 1](../tutorial/01-data.md) · [API: Workfile](../reference/api.md#3-워크파일-workfile)

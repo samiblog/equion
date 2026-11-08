@@ -1,0 +1,143 @@
+# Equion CI — DECISIONS D19
+#   locked    uv.lock 그대로(재현 환경) · Linux·Windows·macOS · Python 3.12~3.14
+#   minimal   선택 의존성(pyarrow·plotly) 없이 — 코어만으로 모든 검사가 도는지
+#   lowest    pyproject의 하한(numpy 2.1·pandas 2.2.2·scipy 1.14·openpyxl 3.1, Python 3.12)
+#   latest    나온 최신판(Python 3.14) — 주간 일정에서는 사전 공개판(--prerelease allow)까지
+#   audit     잠근 의존성의 알려진 취약점(pip-audit)
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  schedule:
+    - cron: "23 4 * * 1"   # 매주 월요일 — 새 판 의존성으로 미리 깨지는지
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_PYTHON_DOWNLOADS: automatic
+  PYTHONWARNDEFAULTENCODING: "1"   # 인코딩을 안 준 open() 등을 경고로(Windows 기본 인코딩 문제를 미리)
+
+jobs:
+  locked:
+    name: locked · ${{ matrix.os }} · py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.13"]
+        include:
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: ubuntu-latest, python: "3.14" }
+          - { os: windows-latest, python: "3.14" }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - name: 환경(uv.lock 그대로)
+        run: uv sync --locked
+      - name: 검사 묶음(pytest)
+        run: uv run --locked pytest
+      - name: 명령줄 예시(equion new → check → run)
+        shell: bash
+        run: |
+          set -e
+          uv run --locked equion new demo
+          cd demo
+          uv run --locked equion check EQUATIONS/model.txt --data DATA/data.csv
+          uv run --locked equion run scripts/main.py --run-id ci -q
+      - name: API 참조가 코드와 같은지(docs/reference/api.md)
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13'
+        run: uv run --locked python docs/make_api.py --check
+
+  minimal:
+    name: minimal · 선택 의존성 없이 · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: 코어만(pyarrow·plotly 없음)
+        run: uv sync --locked --no-dev
+      - name: pyarrow·plotly가 정말 없는지
+        run: uv run --locked --no-dev python -c "import importlib.util as u, sys; sys.exit(any(u.find_spec(m) for m in ('pyarrow', 'plotly')))"
+      - name: 검사 묶음
+        shell: bash
+        env:
+          PYTHONIOENCODING: utf-8   # 검사 스크립트의 화면 출력만(로그 파일). 패키지의 cp1252 처리는 test_cli가 따로 본다
+        run: |
+          set -e
+          for t in engine workfile cli stats scenarios docs ast_formula 100_equations; do
+            uv run --locked --no-dev python tests/test_$t.py > "log_$t.txt" 2>&1 || { tail -40 "log_$t.txt"; exit 1; }
+            tail -3 "log_$t.txt"
+          done
+
+  lowest:
+    name: lowest · 하한 버전 · py3.12
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: 하한 버전으로 설치(lowest-direct)
+        run: |
+          uv venv -p 3.12 .venv-lowest
+          VIRTUAL_ENV=.venv-lowest uv pip install --resolution lowest-direct -e . "pytest>=8"
+          .venv-lowest/bin/python -c "import numpy, pandas, scipy, openpyxl; print(numpy.__version__, pandas.__version__, scipy.__version__, openpyxl.__version__)"
+      - name: 검사 묶음
+        run: .venv-lowest/bin/python -m pytest
+
+  latest:
+    name: latest · 최신판${{ github.event_name == 'schedule' && ' + 사전 공개판' || '' }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - name: 최신판으로 설치
+        shell: bash
+        run: |
+          PRE=""
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then PRE="--prerelease allow"; fi
+          uv venv -p 3.14 .venv-latest
+          VIRTUAL_ENV=.venv-latest uv pip install $PRE --upgrade -e ".[all]" "pytest>=8"
+          uv pip list --python .venv-latest | grep -Ei "^(numpy|pandas|scipy|openpyxl|pyarrow|plotly) "
+      - name: 검사 묶음(경고도 보이게)
+        shell: bash
+        run: |
+          PY=.venv-latest/bin/python
+          [ -x "$PY" ] || PY=.venv-latest/Scripts/python.exe
+          "$PY" -m pytest -W "default::DeprecationWarning" -W "default::FutureWarning"
+
+  audit:
+    name: audit · 알려진 취약점
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - name: pip-audit(잠근 버전·해시 그대로)
+        run: |
+          uv export --locked --format requirements-txt --all-extras --all-groups --no-emit-project > requirements-audit.txt
+          uvx pip-audit -r requirements-audit.txt --require-hashes --disable-pip --progress-spinner off

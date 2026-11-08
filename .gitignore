@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# uv / 가상환경 (uv.lock은 커밋, .venv는 제외)
+.venv/
+
+# 백업/임시 파일
+*.bak
+*~
+
+# 생성물 (Work Table·워크파일 자동 저장, 명령줄 실행 보고서)
+WT/
+*.wt
+out/
+
+# 임시 파일
+temp.txt
+
+# 프로젝트 백업 압축본 (git에 넣지 않음)
+*.tar.gz
+
+# 개인 git 학습 노트 (커밋 안 함)
+GIT_가이드.md
+
+# 환경/자격증명 (절대 커밋 금지)
+.env
+.env.*
+
+# 시험 도구 캐시
+.pytest_cache/
