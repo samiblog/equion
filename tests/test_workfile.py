@@ -163,7 +163,9 @@ def main():
     d = np.nanmax(np.abs(mine - ref.to_numpy()) / np.maximum(1e-9, np.abs(ref.to_numpy())))
     check("solve(기준선) = 엔진 HS, 별칭 _0 시리즈", d < 1e-12 and r0.counts()["ok"] == 120, f"{d:.1e}")
     check("풀이 구간 밖은 NaN", np.isnan(wf["Y_0"].iloc[s - 1]))
-    sc = m.scenario("high_oil").override("POIL", wf["POIL"] * 1.5)
+    poil = wf["POIL"].copy()
+    poil.iloc[wf._index_of("2015Q1"):] *= 1.5                 # 2015Q1부터 유가 1.5배(전 구간 배율이면 dlog(POIL)이 그대로라 효과 없음)
+    sc = m.scenario("high_oil").override("POIL", poil)
     quiet(m.solve)
     cmp = m.compare("P")
     check("시나리오 별칭 _1·compare", list(cmp.columns) == ["P", "P_0", "P_1"]

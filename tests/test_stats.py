@@ -109,9 +109,11 @@ def main():
     y, X = eqs["cp"].eq._y, eqs["cp"].eq._X
     check("HAC 시차 0 = HC1(완전 순위)", close(R.ols(y, X).set_cov("hac", 0).bse, R.ols(y, X).set_cov("white").bse, 1e-9))
     check("Newey-West 기본 시차 ⌊4(n/100)^(2/9)⌋", R.ols(y, X).set_cov("hac").cov_lags == eqn.stats.newey_west_lags(len(y)) == 4)
-    tq = R.tsls(y, X, X).set_cov("hc1")
-    check("TSLS(도구 = 회귀변수) = OLS (계수 1e-12·강건 표준오차)", close(tq.params, R.ols(y, X).params, 1e-12)
-          and close(tq.bse, R.ols(y, X).set_cov("hc1").bse, 1e-9))
+    # 동치 검사는 조건이 좋은 식으로(로그 수준 식은 조건수가 커서 계산 경로에 따라 말자리가 플랫폼마다 1e-10쯤 다르다)
+    ye, Xe = wf.equation("eq_eqv").ls("dlog(CN) c dlog(Y) dlog(CN(-1))").eq._y, wf.eq_eqv.eq._X
+    tq = R.tsls(ye, Xe, Xe).set_cov("hc1")
+    check("TSLS(도구 = 회귀변수) = OLS (계수 1e-12·강건 표준오차)", close(tq.params, R.ols(ye, Xe).params, 1e-12)
+          and close(tq.bse, R.ols(ye, Xe).set_cov("hc1").bse, 1e-9))
     nl = quiet(lambda: wf.equation("e_nl").nls("log(CN) = c(1) + c(2)*log(Y) + c(3)*log(CN(-1))",
                                                start=[0, 0.5, 0.5], cov="hc1"))
     check("NLS(선형식) 강건 공분산 ≈ OLS", close(nl.stderrs.to_numpy(), REF["equations"]["cp"]["bse_hc1"], 1e-7))
@@ -284,7 +286,7 @@ def main():
     check("LIML 강건(HC1) 표준오차 = 기준값", close(wf.equation("e_lr").liml(iv["spec"], cov="hc1").stderrs,
                                               iv["liml_robust_hc1"]["bse"], 1e-9))
     check("LIML 내생 회귀변수 판별", li.stats["endogenous"] == iv["endogenous"], str(li.stats["endogenous"]))
-    yv, Xv = eqs["cp"].eq._y, eqs["cp"].eq._X
+    yv, Xv = wf.eq_eqv.eq._y, wf.eq_eqv.eq._X                     # 조건이 좋은 식(B절과 같은 것)
     ge = R.gmm(yv, Xv, Xv)
     check("정확 식별(도구 = 회귀변수): GMM = OLS, J = 0", close(ge.params, R.ols(yv, Xv).params, 1e-9)
           and abs(ge.extra["j_statistic"]) < 1e-12 and not np.isfinite(ge.extra["j_pvalue"]))
