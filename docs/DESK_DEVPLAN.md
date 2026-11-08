@@ -97,7 +97,7 @@ Desk는 같은 저장소의 `desk/`(패키지 `equion-desk`, 의존은 `equion-d
 | 항목 | 방식 |
 |---|---|
 | 저장소 | `samiblog/equion` 하나 — 패키지 `equion/`(E), 앱 `desk/`(D, uv workspace). 작업은 `main`에 바로 커밋, 묶음마다 하나 이상의 커밋 |
-| 새 모듈(E) | `equion/project/`(설정·부품·조립·채택표) · `equion/data/source.py`·`vintage.py`(불러오기 틀·회차) · `equion/work/`(기록·바뀜 기록·제안) · `equion/registry.py`(명령·분석 등록부) · `equion/reporting/markdown.py`(md 렌더러) · `equion/script/`(`.eqs`) · `equion/cli/`의 새 하위 명령. 상대 기간은 `data/periods.py`에 |
+| 새 모듈(E) | `equion/projects/`(설정·부품·조립·채택표 — `eqn.project`와 이름이 겹치지 않게 복수형) · `equion/data/source.py`·`vintage.py`(불러오기 틀·회차) · `equion/work/`(기록·바뀜 기록·제안) · `equion/registry.py`(명령·분석 등록부) · `equion/reporting/markdown.py`(md 렌더러) · `equion/script/`(`.eqs`) · `equion/cli/`의 새 하위 명령. 상대 기간은 `data/periods.py`에 |
 | 시험 | E: 새 시험 파일(프로젝트·회차·기록·스크립트·등록부), 기획 자료의 장면을 명령 시험으로, 예제 자료만(D30). 엔진 104·통계 166 시험은 그대로 통과해야 한다. D: 로컬 서버 API 시험 + 화면 점검표 + PC 여덟 가지 설치 시험 |
 | CI | 지금의 locked(3 OS × py3.12~3.14)·minimal·lowest·latest·audit에 예제 프로젝트 스크립트 실행을 더하고, D부터 Windows 설치본 빌드·기동 시험 |
 | 문서(D27) | 새 공개 함수·명령·파일 형식마다 docstring·레퍼런스·튜토리얼 절, `build_docs --check` 통과가 완료 조건 |
@@ -142,5 +142,5 @@ Desk는 같은 저장소의 `desk/`(패키지 `equion-desk`, 의존은 `equion-d
 
 1. ✓ **결정 옮기기**(2026-11-09): `DECISIONS.md` D31~D39, `ROADMAP.md`에 0.8(E1~E6)·Desk 0.1(D0~D5)·2차판·0.9. 기획 자료 9개와 이 계획을 `docs/`에 두고 커밋·push.
 2. ✓ **예제 프로젝트부터**(2026-11-09 — `equion new 폴더 --template desk`): 가상 분기 모형(예제 자료 `toy_q` 기반 — 블록 넷·모형 main·시나리오 oil20·스크립트 monthly.eqs)을 먼저 만들어, 모든 E 단계 시험과 문서의 기준으로 쓴다.
-3. ✓ **E1**(2026-11-09 — `equion/projects/`·`assemble`·`ident`, 시험 82개; 채택표는 기록과 함께 E3로): `equion/project/`(설정·부품·조립·채택표)와 `equion assemble`, 블록 HS. 묶음이 끝날 때마다 완료 기준을 확인하고, 시험·문서·CI가 통과하면 진행을 이 문서에 표시한다.
+3. ✓ **E1**(2026-11-09 — `equion/projects/`·`assemble`·`ident`, 시험 82개; 채택표는 기록과 함께 E3로): `equion/projects/`(설정·부품·조립·채택표)와 `equion assemble`, 블록 HS. 묶음이 끝날 때마다 완료 기준을 확인하고, 시험·문서·CI가 통과하면 진행을 이 문서에 표시한다.
 4. **D0 준비(나란히)**: 런타임 묶기·격리 실행 시험과 PC 여덟 가지 목록. 여러 PC가 필요한 시험은 사용자의 도움을 받는다.
