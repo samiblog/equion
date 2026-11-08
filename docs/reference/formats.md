@@ -28,6 +28,54 @@ Y = CN + I + G
 @def RG = Y/Y(-1) - 1        # 매크로: 뒤 줄의 RG를 식으로 바꾼다
 ```
 
+## 프로젝트(`equion.toml`)
+
+프로젝트는 폴더 하나입니다 — `equion.toml`이 자료 파일과 블록(방정식 파일 하나 = 블록 하나)을 이름으로 묶고, 모형은 블록과 다른 모형을
+이름으로 끼워 조립합니다(D32). 여는 법은 `eqn.project(폴더)`, 검사는 `equion assemble`, 예제는 `equion new 폴더 --template desk`.
+
+```toml
+[project]
+name = "demo"
+format = "equion-project"
+format_version = 1
+
+[data]
+file = "DATA/data.csv"            # 첫 열이 날짜인 자료 파일
+
+[block]                           # 이름 = "파일" 또는 { file = …, desc = … }
+demand  = { file = "EQUATIONS/demand.txt",  desc = "수요" }
+price   = { file = "EQUATIONS/price.txt",   desc = "물가" }
+finance = { file = "EQUATIONS/finance.txt", desc = "금융" }
+
+[model.core]
+blocks = ["demand"]
+
+[model.main]
+include = ["core"]                # 모형 안에 모형
+blocks = ["price", "finance"]
+
+[model.main_fixrl]
+include = ["main"]
+exclude = ["finance:RL"]          # 뺀 식의 목표는 외생(실측)
+
+[group]                           # 묶음 — 여러 시리즈를 이름 하나로
+core = { series = ["Y", "CN", "I"], desc = "핵심 수요" }
+
+[hs]                              # 과거 재현 기본값
+model = "main"
+range = "2005Q1:2019Q4"
+mode = "dynamic"                  # dynamic · static · fit
+```
+
+| 규칙 | 내용 |
+|---|---|
+| 이름 | 블록·모형·묶음은 영문으로 시작하고 영문·숫자·`_`만(한글은 `desc`). 블록과 모형은 이름이 겹칠 수 없다 |
+| 부품 이름 | 블록 파일의 식 한 줄은 `블록:목표변수`(예: `demand:CN`). 목표변수는 좌변의 첫 변수, 한 블록에 같은 목표는 하나 |
+| 내생·외생 | 적지 않는다 — 모형에서 어떤 식의 목표면 내생, 아니면 외생 |
+| 조립 문제 | 한 모형에 같은 목표가 둘, 자료에도 없고 어떤 식도 정하지 않는 변수, 순환 include, 없는 블록·모형·식(exclude) |
+| 블록 파일 | 방정식 파일과 같은 문법(위). 줄 끝 `#` 뒤는 그 식의 설명으로 보인다 |
+| 형식 판 | `format_version`이 이 equion이 읽는 판보다 크면 오류(새 판으로). 모르는 표는 경고하고 쓰지 않는다 |
+
 ## 워크파일(`.eqw/` 폴더)
 
 `wf.save("이름")`이 만드는 폴더입니다. 다시 열면(`eqn.wfopen`) 재추정 없이 계수·잔차·모델·시나리오가 그대로 돌아옵니다.

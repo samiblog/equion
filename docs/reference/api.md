@@ -26,7 +26,10 @@ Equion 0.7.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstri
 - [18. 표 출력 TableOutput](#18-표-출력-tableoutput)
 - [19. 통계 eqn.stats](#19-통계-eqnstats)
 - [20. 자료 변환 equion.data.transform](#20-자료-변환-equiondatatransform)
-- [21. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#21-고급엔진-수준--드라이버확장용-바뀔-수-있다)
+- [21. 프로젝트 eqn.project(…)](#21-프로젝트-eqnproject)
+- [22. 조립 검사 결과 p.assemble(…)](#22-조립-검사-결과-passemble)
+- [23. 항등식 검사 결과 p.ident(…)](#23-항등식-검사-결과-pident)
+- [24. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#24-고급엔진-수준--드라이버확장용-바뀔-수-있다)
 - [22. 명령줄 `equion`](#22-명령줄-equion)
 
 ## 1. `import equion as eqn`
@@ -42,6 +45,8 @@ Equion 0.7.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstri
 | [`secret`](#eqnsecret) | `(name, default=None)` | 비밀 값(API 키 등)을 환경변수에서 읽는다 — 스크립트·명령줄·보고서에 값을 남기지 않으려고 쓴다. |
 | [`verbose`](#eqnverbose) | `(level=None)` | 출력 수준: 0 조용히 · 1 요약 한 줄(기본) · 2 엔진 상세 로그까지. 인자 없이 부르면 현재 값. |
 | `spool` | `(…)` | 보인 출력을 모은다. mode: 'auto'(바로 보임) · 'collect'(모으기만, CLI/앱) · 'silent'. |
+| [`project`](#eqnproject) | `(path='.')` | 프로젝트 열기 — 폴더(또는 그 안의 equion.toml)를 읽어 블록·모형·자료를 이름으로 다룬다. |
+| [`Project`](#eqnproject) | `클래스(config)` | Equion 프로젝트 — 블록(방정식 파일)·모형(조립)·자료를 이름으로 다룬다. 여는 법은 `eqn.project(폴더)`. |
 
 ### eqn.wfcreate
 
@@ -186,6 +191,59 @@ eqn.verbose(old) == old
 ```
 
 **관련** — log.use_own_handler(파이썬 logging 설정을 쓸 때)
+
+### eqn.project
+
+`project(path='.')`
+
+프로젝트 열기 — 폴더(또는 그 안의 equion.toml)를 읽어 블록·모형·자료를 이름으로 다룬다.
+
+프로젝트는 폴더 하나다: `equion.toml`(자료 파일·블록·모형 조립) + 자료 파일 + 블록 파일(방정식 파일). 예제 프로젝트는  
+`eqn.Project.create(폴더)` 또는 명령줄 `equion new 폴더 --template desk`.  
+
+**매개변수**
+
+- `path`: 프로젝트 폴더 또는 equion.toml 경로(기본: 지금 폴더)
+
+**돌려주는 것**
+
+Project — .assemble · .model · .hs · .ident · .parts · .used_by  
+
+**오류**
+
+- `ProjectError`: 설정 파일이 없음·문법 오류·없는 파일·잘못된 이름(문제를 모두 모아서)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+d = os.path.join(tempfile.mkdtemp(), "demo")
+_ = eqn.Project.create(d)
+p = eqn.project(d)
+p.models
+# ['core', 'main', 'main_fixrl']
+```
+
+**관련** — Project · docs/reference/formats.md
+
+### eqn.Project
+
+`Project(config)`
+
+Equion 프로젝트 — 블록(방정식 파일)·모형(조립)·자료를 이름으로 다룬다. 여는 법은 `eqn.project(폴더)`.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.blocks, p.models
+# (['demand', 'price', 'finance'], ['core', 'main', 'main_fixrl'])
+```
+
+**관련** — eqn.project · Project.assemble · Project.hs
 
 ## 2. 예제 자료 `eqn.datasets`
 
@@ -3657,7 +3715,279 @@ s[:4].round(6).tolist()
 # [1.0, -1.0, 2.0, -2.0]
 ```
 
-## 21. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
+## 21. 프로젝트 `eqn.project(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| [`open`](#projectopen) | `(path='.')` | 프로젝트 폴더(또는 그 안의 equion.toml)를 연다 — `eqn.project(path)`와 같다. |
+| [`create`](#projectcreate) | `(path, template='desk', force=False)` | 예제 프로젝트를 만들고 연다 — 명령줄 `equion new 폴더 --template desk`와 같다. |
+| `name` | `속성` | 프로젝트 이름([project] name, 없으면 폴더 이름). |
+| `root` | `속성` | 프로젝트 폴더의 절대 경로. |
+| `blocks` | `속성` | 블록 이름 목록(설정 파일 순서). |
+| `models` | `속성` | 모형 이름 목록(설정 파일 순서). |
+| `workfile` | `속성` | 프로젝트 자료의 워크파일(처음 쓸 때 [data] file을 연다). |
+| [`parts`](#projectparts) | `(name=None)` | 부품(식·항등식) 목록 — name이 없으면 전부, 블록 이름이면 그 블록, 모형 이름이면 조립된 식들. |
+| [`part`](#projectpart) | `(pid)` | 부품 하나 — `블록:목표`(대소문자 무시). |
+| [`used_by`](#projectused_by) | `(name)` | 쓰는 곳 — 블록이나 부품(`블록:목표`)을 쓰는 모형 목록. 고치기 전에 영향 범위를 본다. |
+| [`assemble`](#projectassemble) | `(name=None, swap=None)` | 조립 검사 — 계산 없이 모형(또는 블록)의 구조를 본다: 내생·외생, 겹친 목표, 모르는 변수, 외생 자료 끝, 블록 사이 연결, 풀이 블록. |
+| [`model`](#projectmodel) | `(name=None, swap=None)` | 모형(또는 블록)을 조립해 워크파일 모델 객체로 — 추정식은 지금 자료로 추정하고 항등식은 그대로 넣는다. |
+| [`hs`](#projecths) | `(name=None, start=None, end=None, mode=None, swap=None, **opts)` | 과거 재현(HS) — 모형이나 블록을 풀어 실측과 견준다. 블록이면 그 블록만 풀고 나머지 변수는 실측(블록 HS). |
+| [`ident`](#projectident) | `(pid, start=None, end=None, tol=1e-06)` | 항등식 단독 검사 — 실측으로 좌변과 우변을 계산해 견준다(추정 없이). |
+
+### Project.open
+
+`open(path='.')`
+
+프로젝트 폴더(또는 그 안의 equion.toml)를 연다 — `eqn.project(path)`와 같다.
+
+**오류**
+
+- `ProjectError`: 설정 파일이 없음·문법 오류·없는 블록 파일 등(문제를 모두 모아서)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+d = os.path.join(tempfile.mkdtemp(), "demo")
+_ = eqn.Project.create(d)
+eqn.Project.open(d).name
+# 'demo'
+```
+
+### Project.create
+
+`create(path, template='desk', force=False)`
+
+예제 프로젝트를 만들고 연다 — 명령줄 `equion new 폴더 --template desk`와 같다.
+
+예제는 가상 분기 모형(예제 자료 toy_q)이다: 블록 demand(소비·투자·국민소득 항등식)·price(물가)·finance(장기금리·통화),  
+모형 core·main·main_fixrl.  
+
+**매개변수**
+
+- `path`: 만들 폴더(비어 있어야 한다)
+- `template`: 'desk'
+- `force`: 비어 있지 않은 폴더에도 쓴다(같은 이름 파일을 덮음)
+
+**오류**
+
+- `FileExistsError`: 폴더가 비어 있지 않음 · ValueError: 모르는 template
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.assemble("main").ok
+# True
+```
+
+### Project.parts
+
+`parts(name=None)`
+
+부품(식·항등식) 목록 — name이 없으면 전부, 블록 이름이면 그 블록, 모형 이름이면 조립된 식들.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+[x.id for x in p.parts("demand")]
+# ['demand:CN', 'demand:I', 'demand:Y']
+```
+
+### Project.part
+
+`part(pid)`
+
+부품 하나 — `블록:목표`(대소문자 무시).
+
+**오류**
+
+- `KeyError`: 없는 부품(있는 부품 이름과 함께)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.part("demand:y").text
+# 'Y = CN + I + G'
+```
+
+### Project.used_by
+
+`used_by(name)`
+
+쓰는 곳 — 블록이나 부품(`블록:목표`)을 쓰는 모형 목록. 고치기 전에 영향 범위를 본다.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.used_by("demand"), p.used_by("finance:RL")
+# (['core', 'main', 'main_fixrl'], ['main'])
+```
+
+### Project.assemble
+
+`assemble(name=None, swap=None)`
+
+조립 검사 — 계산 없이 모형(또는 블록)의 구조를 본다: 내생·외생, 겹친 목표, 모르는 변수, 외생 자료 끝, 블록 사이 연결, 풀이 블록.
+
+**매개변수**
+
+- `name`: 모형 또는 블록 이름(기본: [hs] model, 모형이 하나면 그것)
+- `swap`: {부품: 식} — 파일을 바꾸지 않고 그 식만 바꿔 끼워 검사
+
+**돌려주는 것**
+
+AssemblyReport — .ok · .problems · .endogenous · .exogenous · .blocks · .text()  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.assemble("main")
+r.ok, r.endogenous
+# (True, ['CN', 'I', 'Y', 'P', 'RL', 'M2'])
+r.exogenous
+# ['G', 'POIL', 'R']
+p.assemble("main_fixrl").exogenous
+# ['G', 'POIL', 'R', 'RL']
+```
+
+### Project.model
+
+`model(name=None, swap=None)`
+
+모형(또는 블록)을 조립해 워크파일 모델 객체로 — 추정식은 지금 자료로 추정하고 항등식은 그대로 넣는다.
+
+채택 기록이 없으면(작업 기록은 다음 단계) 식을 지금 자료·식의 표본(`@smpl`, 없으면 자료 전체)으로 추정하고 `.notes`에 적는다.  
+같은 식은 한 번만 추정한다(다시 부르면 그 추정을 쓴다).  
+
+**매개변수**
+
+- `name`: 모형 또는 블록 이름(블록이면 그 블록의 식만 — 나머지 변수는 실측)
+- `swap`: {부품: 식} — 파일을 바꾸지 않고 그 식만 바꿔 끼운다(목표변수는 같아야 한다)
+
+**돌려주는 것**
+
+ModelObject — .solve() · .forecast() · .scenario() …(워크파일 API)  
+
+**오류**
+
+- `ProjectError`: 조립 문제(겹친 목표·모르는 변수 등 — assemble의 문제 목록)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+m = p.model("core")
+m.endogenous
+# ['CN', 'I', 'Y']
+```
+
+### Project.hs
+
+`hs(name=None, start=None, end=None, mode=None, swap=None, **opts)`
+
+과거 재현(HS) — 모형이나 블록을 풀어 실측과 견준다. 블록이면 그 블록만 풀고 나머지 변수는 실측(블록 HS).
+
+구간·방식의 기본은 equion.toml `[hs]`의 range·mode, 없으면 자료 전체·dynamic. 풀이 값은 워크파일의 별칭 시리즈(`CN_0` …)에 쓴다.  
+
+**매개변수**
+
+- `name`: 모형 또는 블록 이름(기본: [hs] model)
+- `start, end`: 구간(기본: [hs] range)
+- `mode`: 'dynamic' · 'static' · 'fit'(기본: [hs] mode)
+- `swap`: {부품: 식} — 그 식만 바꿔 끼워 푼다(파일은 그대로)
+- `**opts`: ModelObject.solve의 선택지(on_missing · on_fail · tolerance …)
+
+**돌려주는 것**
+
+SolveResult — .statistics() · .counts() · .summary()  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.hs("main")
+r.start, r.end, r.counts()["ok"]
+# ('2005Q1', '2019Q4', 60)
+p.hs("demand").counts()["ok"]
+# 60
+```
+
+### Project.ident
+
+`ident(pid, start=None, end=None, tol=1e-06)`
+
+항등식 단독 검사 — 실측으로 좌변과 우변을 계산해 견준다(추정 없이).
+
+**매개변수**
+
+- `pid`: 항등식 부품 `블록:목표`(예: demand:Y)
+- `start, end`: 구간(기본: 자료 전체)
+- `tol`: 허용오차 — |좌변 − 우변| ≤ tol·max(1, |좌변|)이면 성립
+
+**돌려주는 것**
+
+IdentityCheck — .ok · .mismatches · .max_abs · .table · .text()  
+
+**오류**
+
+- `KeyError`: 없는 부품 · ValueError: 항등식이 아님
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+c = p.ident("demand:Y")
+c.ok, c.n
+# (True, 200)
+```
+
+## 22. 조립 검사 결과 `p.assemble(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `ok` | `속성` | 문제가 없으면 참. |
+| `n_equations` | `속성` | 추정식 수. |
+| `n_identities` | `속성` | 항등식 수. |
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+| `output` | `()` | 부품 표(부품·종류·위치·식·설명). |
+| `show` | `()` | 짧은 글을 보인다. |
+
+## 23. 항등식 검사 결과 `p.ident(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `ok` | `속성` | 비교한 모든 기간에서 \|차이\| ≤ tol·max(1, \|좌변\|)이면 참. |
+| `max_abs` | `속성` | 가장 큰 \|차이\|. |
+| `max_pct` | `속성` | 가장 큰 \|차이%\|. |
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+| `output` | `()` | 기간별 표(좌변·우변·차이·차이%). |
+| `show` | `()` | 짧은 글을 보인다. |
+
+## 24. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -3743,4 +4073,6 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `check` | --data --freq --help --json --smpl --strict | 실행 없이 방정식 파일·스크립트를 검사한다 |
 | `info` | --all --freq --help --json | 데이터·워크파일·방정식 파일·보고서 폴더 요약(경로 없으면 실행 환경) |
 | `convert` | --allow-pickle --help --name | 옛 저장 형식(레거시 pickle·.wt·.mmw)을 워크파일(.eqw)로 |
-| `new` | --bare --force --help | 새 프로젝트 폴더(예시 데이터·방정식·스크립트) |
+| `new` | --bare --force --help --template | 새 프로젝트 폴더(예시 데이터·방정식·스크립트) |
+| `assemble` | --help --json --project | 프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수) |
+| `ident` | --check --help --json --project --range --strict --tol | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |

@@ -5,7 +5,8 @@
     equion run 스크립트.py [--smpl S:E] [--set 이름=값 ...] [--out 폴더] [--format csv,html] [-- 스크립트 인자]
     equion check 방정식.txt [--data 자료.xlsx] [--smpl S:E]    |  equion check 스크립트.py
     equion info [경로]
-    equion new 폴더 [--bare]  ·  equion convert 옛파일 새이름 [--allow-pickle]
+    equion new 폴더 [--bare | --template desk]  ·  equion convert 옛파일 새이름 [--allow-pickle]
+    equion assemble [모형] [-p 프로젝트]  ·  equion ident 블록:목표 [--check]     (프로젝트 — equion.toml, D32)
 
 종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(--fail-on) · 3 입력 오류 · 130 중단
 """
@@ -50,7 +51,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = _Parser(prog=PROG, description="Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·정보·새 프로젝트",
+    p = _Parser(prog=PROG, description="Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·정보·새 프로젝트·조립 검사",
                 epilog="종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(--fail-on) · 3 입력 오류 · 130 중단")
     p.add_argument("--version", action="version",
                    version=f"equion {project_version()}")
@@ -108,8 +109,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     n = sub.add_parser("new", help="새 프로젝트 폴더(예시 데이터·방정식·스크립트)")
     n.add_argument("path", help="만들 폴더")
-    n.add_argument("--bare", action="store_true", help="예시 없이 빈 뼈대만")
+    n.add_argument("--template", choices=("script", "desk"), default="script",
+                   help="script: 스크립트 예시(기본) · desk: 블록·모형 조립 프로젝트(equion.toml)")
+    n.add_argument("--bare", action="store_true", help="예시 없이 빈 뼈대만(script)")
     n.add_argument("--force", action="store_true", help="비어 있지 않은 폴더에도 쓴다(같은 이름 파일을 덮음)")
+
+    a = sub.add_parser("assemble", help="프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수)")
+    a.add_argument("model", nargs="?", help="모형 또는 블록 이름(기본: equion.toml [hs] model)")
+    a.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
+    a.add_argument("--json", action="store_true", help="결과를 JSON으로")
+
+    d = sub.add_parser("ident", help="프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다")
+    d.add_argument("part", help="항등식 이름 블록:목표(예: demand:Y)")
+    d.add_argument("--check", action="store_true", help="실측으로 좌변·우변을 계산해 견준다")
+    d.add_argument("--range", metavar="S:E", help="검사 구간(기본: 자료 전체)")
+    d.add_argument("--tol", type=float, default=1e-6, help="허용오차(|차이| ≤ tol·max(1,|좌변|), 기본 1e-6)")
+    d.add_argument("--strict", action="store_true", help="어긋나면 실패(종료 코드 3)로 본다")
+    d.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
+    d.add_argument("--json", action="store_true", help="결과를 JSON으로")
     return p
 
 
@@ -379,16 +396,90 @@ def cmd_convert(args) -> int:
 def cmd_new(args) -> int:
     from .new import create_project
     try:
-        files = create_project(args.path, bare=args.bare, force=args.force)
-    except (OSError, FileExistsError) as e:
+        if args.template == "desk":
+            if args.bare:
+                raise ValueError("--bare는 --template script에서만 씁니다")
+            from ..projects.template import create_desk_project
+            files = create_desk_project(args.path, force=args.force)
+        else:
+            files = create_project(args.path, bare=args.bare, force=args.force)
+    except (OSError, FileExistsError, ValueError) as e:
         print(f"{PROG}: 오류: {e}", file=sys.stderr)
         return EXIT_INPUT
     print(f"새 프로젝트 {args.path}:")
     for f in files:
         print(f"  {f}")
-    if not args.bare:
+    if args.template == "desk":
+        print(f"\n다음:\n  cd {args.path}\n  equion assemble main")
+    elif not args.bare:
         print(f"\n다음:\n  cd {args.path}\n  equion run scripts/main.py")
     return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# 프로젝트: assemble / ident
+# ---------------------------------------------------------------------------
+def _open_project(path):
+    from ..projects import Project
+    return Project.open(path)
+
+
+def _summary_quiet(fn):
+    """명령의 결과 글만 보이게 — 실행하는 동안 요약 줄(자료 열기 등)을 감추고 끝나면 되돌린다."""
+    def wrapped(args):
+        from ..workfile.output import verbose
+        old = verbose()
+        verbose(0)
+        try:
+            return fn(args)
+        finally:
+            verbose(old)
+    return wrapped
+
+
+@_summary_quiet
+def cmd_assemble(args) -> int:
+    from ..projects import ProjectError
+    try:
+        p = _open_project(args.project)
+        rep = p.assemble(args.model)
+    except (ProjectError, KeyError) as e:
+        print(f"{PROG}: 오류: {e.args[0] if isinstance(e, KeyError) else e}", file=sys.stderr)
+        return EXIT_INPUT
+    print(json.dumps(rep.to_dict(), ensure_ascii=False, indent=2) if args.json else rep.text())
+    return EXIT_OK if rep.ok else EXIT_INPUT
+
+
+@_summary_quiet
+def cmd_ident(args) -> int:
+    from ..projects import ProjectError
+    try:
+        p = _open_project(args.project)
+        part = p.part(args.part)
+        if part.kind != "identity":
+            raise ValueError(f"{part.id} — 항등식이 아니라 추정식입니다: {part.text}")
+        if not args.check:
+            info = {"part": part.id, "where": part.where, "text": part.text, "desc": part.desc,
+                    "used_by": p.used_by(part.id)}
+            if args.json:
+                print(json.dumps(info, ensure_ascii=False, indent=2))
+            else:
+                print(f"[ident {part.id}] {part.text}   ({part.where})"
+                      + (f"\n  설명   {part.desc}" if part.desc else "")
+                      + f"\n  쓰는 곳  {', '.join(info['used_by']) or '없음'}"
+                      + "\n  실측으로 검사: --check")
+            return EXIT_OK
+        start = end = None
+        if args.range:
+            if ":" not in args.range:
+                raise ValueError(f"--range는 시작:끝 꼴입니다: {args.range!r}")
+            start, end = [t.strip() or None for t in args.range.split(":", 1)]
+        res = p.ident(part.id, start=start, end=end, tol=args.tol)
+    except (ProjectError, KeyError, ValueError) as e:
+        print(f"{PROG}: 오류: {e.args[0] if isinstance(e, KeyError) else e}", file=sys.stderr)
+        return EXIT_INPUT
+    print(json.dumps(res.to_dict(), ensure_ascii=False, indent=2) if args.json else res.text())
+    return EXIT_INPUT if (args.strict and not res.ok) else EXIT_OK
 
 
 def _safe_streams():
@@ -432,6 +523,10 @@ def main(argv=None) -> int:
             return cmd_new(args)
         if args.command == "convert":
             return cmd_convert(args)
+        if args.command == "assemble":
+            return cmd_assemble(args)
+        if args.command == "ident":
+            return cmd_ident(args)
     except KeyboardInterrupt:
         return EXIT_INTERRUPT
     parser.print_help()

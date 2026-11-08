@@ -21,7 +21,7 @@ helptext("--help")
 ```text
 사용법: equion [-h] [--version] 명령 ...
 
-Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·정보·새 프로젝트
+Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·정보·새 프로젝트·조립 검사
 
 인자:
   명령
@@ -30,6 +30,8 @@ Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·
     info      데이터·워크파일·방정식 파일·보고서 폴더 요약(경로 없으면 실행 환경)
     convert   옛 저장 형식(레거시 pickle·.wt·.mmw)을 워크파일(.eqw)로
     new       새 프로젝트 폴더(예시 데이터·방정식·스크립트)
+    assemble  프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수)
+    ident     프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다
 
 옵션:
   -h, --help  도움말을 보이고 끝낸다
@@ -149,15 +151,17 @@ helptext("convert", "--help")
 ```
 <!-- out -->
 ```text
-사용법: equion new [-h] [--bare] [--force] path
+사용법: equion new [-h] [--template {script,desk}] [--bare] [--force] path
 
 인자:
-  path        만들 폴더
+  path                  만들 폴더
 
 옵션:
-  -h, --help  도움말을 보이고 끝낸다
-  --bare      예시 없이 빈 뼈대만
-  --force     비어 있지 않은 폴더에도 쓴다(같은 이름 파일을 덮음)
+  -h, --help            도움말을 보이고 끝낸다
+  --template {script,desk}
+                        script: 스크립트 예시(기본) · desk: 블록·모형 조립 프로젝트(equion.toml)
+  --bare                예시 없이 빈 뼈대만(script)
+  --force               비어 있지 않은 폴더에도 쓴다(같은 이름 파일을 덮음)
 사용법: equion convert [-h] [--allow-pickle] [--name NAME] src dst
 
 인자:
@@ -169,6 +173,45 @@ helptext("convert", "--help")
   --allow-pickle  레거시 pickle을 연다(열 때 코드가 실행될 수 있음 — 믿을 수 있는 파일만)
   --name NAME     워크파일 이름
 ```
+
+## equion assemble · equion ident
+
+프로젝트 폴더(`equion.toml` — [파일 형식](formats.md#프로젝트equiontoml))에서 씁니다. 예제 프로젝트는 `equion new 폴더 --template desk`.
+
+```python
+helptext("assemble", "--help")
+helptext("ident", "--help")
+```
+<!-- out -->
+```text
+사용법: equion assemble [-h] [--project 폴더] [--json] [model]
+
+인자:
+  model             모형 또는 블록 이름(기본: equion.toml [hs] model)
+
+옵션:
+  -h, --help        도움말을 보이고 끝낸다
+  --project, -p 폴더  프로젝트 폴더(기본: 지금 폴더)
+  --json            결과를 JSON으로
+사용법: equion ident [-h] [--check] [--range S:E] [--tol TOL] [--strict] [--project 폴더] [--json] part
+
+인자:
+  part              항등식 이름 블록:목표(예: demand:Y)
+
+옵션:
+  -h, --help        도움말을 보이고 끝낸다
+  --check           실측으로 좌변·우변을 계산해 견준다
+  --range S:E       검사 구간(기본: 자료 전체)
+  --tol TOL         허용오차(|차이| ≤ tol·max(1,|좌변|), 기본 1e-6)
+  --strict          어긋나면 실패(종료 코드 3)로 본다
+  --project, -p 폴더  프로젝트 폴더(기본: 지금 폴더)
+  --json            결과를 JSON으로
+```
+
+`assemble`은 계산 없이 모형(또는 블록 하나)의 구조를 봅니다 — 조립(모형 안의 모형·블록·뺀 식), 내생·외생과 외생 자료의 끝, 블록 사이 연결,
+풀이 블록, 문제(한 모형에 같은 목표변수가 둘 · 자료에도 없고 어떤 식도 정하지 않는 변수 · 블록 파일의 문법 오류 — 파일:줄과 함께).
+문제가 있으면 종료 코드 3입니다. `ident`는 항등식 하나를 보이고(쓰는 모형 포함), `--check`면 실측으로 좌변과 우변을 계산해 견줍니다
+(어긋나도 0, `--strict`면 3).
 
 ## 환경변수
 

@@ -6,6 +6,12 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
 ## 미공개
 
 ### 추가
+- **프로젝트 — 부품과 조립(0.8 E1, D32)**: 폴더 하나를 `equion.toml`(자료 파일·블록·모형 조립·묶음·HS 기본값)로 다룹니다.
+  블록은 방정식 파일 하나, 식 한 줄은 부품 `블록:목표`(예: `demand:CN`)이고, 모형은 블록과 다른 모형을 이름으로 끼워(`include`) 식을 빼서(`exclude`)
+  조립합니다. `eqn.project(폴더)` → `Project`: `.assemble`(계산 없이 조립 검사 — 내생·외생·겹친 목표·모르는 변수·외생 자료 끝·블록 사이 연결·풀이 블록),
+  `.model`(워크파일 모델 객체로), `.hs`(과거 재현 — 블록 이름이면 블록 HS), `.ident`(항등식을 실측으로 검사), `.used_by`(쓰는 곳),
+  바꿔 끼우기(`swap={부품: 식}` — 파일은 그대로). 명령줄 `equion assemble [모형]`·`equion ident 블록:목표 [--check]`,
+  예제 프로젝트 `equion new 폴더 --template desk`(가상 분기 모형). 형식은 [`docs/reference/formats.md`](docs/reference/formats.md), 레시피 R48.
 - **문서 체계(D27)**: 시작하기 · 튜토리얼 8편 · 레시피 · 해설 · 참조 · 사례 연구(Klein형) · EViews 사용자 안내 ·
   영문 시작 문서. 시작점은 [`docs/README.md`](docs/README.md)입니다. 문서의 예제는 실제로 돌고, 출력도 실행 결과입니다.
   `python docs/build_docs.py --check`가 CI에서 예제 실행·출력·링크·API 설명과 예제·doctest를 확인합니다.

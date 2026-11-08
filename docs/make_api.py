@@ -80,6 +80,7 @@ def _groups():
     from equion import datasets
     from equion.data import transform
     from equion.workfile import objects, output, sysobj, varobj, workfile
+    import equion.projects as project
 
     def members(cls):
         out = []
@@ -117,7 +118,10 @@ def _groups():
          [(n, getattr(eqn.stats, n)) for n in eqn.stats.__all__ if not n.isupper()], True),
         ("20. 자료 변환 `equion.data.transform`", "transform",
          [(n, getattr(transform, n)) for n in transform.__all__ if not n.isupper()], True),
-        ("21. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다", "eqn", [(n, getattr(eqn, n)) for n in ADVANCED], False),
+        ("21. 프로젝트 `eqn.project(…)`", "Project", members(project.Project), True),
+        ("22. 조립 검사 결과 `p.assemble(…)`", "AssemblyReport", members(project.AssemblyReport), False),
+        ("23. 항등식 검사 결과 `p.ident(…)`", "IdentityCheck", members(project.IdentityCheck), False),
+        ("24. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다", "eqn", [(n, getattr(eqn, n)) for n in ADVANCED], False),
     ]
     return groups
 

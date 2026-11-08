@@ -9,7 +9,8 @@
     eqn.stats    회귀 결과·강건 공분산·진단 검정·단위근/공적분(numpy·pandas를 받는 함수)
     eqn.log      로그 설정
     eqn.datasets 예제 자료(toy_q·toy_a·toy_m·klein_like — 문서·튜토리얼이 쓰는 가상 자료)
-    명령줄 `equion run|check|info|new|convert`
+    eqn.project · eqn.Project   프로젝트(equion.toml — 블록·모형 조립·조립 검사·HS·항등식 검사, D32)
+    명령줄 `equion run|check|info|new|convert|assemble|ident`
 고급(엔진 수준 — 드라이버·확장용, 바뀔 수 있음):
     eqn.Data · eqn.Equation · eqn.Model · eqn.Scenario · eqn.WorkTable · eqn.Workspace
 내부(직접 쓰지 말 것): formula · system · worktable 하위 모듈의 밑줄 없는 이름 외 모든 것, `_legacy/`(1.0에서 삭제)
@@ -28,11 +29,14 @@ from .scenario import Scenario
 from .worktable import WorkTable, Workspace, current
 from .workfile import Workfile, wfcreate, wfopen, show, params, secret, verbose, spool
 from . import datasets, log, stats
+from .projects import Project
+from .projects import open_project as project   # eqn.project(폴더) — 하위 패키지는 equion.projects
 
 __all__ = [
     # 공개 API
     "__version__", "print_version",
     "Workfile", "wfcreate", "wfopen", "show", "params", "secret", "verbose", "spool", "stats", "log", "datasets",
+    "project", "Project",
     # 고급(엔진 수준)
     "Data", "Equation", "Model", "Scenario", "WorkTable", "Workspace", "current",
 ]

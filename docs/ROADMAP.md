@@ -75,11 +75,11 @@
 Equion Desk 개발 계획(`DESK_DEVPLAN.md`)의 단계 E. 끝나면 Desk 없이도 Lectern 터미널과 Claude로 "자료를 넣고 `equion run monthly.eqs`"가 된다.
 수치 코어(파서·IR·풀이·통계)는 고치지 않는다 — 워크파일 API 위의 새 층.
 
-- [ ] E1 프로젝트·조립: `equion.toml`·블록·채택표·이름·조립 검사·블록 HS·바꿔 끼우기·항등식 검사·`eqn.project()`, 예제 프로젝트
-      `equion new --template desk`(가상 분기 모형) — `assemble`·`ident` (D32)
+- [x] E1 프로젝트·조립(2026-11-09): `equion.toml`·블록·이름·조립 검사·블록 HS·바꿔 끼우기·항등식 검사·`eqn.project()`, 예제 프로젝트
+      `equion new --template desk`(가상 분기 모형) — `assemble`·`ident` (D32). 채택표는 기록과 함께 E3로 — 지금은 모형을 만들 때 지금 자료로 추정하고 알린다
 - [ ] E2 자료 정의·회차: 원자료·출처 해시, `series.toml`(불러오기 틀)·`derived.txt`, 회차·값의 종류, 틀 검사, 상대 기간 —
       `data add·build·use·diff·impact` (D34)
-- [ ] E3 작업 명령·기록: `work/` 기록·조립 명세·알아서 한 것·`summary.md`(md 렌더러), 바뀜 기록·제안 —
+- [ ] E3 작업 명령·기록: `work/` 기록·조립 명세·알아서 한 것·`summary.md`(md 렌더러), 채택표 `adopted.toml`, 바뀜 기록·제안 —
       `est`·`adopt`·`compare`·`hs`·`sim`·`export`·`work`·`propose`·`history` (D33·D35)
 - [ ] E4 분석·노트·보고서: 등록부·`an`·`note`·`report`, 묶음 (D37)
 - [ ] E5 스크립트·재연: `.eqs` 해석기·`run x.eqs`·`check x.eqs`·`--replay`·`script new·export`, `DATA/raw/inbox/` (D36)

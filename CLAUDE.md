@@ -36,6 +36,7 @@ scipy 1.17.1). pyarrow·plotly는 선택 기능(`equion[parquet]`·`[plot]`, dev
 uv sync                 # 노트북 커널 포함 + equion 편집 가능 설치(명령 .venv/bin/equion). 코어만: --no-dev
 
 uv run equion new demo                        # 바로 도는 예시 프로젝트(자료·방정식·스크립트)
+uv run equion new prj --template desk         # 블록·모형 조립 프로젝트(equion.toml) → cd prj; equion assemble main
 uv run equion check demo/EQUATIONS/model.txt --data demo/DATA/data.csv   # 실행 없이 검사
 uv run python docs/make_api.py                # docs/reference/api.md 다시 만들기(공개 docstring을 고쳤을 때, --check)
 uv run python docs/build_docs.py              # 문서 예제 실행 → 출력 채우기 · examples/ 내보내기 (--check: 바꾸지 않고 검사, --only 경로)
@@ -48,6 +49,7 @@ uv run python tests/test_stats.py             # 자체 통계 166/166 (OLS·WLS�
 uv run python tests/test_ast_formula.py       # 66/66 (레거시 formula 유틸)
 uv run python tests/test_100_equations.py     # 100/100
 uv run python tests/test_error_equations.py   # 에러 검증 시각화
+uv run python tests/test_project.py           # 프로젝트 82/82 (equion.toml·부품·조립 검사·블록 HS·항등식 검사·assemble/ident 명령)
 uv run python tests/test_docs.py              # 문서 검사(build_docs --check: 예제·출력·링크·API 설명과 예제·doctest)
 
 uv run pytest                                 # 위 묶음을 한 번에(파일마다 test_suite())
@@ -85,7 +87,8 @@ uv run pytest                                 # 위 묶음을 한 번에(파일�
 | `scenario/scenario.py` | `Scenario`(override·exclude·add-factor·충격·control)·전망 보조·확률적 모의·control·승수 |
 | `reporting/results.py` · `charts.py` | 결과 CSV(상태 열 포함) / 표시·차트 |
 | `workfile/` | **워크파일 API(라이브러리 1단계)**: `workfile.py`(`Workfile`·`wfopen`·`wfcreate`·smpl·genr·read/write·`.eqw` 저장·`ecm`·`forecast_eval`·`meta`·`page`·`convert`·`seas`) · `objects.py`(방정식·모델·시나리오·그래프·표 객체, `SolveResult`, `ECMResult`) · `sysobj.py`(시스템 객체) · `varobj.py`(VAR·VECM 객체) · `output.py`(출력 객체·스풀·`eqn.show`·`eqn.verbose`) · `runtime.py`(`eqn.params`). 엔진 API 위의 얇은 층 |
-| `cli/` | **명령줄(2단계)**: `commands.py`(argparse·`run`/`check`/`info`/`new`·`--threads` 재실행·`--watch`) · `runner.py`(스크립트 실행기·로그·종료 코드·`--fail-on`) · `report.py`(보고서 폴더·`manifest.json`·`report.html`) · `check.py` · `info.py` · `new.py`. `python -m equion` = `equion/__main__.py`. 실행 기록은 `workfile/runtime.py`의 `RunRecord` |
+| `projects/` | **프로젝트 — 부품·조립 층(D32, 0.8 E1)**: `config.py`(`equion.toml` 읽기·검사 — 문제를 모아 `ProjectError`) · `parts.py`(블록 파일 → 부품 `블록:목표`, 추정 없이 목표·변수) · `assembly.py`(조립 — include·exclude, 겹친 목표·모르는 변수·외생 자료 끝·블록 사이 연결·풀이 블록 → `AssemblyReport`) · `identity.py`(항등식 실측 검사) · `project.py`(`Project` — `assemble`·`model`·`hs`(블록 HS)·`ident`·`used_by`·바꿔 끼우기, `eqn.project`) · `template.py`(`equion new --template desk`). 워크파일 API 위의 얇은 층 — 추정·풀이는 엔진. `eqn.project`는 함수라 하위 패키지 이름은 `projects` |
+| `cli/` | **명령줄(2단계)**: `commands.py`(argparse·`run`/`check`/`info`/`new`/`assemble`/`ident`·`--threads` 재실행·`--watch`) · `runner.py`(스크립트 실행기·로그·종료 코드·`--fail-on`) · `report.py`(보고서 폴더·`manifest.json`·`report.html`) · `check.py` · `info.py` · `new.py`. `python -m equion` = `equion/__main__.py`. 실행 기록은 `workfile/runtime.py`의 `RunRecord` |
 | `worktable/worktable.py` | (엔진 수준) `WorkTable`/`Workspace` 세션: 주기·표본, `hs(start='auto')`, `forecast`·`extend`·`simulate`·`blocks`, 번들 v3 저장/복원(v2 읽기) |
 | `worktable/freq.py` · `_serial.py` | 주기 유틸·방정식 파일 파서(분류는 parser) / 번들 JSON 헬퍼 |
 | `datasets/` | **예제 자료(D27)**: `toy_q`·`toy_a`·`toy_m`·`klein_like`(참 모형을 아는 가상 자료, 만드는 코드 `_make.py`·고정 시드) · `load`·`describe`·`path`·`klein(path)`(사용자가 구한 실제 Klein 자료). 문서·docstring·시험 예제는 이것만 쓴다 |
@@ -95,7 +98,7 @@ uv run pytest                                 # 위 묶음을 한 번에(파일�
 
 | 위치 | 내용 |
 |------|------|
-| `tests/` | `test_engine.py` · `test_workfile.py` · `test_cli.py` · `test_stats.py` · `test_scenarios.py`(상황별 시나리오) · `test_ast_formula.py` · `test_100_equations.py` · `test_error_equations.py` · `test_docs.py`. 모두 예제 자료·합성 자료로 돈다. 기준값 `fixtures/{stats,estimation,data}_reference.json` — 만드는 `fixtures/make_*_reference.py`는 statsmodels·linearmodels·mpmath가 있는 **별도 환경**에서만(`PYTHONPATH=.`). `uv run pytest`가 파일마다 `test_suite()`를 부른다 |
+| `tests/` | `test_engine.py` · `test_workfile.py` · `test_cli.py` · `test_stats.py` · `test_scenarios.py`(상황별 시나리오) · `test_project.py`(프로젝트) · `test_ast_formula.py` · `test_100_equations.py` · `test_error_equations.py` · `test_docs.py`. 모두 예제 자료·합성 자료로 돈다. 기준값 `fixtures/{stats,estimation,data}_reference.json` — 만드는 `fixtures/make_*_reference.py`는 statsmodels·linearmodels·mpmath가 있는 **별도 환경**에서만(`PYTHONPATH=.`). `uv run pytest`가 파일마다 `test_suite()`를 부른다 |
 | `docs/` | **사용자 문서(D27, Markdown 원본)**: `README.md`(첫 페이지) · `start/`(설치·첫 모델·치트시트) · `tutorial/`(1~8) · `howto/`(레시피) · `explain/`(방정식 문법 `equations.md`·추정·풀이·시나리오·동태·검증·엔진 API) · `reference/`(`api.md` **자동 생성** — `make_api.py` · 명령줄·함수·출력·오류·파일 형식·예제 자료) · `cases/`(Klein형) · `eviews.md` · `en/`. 도구 `build_docs.py`·`make_api.py`. 프로젝트 문서 `DECISIONS.md`(D-번호) · `ROADMAP.md` · Desk 개발 계획 `DESK_DEVPLAN.md`와 기획 자료 `DESK*.md`. `USER_GUIDE.md`·`EQUATION_GUIDE.md`·`API.md`는 새 위치 안내만 |
 | `examples/` | `start/`·`tutorial/` 스크립트와 `notebooks/` — **문서에서 자동 생성**(`build_docs.py`), 손으로 고치지 않는다 |
 | `.github/` | `workflows/ci.yml`(locked 3 OS × py3.12~3.14 · minimal · lowest · latest · audit) · `release.yml`(태그 → 휠·설치 시험, PyPI는 `PYPI_PUBLISH` 변수로만) · `dependabot.yml` |

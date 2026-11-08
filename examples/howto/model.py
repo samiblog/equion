@@ -59,3 +59,11 @@ alt_cn = wf.equation("eq_cn_alt").ls("CN c Y CN(-1)")                       # TS
 m_alt = wf.model("toy_alt").merge(eq_i, alt_cn, eq_p).append("Y = CN + I + G")
 alt = m_alt.solve("1990Q1", "2019Q4").statistics()["RMSPE"]
 print(pd.DataFrame({"TSLS 소비식": base, "OLS 소비식": alt}).round(3))
+
+# %% R48. 프로젝트로 블록·모형 조립하기
+p = eqn.Project.create("demo_prj", force=True)   # 블록 demand·price·finance, 모형 core·main·main_fixrl
+print(p.assemble("main").text())          # 계산 없이 조립 검사 — 명령줄 equion assemble main
+r = p.hs("main")                          # [hs]의 구간·방식으로 과거 재현 — 식은 지금 자료로 추정해 조립
+print(r.statistics()["RMSPE"].round(3))
+print(p.hs("demand").counts())            # 블록 HS — 수요 블록만 풀고 나머지 변수는 실측
+print(p.ident("demand:Y").text())         # 항등식을 실측으로 검사 — 명령줄 equion ident demand:Y --check

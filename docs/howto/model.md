@@ -142,3 +142,50 @@ P      1.780    1.767
 같은 별칭(`_0`)에 쓰므로 비교할 때는 결과를 먼저 꺼내 둡니다(`statistics()` · `to_pandas`). 별칭을 나누려면 시나리오를 쓰세요.
 
 관련: [튜토리얼 4](../tutorial/04-model.md) · [연립 풀이 해설](../explain/solving.md)
+
+## R48. 프로젝트로 블록·모형 조립하기
+
+식을 블록(방정식 파일 하나)으로 나누고, `equion.toml`에서 블록과 다른 모형을 이름으로 끼워 모형을 조립합니다(형식은
+[파일 형식](../reference/formats.md#프로젝트equiontoml)). 예제 프로젝트는 명령줄 `equion new 폴더 --template desk`로도 만듭니다.
+
+```python
+p = eqn.Project.create("demo_prj", force=True)   # 블록 demand·price·finance, 모형 core·main·main_fixrl
+print(p.assemble("main").text())          # 계산 없이 조립 검사 — 명령줄 equion assemble main
+```
+<!-- out -->
+```text
+[demo_prj] 열기 data.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 10
+[assemble main] 수요 + 물가 + 금융 — 블록 3 · 추정식 5 · 항등식 1
+  조립   main = core(demand) + price + finance
+  내생 6  CN · I · Y · P · RL · M2
+  외생 3  G(~2019Q4) · POIL(~2019Q4) · R(~2019Q4)
+  연결   demand →Y→ price · price →P→ finance · demand →Y→ finance
+  풀이   블록 5 (동시 CN·Y)
+  문제   없음
+```
+
+```python
+r = p.hs("main")                          # [hs]의 구간·방식으로 과거 재현 — 식은 지금 자료로 추정해 조립
+print(r.statistics()["RMSPE"].round(3))
+print(p.hs("demand").counts())            # 블록 HS — 수요 블록만 풀고 나머지 변수는 실측
+print(p.ident("demand:Y").text())         # 항등식을 실측으로 검사 — 명령줄 equion ident demand:Y --check
+```
+<!-- out -->
+```text
+[main] 채택 기록 없이 지금 자료로 추정: demand:CN, demand:I, price:P, finance:RL, finance:M2
+[main] baseline(_0) dynamic 2005Q1~2019Q4: 정상 60 · 일부식 제외 0 · 실패대체 0 · 실패 0
+Y     0.474
+CN    0.505
+I     0.857
+P     1.435
+M2    2.243
+RL    9.682
+Name: RMSPE, dtype: float64
+[demand] baseline(_0) dynamic 2005Q1~2019Q4: 정상 60 · 일부식 제외 0 · 실패대체 0 · 실패 0
+{'ok': 60, 'partial': 0, 'fallback': 0, 'failed': 0}
+[ident demand:Y] Y = CN + I + G   (EQUATIONS/demand.txt:4)
+  구간   1970Q1~2019Q4 · 비교 200기
+  결과   성립 · 최대 |차이| 1e-06 · 최대 |차이%| 3.431e-07%
+```
+
+모형을 고치기 전에 영향 범위는 `p.used_by("demand")`, 파일을 바꾸지 않고 식 하나만 바꿔 보려면 `p.hs("main", swap={"demand:CN": "CN c Y"})`.
