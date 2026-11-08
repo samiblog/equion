@@ -29,7 +29,11 @@ Equion 0.7.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstri
 - [21. 프로젝트 eqn.project(…)](#21-프로젝트-eqnproject)
 - [22. 조립 검사 결과 p.assemble(…)](#22-조립-검사-결과-passemble)
 - [23. 항등식 검사 결과 p.ident(…)](#23-항등식-검사-결과-pident)
-- [24. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#24-고급엔진-수준--드라이버확장용-바뀔-수-있다)
+- [24. 자료 만들기 결과 p.data_build()](#24-자료-만들기-결과-pdata_build)
+- [25. 자료 회차 차이 p.data_diff(…)](#25-자료-회차-차이-pdata_diff)
+- [26. 회차 영향 p.data_impact(…)](#26-회차-영향-pdata_impact)
+- [27. 원자료 넣기 결과 p.data_add(…)](#27-원자료-넣기-결과-pdata_add)
+- [28. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#28-고급엔진-수준--드라이버확장용-바뀔-수-있다)
 - [22. 명령줄 `equion`](#22-명령줄-equion)
 
 ## 1. `import equion as eqn`
@@ -3725,12 +3729,20 @@ s[:4].round(6).tolist()
 | `root` | `속성` | 프로젝트 폴더의 절대 경로. |
 | `blocks` | `속성` | 블록 이름 목록(설정 파일 순서). |
 | `models` | `속성` | 모형 이름 목록(설정 파일 순서). |
-| `workfile` | `속성` | 프로젝트 자료의 워크파일(처음 쓸 때 [data] file을 연다). |
+| [`workfile`](#projectworkfile) | `속성` | 프로젝트 자료의 워크파일 — 자료 정의를 쓰면 지금 자료 회차, 아니면 [data] file(처음 쓸 때 연다). |
+| `vintage` | `속성` | 지금 자료 회차(equion.toml [data] vintage) — 자료 파일 하나를 쓰면 None. |
+| [`data_build`](#projectdata_build) | `(use=False)` | 자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다. |
+| [`data_use`](#projectdata_use) | `(vid)` | 이 회차로 바꾸기 — equion.toml의 [data] vintage를 고치고(주석·순서는 그대로) 자료를 다시 연다. 이전 회차를 돌려준다. |
+| [`data_list`](#projectdata_list) | `()` | 자료 회차 목록(만든 때 순) — {id, created, span, n_series, current}. |
+| [`data_diff`](#projectdata_diff) | `(a=None, b=None)` | 두 자료 회차의 차이 — 새·없어진 시리즈, 시리즈마다 새 기간과 개정(기간·크기). |
+| [`data_impact`](#projectdata_impact) | `(a=None, b=None)` | 회차를 바꾸면 영향받는 것 — 바뀐 시리즈를 쓰는 식(부품)과 모형. 다시 계산은 하지 않는다(사람이 시킬 때만). |
+| [`data_add`](#projectdata_add) | `(path, source=None, as_name=None, note=None)` | 원자료 넣기 — 파일을 DATA/raw/에 복사한다(받은 그대로, 같은 이름이면 날짜를 붙여 나란히). source를 주면 그 출처가 이 파일을 읽도록 series.toml을 고치되, 먼저 그 출처의 불러오기 틀로 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을 때만 넣고 고친다(틀 검사 — 맞지 않으면 아무것도 바꾸지 않고 `.problems`에 까닭). |
 | [`parts`](#projectparts) | `(name=None)` | 부품(식·항등식) 목록 — name이 없으면 전부, 블록 이름이면 그 블록, 모형 이름이면 조립된 식들. |
 | [`part`](#projectpart) | `(pid)` | 부품 하나 — `블록:목표`(대소문자 무시). |
 | [`used_by`](#projectused_by) | `(name)` | 쓰는 곳 — 블록이나 부품(`블록:목표`)을 쓰는 모형 목록. 고치기 전에 영향 범위를 본다. |
 | [`assemble`](#projectassemble) | `(name=None, swap=None)` | 조립 검사 — 계산 없이 모형(또는 블록)의 구조를 본다: 내생·외생, 겹친 목표, 모르는 변수, 외생 자료 끝, 블록 사이 연결, 풀이 블록. |
 | [`model`](#projectmodel) | `(name=None, swap=None)` | 모형(또는 블록)을 조립해 워크파일 모델 객체로 — 추정식은 지금 자료로 추정하고 항등식은 그대로 넣는다. |
+| [`span`](#projectspan) | `(spec)` | 구간 표기 → (시작, 끝) 라벨 — '2005Q1:2019Q4' · '2005Q1:last' · 'last-39:last' · 'next:12'. last는 자료의 마지막 값이 있는 기간. |
 | [`hs`](#projecths) | `(name=None, start=None, end=None, mode=None, swap=None, **opts)` | 과거 재현(HS) — 모형이나 블록을 풀어 실측과 견준다. 블록이면 그 블록만 풀고 나머지 변수는 실측(블록 HS). |
 | [`ident`](#projectident) | `(pid, start=None, end=None, tol=1e-06)` | 항등식 단독 검사 — 실측으로 좌변과 우변을 계산해 견준다(추정 없이). |
 
@@ -3761,8 +3773,9 @@ eqn.Project.open(d).name
 
 예제 프로젝트를 만들고 연다 — 명령줄 `equion new 폴더 --template desk`와 같다.
 
-예제는 가상 분기 모형(예제 자료 toy_q)이다: 블록 demand(소비·투자·국민소득 항등식)·price(물가)·finance(장기금리·통화),  
-모형 core·main·main_fixrl.  
+예제는 가상 분기 모형이다: 원자료 toy_q·toy_m(DATA/raw/), 자료 정의(DATA/series.toml·derived.txt — 주기 변환·계절조정 예 포함),  
+블록 demand(소비·투자·국민소득 항등식)·price(물가)·finance(장기금리·통화), 모형 core·main·main_fixrl.  
+첫 자료 회차를 만들어 지금 회차로 정한다(`.created_files`에 만든 파일 목록).  
 
 **매개변수**
 
@@ -3780,8 +3793,150 @@ eqn.Project.open(d).name
 ```python
 import tempfile, os
 p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
-p.assemble("main").ok
+p.assemble("main").ok, p.vintage is not None
+# (True, True)
+```
+
+### Project.workfile
+
+`workfile` (속성)
+
+프로젝트 자료의 워크파일 — 자료 정의를 쓰면 지금 자료 회차, 아니면 [data] file(처음 쓸 때 연다).
+
+**오류**
+
+- `ProjectError`: 자료 정의를 쓰는데 지금 회차가 없음(equion data build → equion data use)
+
+### Project.data_build
+
+`data_build(use=False)`
+
+자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다.
+
+같은 원자료·정의로 만든 회차가 이미 있으면 새로 만들지 않고 그 회차를 알린다. 지금 회차는 저절로 바뀌지 않는다(use=True면 바꾼다).  
+
+**매개변수**
+
+- `use`: 참이면 만든(또는 같은) 회차를 지금 회차로
+
+**돌려주는 것**
+
+BuildResult — .id · .created · .n_series · .span · .implicit(알아서 한 것) · .text()  
+
+**오류**
+
+- `ProjectError`: 정의·원자료 문제(없는 열·틀이 맞지 않음·주기 변환·파생식 — 위치와 함께)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.data_build()
+r.created, r.id == p.vintage        # 정의가 그대로라 같은 회차
+# (False, True)
+```
+
+### Project.data_use
+
+`data_use(vid)`
+
+이 회차로 바꾸기 — equion.toml의 [data] vintage를 고치고(주석·순서는 그대로) 자료를 다시 연다. 이전 회차를 돌려준다.
+
+**오류**
+
+- `ProjectError`: 없는 회차
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+v = p.vintage
+p.data_use(v) == v
 # True
+```
+
+### Project.data_list
+
+`data_list()`
+
+자료 회차 목록(만든 때 순) — {id, created, span, n_series, current}.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+[v["current"] for v in p.data_list()]
+# [True]
+```
+
+### Project.data_diff
+
+`data_diff(a=None, b=None)`
+
+두 자료 회차의 차이 — 새·없어진 시리즈, 시리즈마다 새 기간과 개정(기간·크기).
+
+기본은 지금 회차 → 가장 새 회차(같으면 그 앞 회차 → 가장 새 회차).  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+d = p.data_diff(p.vintage, p.vintage)
+d.added, d.changed
+# ([], [])
+```
+
+### Project.data_impact
+
+`data_impact(a=None, b=None)`
+
+회차를 바꾸면 영향받는 것 — 바뀐 시리즈를 쓰는 식(부품)과 모형. 다시 계산은 하지 않는다(사람이 시킬 때만).
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.data_impact(p.vintage, p.vintage)
+r.parts, r.models
+# ([], [])
+```
+
+### Project.data_add
+
+`data_add(path, source=None, as_name=None, note=None)`
+
+원자료 넣기 — 파일을 DATA/raw/에 복사한다(받은 그대로, 같은 이름이면 날짜를 붙여 나란히). source를 주면 그 출처가 이 파일을 읽도록 series.toml을 고치되, 먼저 그 출처의 불러오기 틀로 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을 때만 넣고 고친다(틀 검사 — 맞지 않으면 아무것도 바꾸지 않고 `.problems`에 까닭).
+
+**매개변수**
+
+- `path`: 넣을 파일(csv·xlsx·xls)
+- `source`: 바꿀 출처 이름([source.이름]) — 원자료 바꾸기
+- `as_name`: DATA/raw/에 둘 이름(기본: 파일 이름)
+- `note`: 출처 메모(옆 파일 *.source.toml에)
+
+**돌려주는 것**
+
+AddResult — .file · .copied · .source · .problems(틀이 맞지 않으면 — 그때 출처는 그대로)  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.data_add(eqn.datasets.path("toy_q"))      # 같은 파일이 이미 있다
+r.copied, r.file
+# (False, 'DATA/raw/toy_q.csv')
 ```
 
 ### Project.parts
@@ -3899,6 +4054,22 @@ m.endogenous
 # ['CN', 'I', 'Y']
 ```
 
+### Project.span
+
+`span(spec)`
+
+구간 표기 → (시작, 끝) 라벨 — '2005Q1:2019Q4' · '2005Q1:last' · 'last-39:last' · 'next:12'. last는 자료의 마지막 값이 있는 기간.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.span("last-3:last"), p.span("next:4")
+# (('2019Q1', '2019Q4'), ('2020Q1', '2020Q4'))
+```
+
 ### Project.hs
 
 `hs(name=None, start=None, end=None, mode=None, swap=None, **opts)`
@@ -3987,7 +4158,39 @@ c.ok, c.n
 | `output` | `()` | 기간별 표(좌변·우변·차이·차이%). |
 | `show` | `()` | 짧은 글을 보인다. |
 
-## 24. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
+## 24. 자료 만들기 결과 `p.data_build()`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 25. 자료 회차 차이 `p.data_diff(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `changed` | `속성` | 새 값·개정·없어진 값이 있는 시리즈. |
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+| `output` | `()` | 바뀐 시리즈 표. |
+| `show` | `()` | 짧은 글을 보인다. |
+
+## 26. 회차 영향 `p.data_impact(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+| `show` | `()` | 짧은 글을 보인다. |
+
+## 27. 원자료 넣기 결과 `p.data_add(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 28. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4076,3 +4279,4 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `new` | --bare --force --help --template | 새 프로젝트 폴더(예시 데이터·방정식·스크립트) |
 | `assemble` | --help --json --project | 프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수) |
 | `ident` | --check --help --json --project --range --strict --tol | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |
+| `data` | --help | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 |

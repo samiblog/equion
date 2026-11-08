@@ -12,6 +12,15 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
   `.model`(워크파일 모델 객체로), `.hs`(과거 재현 — 블록 이름이면 블록 HS), `.ident`(항등식을 실측으로 검사), `.used_by`(쓰는 곳),
   바꿔 끼우기(`swap={부품: 식}` — 파일은 그대로). 명령줄 `equion assemble [모형]`·`equion ident 블록:목표 [--check]`,
   예제 프로젝트 `equion new 폴더 --template desk`(가상 분기 모형). 형식은 [`docs/reference/formats.md`](docs/reference/formats.md), 레시피 R48.
+- **자료 정의와 자료 회차(0.8 E2, D34)**: 원자료(`DATA/raw/`, 받은 그대로) → 정의(`DATA/series.toml` — 불러오기 틀: 시트·열 이름 줄·단위 줄·
+  시점 열·결측 표시·천 단위, 시리즈마다 출처 열·주기 변환·배율·채움·계절조정·단위·설명 / `DATA/derived.txt` — 파생식) → 회차(`work/data/<회차>/` —
+  `series.csv`·`flags.csv`(값의 종류: 실측·변환·채움·파생·결측)·`meta.json`·`build.json`(입력 해시·알아서 한 것)·`summary.md`).
+  같은 원자료·정의로 다시 만들면 같은 회차를 알리고 새로 만들지 않습니다. 만들어도 지금 회차는 그대로이고 '이 회차로 바꾸기'가
+  `equion.toml [data] vintage`를 고칩니다(주석·순서 그대로). 두 회차의 차이(새·없어진 시리즈, 새 기간, 개정의 기간·크기)와
+  영향(바뀐 시리즈를 쓰는 식·모형 — 다시 계산하지 않음). 원자료 넣기는 틀로 먼저 읽어 보고 맞을 때만 출처를 바꿉니다.
+  흔한 시점 꼴(`2003.Q4`·`2003년 4/4분기`·`2003년 10월`·`2003.10`)과 괄호 음수, cp949 csv를 읽습니다.
+  `Project.data_build·data_use·data_list·data_diff·data_impact·data_add`, 명령줄 `equion data list·add·build·use·diff·impact`,
+  상대 기간 `Project.span`(`2005Q1:last`·`last-39:last`·`first+3`·`next:12` — `[hs] range`·`hs`·`ident`에서도). 레시피 R49.
 - **문서 체계(D27)**: 시작하기 · 튜토리얼 8편 · 레시피 · 해설 · 참조 · 사례 연구(Klein형) · EViews 사용자 안내 ·
   영문 시작 문서. 시작점은 [`docs/README.md`](docs/README.md)입니다. 문서의 예제는 실제로 돌고, 출력도 실행 결과입니다.
   `python docs/build_docs.py --check`가 CI에서 예제 실행·출력·링크·API 설명과 예제·doctest를 확인합니다.
@@ -24,6 +33,9 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
 - 안정성 판정이 `안정`·`단위근`·`불안정`으로 나뉩니다(`StabilityResult.verdict`·`unit_roots`·`explosive`). `stability_path`에 `판정` 열을 더했습니다.
 
 ### 바뀜
+- 예제 프로젝트(`--template desk`)는 자료 정의·회차를 씁니다 — 원자료 `DATA/raw/toy_q.csv`·`toy_m.csv`, 만들 때 첫 회차를 지금 회차로,
+  `[hs] range = "2005Q1:last"`(새 회차로 바꾸면 따라 늘어난다). 자료 파일 하나(`[data] file`)를 쓰는 프로젝트도 그대로 됩니다.
+- 필수 의존성 `tomlkit`(정의 파일을 주석·순서를 지키며 고친다, D38).
 - `docs/EQUATION_GUIDE.md` → `docs/explain/equations.md`, `docs/API.md` → `docs/reference/api.md`(옛 위치에는 안내만 남김).
 - 모델에 같은 항등식을 다시 `append`해도 한 번만 들어갑니다(공백·대소문자 무시).
 - `forecast(start, end)`는 `end`가 워크파일 끝보다 뒤일 때만 기간을 늘립니다.

@@ -180,3 +180,48 @@ def resample(df: pd.DataFrame, freq: str, how="mean") -> pd.DataFrame:
     """다른 주기로 변환(기간 첫날 인덱스). how: 'mean'·'sum'·'last'… 또는 {열: 규칙}."""
     r = df.resample(RESAMPLE_RULE[normalize_freq(freq)])
     return r.agg(how) if isinstance(how, dict) else getattr(r, how)()
+
+
+# ---------------------------------------------------------------------------
+# 상대 기간 — 자료 끝에 맞춰 적는 구간(D34): last · last-39 · first+4 · next:12
+# ---------------------------------------------------------------------------
+_REL_TOKEN = re.compile(r"^(first|last)\s*(?:([+-])\s*(\d+))?$", re.IGNORECASE)
+_NEXT_SPAN = re.compile(r"^next\s*:\s*(\d+)$", re.IGNORECASE)
+
+
+def is_relative(token) -> bool:
+    """first · last · last-N · first+N 꼴이면 참."""
+    return token is not None and bool(_REL_TOKEN.match(str(token).strip()))
+
+
+def resolve_token(token, index: pd.DatetimeIndex, freq: str, first: int = 0, last: int = None) -> str:
+    """기간 표기 하나 → 라벨. first·last(자료의 처음·끝 위치 — 기본은 인덱스의 처음·끝)와 ±N을 받는다.
+    자료 밖으로 나가도 된다(예: last+4 — 전망 구간). 보통 라벨은 그대로(검사만)."""
+    s = str(token).strip()
+    m = _REL_TOKEN.match(s)
+    if not m:
+        return format_period(parse_period(s, freq), freq)
+    pos = first if m[1].lower() == "first" else (len(index) - 1 if last is None else last)
+    base = to_period(index[pos], freq)
+    k = int(m[3] or 0) * (-1 if m[2] == "-" else 1)
+    return format_period(base + k, freq)
+
+
+def resolve_span(spec: str, index: pd.DatetimeIndex, freq: str, first: int = 0, last: int = None):
+    """구간 표기 → (시작 라벨, 끝 라벨). 'S:E'(S·E는 라벨 · first · last · last-N · first+N) 또는 'next:N'(자료 끝 다음 기부터 N기).
+
+    예: 'last-39:last'(끝에서 40기) · '2005Q1:last' · 'next:12'(전망 12기)."""
+    s = str(spec).strip()
+    m = _NEXT_SPAN.match(s)
+    if m:
+        n = int(m[1])
+        if n < 1:
+            raise ValueError(f"next:N의 N은 1 이상: {spec!r}")
+        return (resolve_token("last+1", index, freq, first, last), resolve_token(f"last+{n}", index, freq, first, last))
+    if ":" not in s:
+        raise ValueError(f"구간 표기는 '시작:끝' 또는 'next:N'입니다: {spec!r}")
+    a, b = [t.strip() for t in s.split(":", 1)]
+    start, end = resolve_token(a, index, freq, first, last), resolve_token(b, index, freq, first, last)
+    if parse_period(start, freq) > parse_period(end, freq):
+        raise ValueError(f"구간의 시작({start})이 끝({end})보다 뒤입니다: {spec!r}")
+    return start, end

@@ -73,3 +73,19 @@ new = eqn.wfcreate("from_df", "Q", "1970Q1", "2019Q4")
 for c in df.columns:
     new[c] = df[c]
 print(new.series())
+
+# %% R49. 원자료에서 자료 회차로 — 넣기·만들기·차이·바꾸기
+p = eqn.Project.create("data_prj", force=True)       # 예제 프로젝트 — 첫 회차를 만들어 지금 회차로
+v0 = p.vintage
+raw = pd.read_csv("data_prj/DATA/raw/toy_q.csv", index_col=0)
+raw.loc["2019Q1":"2019Q4", "CN"] *= 1.01             # 받은 새 자료: 지난 4분기 소비 개정
+raw.loc["2020Q1"] = raw.iloc[-1] * 1.005             # + 새 분기
+raw.to_csv("toy_q_new.csv")
+print(p.data_add("toy_q_new.csv", source="na").text())   # 틀 검사 뒤 넣기 — 명령줄 equion data add toy_q_new.csv --source na
+r = p.data_build()                                   # 새 회차 — 지금 회차는 아직 그대로
+print(r.text())
+print(p.data_diff().text())                          # 지금 회차 → 새 회차: 새 기간·개정(기간·크기)
+print(p.data_impact().text())                        # 바뀐 시리즈를 쓰는 식·모형(다시 계산하지 않는다)
+p.data_use(r.id)                                     # 이 회차로 바꾸기 — equion.toml [data] vintage
+h = p.hs("main")                                     # [hs] range = "2005Q1:last" — 새 끝(2020Q1)까지
+print(h.start, h.end, h.counts()["ok"])

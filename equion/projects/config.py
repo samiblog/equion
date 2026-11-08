@@ -3,7 +3,7 @@
 """프로젝트 설정 `equion.toml` 읽기·검사 (D32).
 
     [project]                      이름·형식 판(선택)
-    [data]  file = "…"             자료 파일 하나(첫 열이 날짜) — 자료 회차(series.toml)는 E2에서
+    [data]  file = "…"             자료 파일 하나(첫 열이 날짜) — 또는 series · derived · freq · vintage(자료 정의·회차, D34)
     [block] 이름 = "파일" 또는 { file = "…", desc = "…" }      블록 = 방정식 파일 하나
     [model.이름] blocks · include · exclude · desc              조립 — 모형 안에 모형(include), 식 빼기(exclude)
     [group] 이름 = [시리즈…] 또는 { series = […], transform, desc }
@@ -18,10 +18,13 @@ import tomllib
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from ..data.periods import normalize_freq
+
 FORMAT = "equion-project"
 FORMAT_VERSION = 1
 CONFIG_NAME = "equion.toml"
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+VID_RE = re.compile(r"^d\d{4}-\d{2}[a-z]+$")      # 자료 회차 이름(d2026-11a)
 MODES = ("dynamic", "static", "fit")
 
 # 나중 단계에서 쓰는 표(지금은 읽기만 하고 그대로 둔다 — 경고하지 않는다)
@@ -66,7 +69,7 @@ class ProjectConfig:
     root: str
     path: str
     name: str
-    data_file: str
+    data_file: Optional[str]
     data_path: str
     blocks: Dict[str, BlockSpec]
     models: Dict[str, ModelSpec]
@@ -74,6 +77,15 @@ class ProjectConfig:
     hs: dict
     raw: dict
     warnings: List[str] = field(default_factory=list)
+    series_file: Optional[str] = None      # 자료 정의(있으면 자료 회차를 쓴다)
+    derived_file: Optional[str] = None
+    freq: Optional[str] = None
+    vintage: Optional[str] = None          # 지금 자료 회차
+
+    @property
+    def uses_vintages(self) -> bool:
+        """자료 정의·회차를 쓰면 참(아니면 자료 파일 하나)."""
+        return bool(self.series_file)
 
     def default_model(self) -> Optional[str]:
         """[hs] model, 없으면 모형이 하나일 때 그것."""
@@ -144,20 +156,40 @@ def load_config(path: str = ".") -> ProjectConfig:
     elif ver > FORMAT_VERSION:
         problems.append(f"이 프로젝트는 형식 판 {ver}입니다 — 이 equion은 {FORMAT_VERSION}까지 읽습니다(equion을 새 판으로)")
 
-    # [data]
+    # [data] — 자료 파일 하나(file) 또는 자료 정의·회차(series · derived · freq · vintage)
     data = raw.get("data", {})
-    data_file = data.get("file") if isinstance(data, dict) else None
-    data_path = ""
-    if not data_file:
-        problems.append("[data] file이 없습니다 — 자료 파일(첫 열이 날짜인 csv·xlsx)을 적으세요. 예: file = \"DATA/data.csv\"")
+    if not isinstance(data, dict):
+        problems.append("[data]는 표여야 합니다")
+        data = {}
+    data_file, data_path = data.get("file"), ""
+    series_file, derived_file, freq, vintage = data.get("series"), data.get("derived"), data.get("freq"), data.get("vintage")
+    for k in data:
+        if k not in ("file", "series", "derived", "freq", "vintage"):
+            warnings.append(f"[data] {k}: 알 수 없는 키 — 쓰지 않습니다")
+    if data_file and series_file:
+        problems.append("[data] file과 series를 함께 쓸 수 없습니다 — 자료 파일 하나(file) 또는 자료 정의·회차(series)")
+    elif series_file:
+        if not os.path.isfile(os.path.join(root, series_file)):
+            problems.append(f"[data] series = {series_file!r}: 자료 정의 파일이 없습니다")
+        if derived_file and not os.path.isfile(os.path.join(root, derived_file)):
+            problems.append(f"[data] derived = {derived_file!r}: 파생식 파일이 없습니다")
+        if not freq:
+            problems.append("[data] freq가 없습니다 — 자료 회차의 주기 \"Q\"·\"M\"·\"A\"")
+        else:
+            try:
+                freq = normalize_freq(freq)
+            except ValueError as e:
+                problems.append(f"[data] freq: {e}")
+        if vintage is not None and (not isinstance(vintage, str) or not VID_RE.match(vintage)):
+            problems.append(f"[data] vintage = {vintage!r} — 회차 이름은 d연도-월과 글자(예: \"d2026-11a\") — "
+                            "equion data list로 확인")
+    elif not data_file:
+        problems.append("[data] file이 없습니다 — 자료 파일(첫 열이 날짜인 csv·xlsx) 또는 자료 정의(series·freq)를 적으세요. "
+                        "예: file = \"DATA/data.csv\"")
     else:
         data_path = os.path.normpath(os.path.join(root, data_file))
         if not os.path.isfile(data_path):
             problems.append(f"[data] file = {data_file!r}: 파일이 없습니다")
-    if isinstance(data, dict):
-        for k in data:
-            if k != "file":
-                warnings.append(f"[data] {k}: 아직 쓰지 않는 키입니다(자료 정의·회차는 다음 단계)")
 
     # [block]
     blocks: Dict[str, BlockSpec] = {}
@@ -254,9 +286,10 @@ def load_config(path: str = ".") -> ProjectConfig:
     if hs.get("mode") and hs["mode"] not in MODES:
         problems.append(f"[hs] mode = {hs['mode']!r} — {' · '.join(MODES)}")
     if hs.get("range") and (not isinstance(hs["range"], str) or ":" not in hs["range"]):
-        problems.append(f"[hs] range = {hs.get('range')!r} — \"시작:끝\" 꼴(예: \"2005Q1:2019Q4\")")
+        problems.append(f"[hs] range = {hs.get('range')!r} — \"시작:끝\" 꼴(예: \"2005Q1:2019Q4\" · \"2005Q1:last\" · \"last-39:last\")")
 
     if problems:
         raise ProjectError([f"{CONFIG_NAME}: {p}" if not p.startswith(CONFIG_NAME) else p for p in problems])
     return ProjectConfig(root=root, path=cfg_path, name=name, data_file=data_file, data_path=data_path,
-                         blocks=blocks, models=models, groups=groups, hs=dict(hs), raw=raw, warnings=warnings)
+                         blocks=blocks, models=models, groups=groups, hs=dict(hs), raw=raw, warnings=warnings,
+                         series_file=series_file, derived_file=derived_file, freq=freq, vintage=vintage)

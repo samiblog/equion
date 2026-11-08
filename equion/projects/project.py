@@ -15,6 +15,7 @@
 """
 
 import os
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from ..workfile.output import say
@@ -23,6 +24,45 @@ from .assembly import AssemblyReport, check, resolve
 from .config import ProjectConfig, ProjectError, load_config
 from .identity import IdentityCheck, check_identity
 from .parts import Part, parse_line, read_block
+from .vintage import (AddResult, BuildResult, VintageDiff, add_raw, build_vintage, diff_vintages, list_vintages,
+                      load_defs, set_toml_value, vintage_path)
+from ..data.source import read_source
+from ..workfile.output import TextOutput
+
+
+@dataclass
+class ImpactReport:
+    """회차를 바꿀 때 영향받는 것 — 바뀐 시리즈를 쓰는 식과 모형. 다시 계산은 사람이 시킬 때만."""
+
+    diff: VintageDiff
+    parts: List[str]
+    models: List[str]
+    uses: Dict[str, List[str]]          # 부품 → 쓰는 바뀐 시리즈
+
+    def text(self) -> str:
+        """명령줄에 보이는 짧은 글."""
+        d = self.diff
+        L = [f"[data impact {d.a} → {d.b}]",
+             f"  바뀐 시리즈 {len(d.changed)} · 새 {len(d.added)} · 없어진 {len(d.removed)}"]
+        if self.parts:
+            L.append("  쓰는 식   " + " · ".join(f"{p} ({'·'.join(self.uses[p])})" for p in self.parts))
+            L.append("  쓰는 모형  " + (" · ".join(self.models) if self.models else "없음"))
+            L.append("  다시 할 일  그 회차로 바꾼 뒤 모형을 다시 추정·풀면 새 자료로 계산된다(저절로 하지 않는다)")
+        else:
+            L.append("  쓰는 식   없음 — 모형에 영향 없음")
+        return "\n".join(L)
+
+    def to_dict(self) -> dict:
+        """명령줄 --json과 같은 사전."""
+        return {"diff": self.diff.to_dict(), "parts": self.parts, "models": self.models, "uses": self.uses}
+
+    def show(self):
+        """짧은 글을 보인다."""
+        from ..workfile.output import spool
+        spool.show(TextOutput(self.text(), title="회차 영향"))
+
+    def __repr__(self):
+        return f"<회차 영향 {self.diff.a}→{self.diff.b}: 식 {len(self.parts)} · 모형 {len(self.models)}>"
 
 
 class Project:
@@ -44,6 +84,8 @@ class Project:
         self._part_problems: Dict[str, List[str]] = {}
         self._est: Dict[tuple, object] = {}
         self.notes: List[str] = []
+        self.created_files: List[str] = []
+        self._data_cols: List[str] = []
 
     # ---- 열기·만들기 ---------------------------------------------------
     @classmethod
@@ -66,8 +108,9 @@ class Project:
     def create(cls, path: str, template: str = "desk", force: bool = False) -> "Project":
         """예제 프로젝트를 만들고 연다 — 명령줄 `equion new 폴더 --template desk`와 같다.
 
-        예제는 가상 분기 모형(예제 자료 toy_q)이다: 블록 demand(소비·투자·국민소득 항등식)·price(물가)·finance(장기금리·통화),
-        모형 core·main·main_fixrl.
+        예제는 가상 분기 모형이다: 원자료 toy_q·toy_m(DATA/raw/), 자료 정의(DATA/series.toml·derived.txt — 주기 변환·계절조정 예 포함),
+        블록 demand(소비·투자·국민소득 항등식)·price(물가)·finance(장기금리·통화), 모형 core·main·main_fixrl.
+        첫 자료 회차를 만들어 지금 회차로 정한다(`.created_files`에 만든 파일 목록).
 
         매개변수
             path: 만들 폴더(비어 있어야 한다)
@@ -80,18 +123,22 @@ class Project:
         예
             >>> import tempfile, os
             >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
-            >>> p.assemble("main").ok
-            True
+            >>> p.assemble("main").ok, p.vintage is not None
+            (True, True)
         """
         from .template import create_desk_project
         if template != "desk":
             raise ValueError(f"모르는 template: {template!r} (가능: 'desk')")
-        create_desk_project(path, force=force)
-        return cls.open(path)
+        files = create_desk_project(path, force=force)
+        p = cls.open(path)
+        p.data_build(use=True)
+        p.created_files = files
+        return p
 
     def __repr__(self):
         c = self.config
-        return f"<프로젝트 {c.name}: 블록 {len(c.blocks)} · 모형 {len(c.models)} · 자료 {c.data_file}>"
+        data = f"회차 {c.vintage or '없음'}" if c.uses_vintages else f"자료 {c.data_file}"
+        return f"<프로젝트 {c.name}: 블록 {len(c.blocks)} · 모형 {len(c.models)} · {data}>"
 
     # ---- 이름·부품 -----------------------------------------------------
     @property
@@ -116,11 +163,201 @@ class Project:
 
     @property
     def workfile(self):
-        """프로젝트 자료의 워크파일(처음 쓸 때 [data] file을 연다)."""
+        """프로젝트 자료의 워크파일 — 자료 정의를 쓰면 지금 자료 회차, 아니면 [data] file(처음 쓸 때 연다).
+
+        오류
+            ProjectError: 자료 정의를 쓰는데 지금 회차가 없음(equion data build → equion data use)
+        """
         if self._wf is None:
             from ..workfile.workfile import wfopen
-            self._wf = quiet(wfopen, self.config.data_path, name=self.config.name)
+            c = self.config
+            if c.uses_vintages:
+                if not c.vintage:
+                    raise ProjectError("지금 자료 회차가 없습니다 — 자료 만들기(equion data build) 다음 이 회차로 바꾸기"
+                                       "(equion data use <회차>)")
+                path = os.path.join(vintage_path(c.root, c.vintage), "series.csv")
+                self._wf = quiet(wfopen, path, freq=c.freq, name=c.name)
+            else:
+                self._wf = quiet(wfopen, c.data_path, name=c.name)
+            self._data_cols = list(self._wf.data.columns)
         return self._wf
+
+    @property
+    def vintage(self) -> Optional[str]:
+        """지금 자료 회차(equion.toml [data] vintage) — 자료 파일 하나를 쓰면 None."""
+        return self.config.vintage if self.config.uses_vintages else None
+
+    def _reset(self):
+        """설정을 다시 읽고 자료·부품·추정을 버린다(회차를 바꾼 뒤)."""
+        self.config = load_config(self.config.path)
+        self._wf, self._parts, self._part_problems, self._est = None, None, {}, {}
+
+    # ---- 자료 정의·회차(D34) -------------------------------------------
+    def _need_defs(self):
+        if not self.config.uses_vintages:
+            raise ProjectError("이 프로젝트는 자료 파일 하나([data] file)를 씁니다 — 자료 회차는 [data] series·freq를 적은 "
+                               "프로젝트에서(docs/reference/formats.md)")
+        c = self.config
+        return load_defs(c.root, c.series_file, c.derived_file, c.freq)
+
+    def data_build(self, use: bool = False) -> BuildResult:
+        """자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다.
+
+        같은 원자료·정의로 만든 회차가 이미 있으면 새로 만들지 않고 그 회차를 알린다. 지금 회차는 저절로 바뀌지 않는다(use=True면 바꾼다).
+
+        매개변수
+            use: 참이면 만든(또는 같은) 회차를 지금 회차로
+
+        돌려주는 것
+            BuildResult — .id · .created · .n_series · .span · .implicit(알아서 한 것) · .text()
+
+        오류
+            ProjectError: 정의·원자료 문제(없는 열·틀이 맞지 않음·주기 변환·파생식 — 위치와 함께)
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.data_build()
+            >>> r.created, r.id == p.vintage        # 정의가 그대로라 같은 회차
+            (False, True)
+        """
+        from ..version import project_version
+        defs = self._need_defs()
+        res = build_vintage(defs, project_version())
+        say(f"[{self.name}] " + (f"자료 회차 {res.id}를 만들었습니다" if res.created else f"자료 회차 {res.id}와 같습니다"))
+        if use and res.id != self.config.vintage:
+            self.data_use(res.id)
+        return res
+
+    def data_use(self, vid: str) -> str:
+        """이 회차로 바꾸기 — equion.toml의 [data] vintage를 고치고(주석·순서는 그대로) 자료를 다시 연다. 이전 회차를 돌려준다.
+
+        오류
+            ProjectError: 없는 회차
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> v = p.vintage
+            >>> p.data_use(v) == v
+            True
+        """
+        self._need_defs()
+        vintage_path(self.root, vid)
+        old = self.config.vintage
+        set_toml_value(self.config.path, ["data"], "vintage", vid)
+        self._reset()
+        say(f"[{self.name}] 지금 자료 회차: {vid}" + (f" (전: {old})" if old and old != vid else ""))
+        return old
+
+    def data_list(self) -> List[dict]:
+        """자료 회차 목록(만든 때 순) — {id, created, span, n_series, current}.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> [v["current"] for v in p.data_list()]
+            [True]
+        """
+        return [{"id": v["id"], "created": v.get("created"), "span": v.get("span"), "n_series": v.get("n_series"),
+                 "current": v["id"] == self.vintage} for v in list_vintages(self.root)]
+
+    def _pair(self, a, b):
+        ids = [v["id"] for v in list_vintages(self.root)]
+        if not ids:
+            raise ProjectError("자료 회차가 없습니다 — equion data build")
+        b = b or ids[-1]
+        if a is None:
+            a = self.vintage if self.vintage and self.vintage != b else None
+            if a is None:
+                k = ids.index(b) if b in ids else len(ids) - 1
+                if k == 0:
+                    raise ProjectError(f"견줄 회차가 없습니다 — 회차가 {b} 하나입니다")
+                a = ids[k - 1]
+        return a, b
+
+    def data_diff(self, a: str = None, b: str = None) -> VintageDiff:
+        """두 자료 회차의 차이 — 새·없어진 시리즈, 시리즈마다 새 기간과 개정(기간·크기).
+
+        기본은 지금 회차 → 가장 새 회차(같으면 그 앞 회차 → 가장 새 회차).
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> d = p.data_diff(p.vintage, p.vintage)
+            >>> d.added, d.changed
+            ([], [])
+        """
+        self._need_defs()
+        a, b = self._pair(a, b)
+        return diff_vintages(self.root, a, b)
+
+    def data_impact(self, a: str = None, b: str = None) -> "ImpactReport":
+        """회차를 바꾸면 영향받는 것 — 바뀐 시리즈를 쓰는 식(부품)과 모형. 다시 계산은 하지 않는다(사람이 시킬 때만).
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.data_impact(p.vintage, p.vintage)
+            >>> r.parts, r.models
+            ([], [])
+        """
+        d = self.data_diff(a, b)
+        touched = set(d.changed) | set(d.added) | set(d.removed)
+        parts = [x for x in self.parts() if touched & (x.data_vars | x.variables)]
+        models = [m for m in self.models if any(x.id in {y.id for y in self.parts(m)} for x in parts)]
+        return ImpactReport(d, [x.id for x in parts], models,
+                            {x.id: sorted(touched & (x.data_vars | x.variables)) for x in parts})
+
+    def data_add(self, path: str, source: str = None, as_name: str = None, note: str = None) -> AddResult:
+        """원자료 넣기 — 파일을 DATA/raw/에 복사한다(받은 그대로, 같은 이름이면 날짜를 붙여 나란히). source를 주면 그 출처가
+        이 파일을 읽도록 series.toml을 고치되, 먼저 그 출처의 불러오기 틀로 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을
+        때만 넣고 고친다(틀 검사 — 맞지 않으면 아무것도 바꾸지 않고 `.problems`에 까닭).
+
+        매개변수
+            path: 넣을 파일(csv·xlsx·xls)
+            source: 바꿀 출처 이름([source.이름]) — 원자료 바꾸기
+            as_name: DATA/raw/에 둘 이름(기본: 파일 이름)
+            note: 출처 메모(옆 파일 *.source.toml에)
+
+        돌려주는 것
+            AddResult — .file · .copied · .source · .problems(틀이 맞지 않으면 — 그때 출처는 그대로)
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.data_add(eqn.datasets.path("toy_q"))      # 같은 파일이 이미 있다
+            >>> r.copied, r.file
+            (False, 'DATA/raw/toy_q.csv')
+        """
+        defs = self._need_defs()
+        if not source:
+            return add_raw(self.root, path, as_name=as_name, note=note)
+        if source not in defs.sources:
+            raise ProjectError(f"없는 출처 '{source}' (있는 출처: {', '.join(defs.sources)})")
+        if not os.path.isfile(path):
+            raise ProjectError(f"파일이 없습니다: {path}")
+        sp = defs.sources[source]
+        from dataclasses import replace
+        from ..data.source import file_sha256
+        problems = []
+        try:   # 틀 검사 — 넣기 전에, 받은 파일을 이 출처의 불러오기 틀로 읽어 본다
+            t = read_source(replace(sp, file=os.path.basename(path), path=os.path.abspath(path)))
+            for s in defs.series.values():
+                if s.source == source and t.column(s.column)[0] is None:
+                    problems.append(f"[series.{s.name}] 새 파일에 없는 열: {s.column}")
+            old_freq = read_source(sp).freq if os.path.isfile(sp.path) else t.freq
+            if t.freq != old_freq:
+                problems.append(f"주기가 다릅니다: 새 파일은 {t.freq}, 출처 '{source}'는 {old_freq}")
+        except ValueError as e:
+            problems.append(str(e))
+        if problems:
+            return AddResult(path, file_sha256(path), False, source, sp.file, problems)
+        res = add_raw(self.root, path, as_name=as_name, note=note)
+        res.source, res.previous = source, sp.file
+        if res.file != sp.file:
+            set_toml_value(os.path.join(self.root, self.config.series_file), ["source", source], "file", res.file)
+        return res
 
     def _load(self):
         if self._parts is None:
@@ -337,12 +574,33 @@ class Project:
             say(f"[{name}] {note}")
         return m
 
+    def span(self, spec: str):
+        """구간 표기 → (시작, 끝) 라벨 — '2005Q1:2019Q4' · '2005Q1:last' · 'last-39:last' · 'next:12'. last는 자료의 마지막 값이 있는 기간.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> p.span("last-3:last"), p.span("next:4")
+            (('2019Q1', '2019Q4'), ('2020Q1', '2020Q4'))
+        """
+        from ..data.periods import resolve_span
+        wf = self.workfile
+        df = wf.data[[c for c in self._data_cols if c in wf.data.columns]]   # 자료 시리즈만(풀이 별칭 X_0 제외)
+        ok = df.notna().any(axis=1).to_numpy()
+        first = int(ok.argmax()) if ok.any() else 0
+        last = len(ok) - 1 - int(ok[::-1].argmax()) if ok.any() else len(ok) - 1
+        return resolve_span(spec, df.index, wf.freq, first=first, last=last)
+
     def _range(self, start, end):
+        from ..data.periods import is_relative
         rng = self.config.hs.get("range")
         if (start is None or end is None) and rng:
-            s, e = [t.strip() for t in rng.split(":", 1)]
+            s, e = self.span(rng)
             start = start if start is not None else s
             end = end if end is not None else e
+        if is_relative(start) or is_relative(end):
+            s, e = self.span(f"{start or 'first'}:{end or 'last'}")
+            start, end = s, e
         return start, end
 
     def hs(self, name: str = None, start=None, end=None, mode: str = None, swap: dict = None, **opts):
@@ -399,6 +657,9 @@ class Project:
         """
         part = self.part(pid)
         wf = self.workfile
+        from ..data.periods import is_relative
+        if is_relative(start) or is_relative(end):
+            start, end = self.span(f"{start or 'first'}:{end or 'last'}")
         s, e = wf._bounds(start, end) if (start is not None or end is not None) else (0, len(wf.data) - 1)
         return check_identity(part, wf._data, s, e, wf._label, tol=tol)
 

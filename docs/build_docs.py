@@ -146,7 +146,7 @@ def anchors(lines):
 def _link_repo_dirs(work, code):
     # 저장소 입력 폴더만 잇는다 — 이어 준 폴더에 쓰면 저장소가 바뀌므로 문서 예제는 거기에 쓰지 않는다
     for d in ("DATA", "EQUATIONS"):
-        if f"{d}/" in code and not os.path.exists(os.path.join(work, d)):
+        if f"{d}/" in code and os.path.isdir(os.path.join(ROOT, d)) and not os.path.exists(os.path.join(work, d)):
             try:
                 os.symlink(os.path.join(ROOT, d), os.path.join(work, d), target_is_directory=True)
             except (OSError, NotImplementedError):          # Windows(개발자 모드 아님) — 복사
@@ -216,6 +216,9 @@ VOLATILE = [
     (re.compile(r"(소요\(초\)|elapsed[_ a-z]*)\W+[\d.]+"), r"\1 #"),
     (re.compile(r"\b\d{8}-\d{6}(?:_\w+)?"), "#실행ID"),
     (re.compile(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?"), "#시각"),
+    (re.compile(r"\bd\d{4}-\d{2}[a-z]+\b"), "#회차"),                    # 자료 회차 이름(만든 달)
+    (re.compile(r"_\d{8}(?=[._])"), "_#날짜"),                             # 같은 이름 원자료에 붙는 날짜
+    (re.compile(r"\b[0-9a-f]{16,64}\b"), "#해시"),                         # 파일 해시(줄바꿈이 OS마다 다를 수 있다)
     (re.compile(r"[\\/]"), "/"),
 ]
 NUM = re.compile(r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?")

@@ -17,6 +17,7 @@ dependencies = [
     "pandas>=2.2.2,<4",
     "scipy>=1.14,<2",
     "openpyxl>=3.1,<4", # 엑셀(.xlsx) 읽기·쓰기 엔진
+    "tomlkit>=0.12,<1", # 정의 파일(TOML)을 주석·순서를 지키며 고친다(D38)
 ]
 
 [project.optional-dependencies]

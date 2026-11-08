@@ -179,4 +179,81 @@ print(new.series())
 ['Y', 'CN', 'I', 'SHARE']
 ```
 
-관련: [튜토리얼 1](../tutorial/01-data.md) · [API: Workfile](../reference/api.md#3-워크파일-workfile)
+## R49. 원자료에서 자료 회차로 — 넣기·만들기·차이·바꾸기
+
+프로젝트는 받은 원자료(`DATA/raw/`)를 고치지 않고, 정의(`DATA/series.toml` — 어느 열을 어떻게 읽어 어떤 시리즈로)대로 **자료 회차**를
+만들어 씁니다([파일 형식](../reference/formats.md#자료-정의seriestomlderivedtxt와-자료-회차workdata)). 새 자료를 받으면 넣고 → 만들고 →
+견주고 → 바꿉니다. 정의가 그대로면 새 자료로 같은 계산이 다시 됩니다.
+
+```python
+p = eqn.Project.create("data_prj", force=True)       # 예제 프로젝트 — 첫 회차를 만들어 지금 회차로
+v0 = p.vintage
+raw = pd.read_csv("data_prj/DATA/raw/toy_q.csv", index_col=0)
+raw.loc["2019Q1":"2019Q4", "CN"] *= 1.01             # 받은 새 자료: 지난 4분기 소비 개정
+raw.loc["2020Q1"] = raw.iloc[-1] * 1.005             # + 새 분기
+raw.to_csv("toy_q_new.csv")
+print(p.data_add("toy_q_new.csv", source="na").text())   # 틀 검사 뒤 넣기 — 명령줄 equion data add toy_q_new.csv --source na
+r = p.data_build()                                   # 새 회차 — 지금 회차는 아직 그대로
+print(r.text())
+```
+<!-- out -->
+```text
+[data_prj] 자료 회차 d2026-11a를 만들었습니다
+[data_prj] 지금 자료 회차: d2026-11a
+[data add] DATA/raw/toy_q_new.csv
+  해시   f1e8be82ee1a79c4…
+  출처   [source.na] DATA/raw/toy_q.csv → DATA/raw/toy_q_new.csv
+  다음   equion data build → equion data use <회차>
+[data_prj] 자료 회차 d2026-11b를 만들었습니다
+[data build] 새 회차 d2026-11b
+  시리즈 13 · 1970Q1~2020Q1
+  알아서 한 것
+    - na: 시점 열 A('1970Q1' 꼴) → Q 1970Q1~2020Q1
+    - monthly: 시점 열 A('2000M1' 꼴) → M 2000M1~2019M12
+    - CNSA: 계절조정 stl multiplicative
+    - IPQ: M → Q mean
+    - 시리즈마다 자료 구간이 다릅니다 — 회차는 1970Q1~2020Q1, 빈 칸은 결측
+```
+
+```python
+print(p.data_diff().text())                          # 지금 회차 → 새 회차: 새 기간·개정(기간·크기)
+print(p.data_impact().text())                        # 바뀐 시리즈를 쓰는 식·모형(다시 계산하지 않는다)
+p.data_use(r.id)                                     # 이 회차로 바꾸기 — equion.toml [data] vintage
+h = p.hs("main")                                     # [hs] range = "2005Q1:last" — 새 끝(2020Q1)까지
+print(h.start, h.end, h.counts()["ok"])
+```
+<!-- out -->
+```text
+[data diff d2026-11a → d2026-11b]
+  구간   1970Q1~2019Q4 → 1970Q1~2020Q1
+  바뀐 시리즈 12
+    CN       개정 4기(2019Q1~2019Q4) 최대 1% · 새 값 1기
+    I        새 값 1기
+    G        새 값 1기
+    Y        새 값 1기
+    R        새 값 1기
+    RL       새 값 1기
+    P        새 값 1기
+    POIL     새 값 1기
+    M2       새 값 1기
+    CNSA     개정 42기(2009Q2~2019Q4) 최대 1.07% · 새 값 1기
+    PI       새 값 1기
+    RR       새 값 1기
+  그대로 1
+[data_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[data impact d2026-11a → d2026-11b]
+  바뀐 시리즈 12 · 새 0 · 없어진 0
+  쓰는 식   demand:CN (CN·Y) · demand:I (I·R·Y) · demand:Y (CN·G·I·Y) · price:P (P·POIL·Y) · finance:RL (R·RL) · finance:M2 (M2·P·RL·Y)
+  쓰는 모형  core · main · main_fixrl
+  다시 할 일  그 회차로 바꾼 뒤 모형을 다시 추정·풀면 새 자료로 계산된다(저절로 하지 않는다)
+[data_prj] 지금 자료 회차: d2026-11b (전: d2026-11a)
+[data_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2020Q1 · 시리즈 13
+[main] 채택 기록 없이 지금 자료로 추정: demand:CN, demand:I, price:P, finance:RL, finance:M2
+[main] baseline(_0) dynamic 2005Q1~2020Q1: 정상 61 · 일부식 제외 0 · 실패대체 0 · 실패 0
+2005Q1 2020Q1 61
+```
+
+틀이 맞지 않는 파일(시리즈가 쓰는 열이 없거나 주기가 다름)은 넣지 않고 까닭을 알립니다. 옛 회차는 그대로 남아 언제든 `p.data_use(v0)`로
+돌아갈 수 있습니다. 명령줄은 `equion data list · add · build · use · diff · impact`([명령줄 참조](../reference/cli.md#equion-data)).
+
+관련: [튜토리얼 1](../tutorial/01-data.md) · [API: Workfile](../reference/api.md#3-워크파일-workfile) · [API: Project](../reference/api.md#21-프로젝트-eqnproject)

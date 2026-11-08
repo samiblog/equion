@@ -154,7 +154,9 @@ print(p.assemble("main").text())          # 계산 없이 조립 검사 — 명�
 ```
 <!-- out -->
 ```text
-[demo_prj] 열기 data.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 10
+[demo_prj] 자료 회차 d2026-11a를 만들었습니다
+[demo_prj] 지금 자료 회차: d2026-11a
+[demo_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
 [assemble main] 수요 + 물가 + 금융 — 블록 3 · 추정식 5 · 항등식 1
   조립   main = core(demand) + price + finance
   내생 6  CN · I · Y · P · RL · M2

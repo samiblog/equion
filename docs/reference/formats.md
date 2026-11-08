@@ -30,7 +30,7 @@ Y = CN + I + G
 
 ## 프로젝트(`equion.toml`)
 
-프로젝트는 폴더 하나입니다 — `equion.toml`이 자료 파일과 블록(방정식 파일 하나 = 블록 하나)을 이름으로 묶고, 모형은 블록과 다른 모형을
+프로젝트는 폴더 하나입니다 — `equion.toml`이 자료와 블록(방정식 파일 하나 = 블록 하나)을 이름으로 묶고, 모형은 블록과 다른 모형을
 이름으로 끼워 조립합니다(D32). 여는 법은 `eqn.project(폴더)`, 검사는 `equion assemble`, 예제는 `equion new 폴더 --template desk`.
 
 ```toml
@@ -39,8 +39,11 @@ name = "demo"
 format = "equion-project"
 format_version = 1
 
-[data]
-file = "DATA/data.csv"            # 첫 열이 날짜인 자료 파일
+[data]                            # 자료 정의와 회차(아래 절) — 또는 자료 파일 하나: file = "DATA/data.csv"
+series = "DATA/series.toml"
+derived = "DATA/derived.txt"
+freq = "Q"
+vintage = "d2026-11a"             # 지금 자료 회차 — equion data use가 고친다
 
 [block]                           # 이름 = "파일" 또는 { file = …, desc = … }
 demand  = { file = "EQUATIONS/demand.txt",  desc = "수요" }
@@ -63,18 +66,104 @@ core = { series = ["Y", "CN", "I"], desc = "핵심 수요" }
 
 [hs]                              # 과거 재현 기본값
 model = "main"
-range = "2005Q1:2019Q4"
+range = "2005Q1:last"             # last = 자료의 마지막 기(새 회차로 바꾸면 따라 늘어난다)
 mode = "dynamic"                  # dynamic · static · fit
 ```
 
 | 규칙 | 내용 |
 |---|---|
+| 자료 | `[data]`는 둘 중 하나 — `file`(첫 열이 날짜인 자료 파일 하나) 또는 `series`·`freq`(자료 정의와 회차, 아래 절). 둘을 함께 쓰면 오류 |
+| 구간 표기 | `시작:끝`의 시작·끝은 기간(`2005Q1`) · `first` · `last` · `last-N` · `first+N`, 또는 `next:N`(자료 끝 다음 기부터 N기). `last`는 자료 시리즈 중 값이 있는 마지막 기 |
 | 이름 | 블록·모형·묶음은 영문으로 시작하고 영문·숫자·`_`만(한글은 `desc`). 블록과 모형은 이름이 겹칠 수 없다 |
 | 부품 이름 | 블록 파일의 식 한 줄은 `블록:목표변수`(예: `demand:CN`). 목표변수는 좌변의 첫 변수, 한 블록에 같은 목표는 하나 |
 | 내생·외생 | 적지 않는다 — 모형에서 어떤 식의 목표면 내생, 아니면 외생 |
 | 조립 문제 | 한 모형에 같은 목표가 둘, 자료에도 없고 어떤 식도 정하지 않는 변수, 순환 include, 없는 블록·모형·식(exclude) |
 | 블록 파일 | 방정식 파일과 같은 문법(위). 줄 끝 `#` 뒤는 그 식의 설명으로 보인다 |
 | 형식 판 | `format_version`이 이 equion이 읽는 판보다 크면 오류(새 판으로). 모르는 표는 경고하고 쓰지 않는다 |
+
+## 자료 정의(`series.toml`·`derived.txt`)와 자료 회차(`work/data/`)
+
+자료는 세 층입니다(D34) — **원자료**(`DATA/raw/`, 받은 그대로 — 고치지 않는다) → **정의**(어느 파일의 어느 열을 어떻게 읽어 어떤 시리즈로)
+→ **회차**(정의대로 만든 자료, `work/data/<회차>/`). 회차는 '자료 만들기'(`equion data build` · `p.data_build()`)로만 생기고 고치지 않습니다.
+만들어도 지금 회차는 그대로이고, '이 회차로 바꾸기'(`equion data use` · `p.data_use()`)가 `equion.toml`의 `[data] vintage`를 고칩니다.
+같은 원자료·정의로 다시 만들면 내용이 같아 새 회차를 만들지 않습니다. 정의 파일을 프로그램이 고칠 때(`data use`·`data add --source`)는
+주석과 순서를 그대로 둡니다.
+
+```toml
+# DATA/series.toml
+[source.na]                       # 불러오기 틀 — 원자료 파일 하나를 어떻게 읽는지
+file = "DATA/raw/na.xlsx"
+sheet = "분기"                    # 시트 이름 또는 번호(1부터, 기본 첫 시트)
+header_row = 2                    # 열 이름 줄(1부터, 기본 1)
+unit_row = 3                      # 단위 줄(선택) — 시리즈의 unit이 없으면 이 칸
+time_col = "A"                    # 시점 열 — 열 이름 · 엑셀 열 글자 · 번호(기본 첫 열)
+missing = ["–", "…"]              # 결측으로 볼 표시(빈 칸은 늘 결측)
+thousands = ","                   # 천 단위 구분 글자
+
+[series.CN]                       # 시리즈 하나 — 이름은 영문(한글은 desc)
+from = "na:민간소비"               # 원자료이름:열(열 이름은 대소문자 무시)
+unit = "조원"
+desc = "민간소비"
+
+[series.CNSA]
+from = "na:CNNSA"
+seas = { method = "stl", model = "multiplicative" }   # 계절조정 — "stl" · "classical", additive · multiplicative
+
+[series.IPQ]
+from = "monthly:IP"
+convert = "mean"                  # 원자료 주기 ≠ 자료 주기면 꼭 — 낮은 주기로 mean·sum·first·last·max·min, 높은 주기로 constant·split·linear·denton
+```
+
+| 키 | 내용 |
+|---|---|
+| `[source.이름]` | `file`(csv·xlsx·xls) · `sheet` · `header_row` · `unit_row` · `time_col` · `missing` · `thousands` · `freq`(시점에서 추론이 안 될 때) · `desc` |
+| 시점 꼴 | `2003Q4` · `2003M10` · `2003-10` · `2003` · ISO 날짜, 그리고 `2003.Q4` · `2003 Q4` · `2003년 4분기` · `2003년 4/4분기` · `2003년 10월` · `2003.10` |
+| 칸 | 천 단위 구분은 `thousands`, 괄호 숫자 `(12)`는 음수. 결측 표시와 숫자가 아닌 칸은 결측으로 보고 칸 위치(`D7`)와 함께 '알아서 한 것'에 적는다 |
+| `[series.이름]` | `from`(꼭) · `convert` · `denton`(denton의 conversion, 기본 sum) · `seas` · `scale`(곱할 수) · `fill = "linear"`(안쪽 결측 선형 보간) · `unit` · `desc` |
+| 하는 순서 | 읽기 → 주기 변환 → 배율 → 채움 → 계절조정 → (모든 시리즈를 모은 뒤) 파생식 |
+| `derived.txt` | 한 줄에 `이름 = 식`(방정식 문법 — `PI = 100*(P/P(-4) - 1)`), `#` 뒤는 설명. 위에서부터 차례로, 앞 줄의 파생 시리즈를 쓸 수 있다 |
+| 문제 | 없는 원자료·열, 틀이 맞지 않음, 주기 변환 빠짐, 같은 이름, 함수 이름·`C` 같은 쓸 수 없는 이름, 파생식 오류 — 위치(`series.toml [series.X]` · `derived.txt:3` · 칸 `A3`)와 함께 모아서 알린다 |
+| 원자료 넣기 | `equion data add 파일` — `DATA/raw/`에 복사(같은 내용이면 넣지 않고, 같은 이름·다른 내용이면 `_YYYYMMDD`를 붙여 나란히), 옆에 `파일.source.toml`(받은 이름·때·해시·메모). `--source 이름`이면 그 틀로 먼저 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을 때만 넣고 `[source.이름] file`을 고친다 |
+
+회차 폴더는 이렇습니다(아래 코드는 예제 프로젝트를 실제로 만들어 찍습니다).
+
+```python
+import json
+import os
+from pathlib import Path
+
+import pandas as pd
+import equion as eqn
+
+p = eqn.Project.create("fmt_prj", force=True)    # 원자료·정의를 쓰고 첫 회차를 만들어 지금 회차로
+v = Path(p.root, "work", "data", p.vintage)
+print(sorted(os.listdir(v)))
+build = json.loads(Path(v, "build.json").read_text(encoding="utf-8"))
+print(sorted(build))
+flags = pd.read_csv(Path(v, "flags.csv"), index_col=0)
+print(flags.loc[["1970Q1", "2000Q1"], ["CN", "RL", "CNSA", "IPQ", "PI"]])
+```
+<!-- out -->
+```text
+[fmt_prj] 자료 회차 d2026-11a를 만들었습니다
+[fmt_prj] 지금 자료 회차: d2026-11a
+['build.json', 'flags.csv', 'meta.json', 'series.csv', 'summary.md']
+['content_sha256', 'created', 'definitions', 'equion', 'format', 'format_version', 'freq', 'id', 'implicit', 'n_series', 'series', 'sources', 'span']
+            CN       RL         CNSA          IPQ       PI
+period
+1970Q1  actual  missing  transformed      missing  missing
+2000Q1  actual   actual  transformed  transformed  derived
+```
+
+| 파일 | 내용 |
+|---|---|
+| `series.csv` | 값 — 첫 열 `period`(기간 라벨), 열마다 시리즈. 빈 칸은 결측 |
+| `flags.csv` | 값의 종류 — `actual`(실측) · `transformed`(주기 변환·배율·계절조정) · `filled`(채움) · `derived`(파생) · `missing`(결측) |
+| `meta.json` | 시리즈마다 출처(`원자료:열` 또는 식)·단위·설명·변환 |
+| `build.json` | `format: equion-data-vintage` · `format_version` · 회차 이름 · 만든 때 · equion 판 · 원자료 파일과 해시 · 정의 파일 해시 · 내용 해시(같은 회차 알아보기) · 알아서 한 것 |
+| `summary.md` | 사람이 읽는 요약 — 시리즈마다 출처·구간·값 수·설명, 알아서 한 것 |
+
+회차 이름은 `d연도-월` 뒤에 글자(`d2026-11a`, 같은 달 둘째는 `b`)입니다. `work/`는 다시 만들 수 있는 산출물이라 git에서 뺍니다(예제의 `.gitignore`).
 
 ## 워크파일(`.eqw/` 폴더)
 

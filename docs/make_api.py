@@ -121,7 +121,11 @@ def _groups():
         ("21. 프로젝트 `eqn.project(…)`", "Project", members(project.Project), True),
         ("22. 조립 검사 결과 `p.assemble(…)`", "AssemblyReport", members(project.AssemblyReport), False),
         ("23. 항등식 검사 결과 `p.ident(…)`", "IdentityCheck", members(project.IdentityCheck), False),
-        ("24. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다", "eqn", [(n, getattr(eqn, n)) for n in ADVANCED], False),
+        ("24. 자료 만들기 결과 `p.data_build()`", "BuildResult", members(project.BuildResult), False),
+        ("25. 자료 회차 차이 `p.data_diff(…)`", "VintageDiff", members(project.VintageDiff), False),
+        ("26. 회차 영향 `p.data_impact(…)`", "ImpactReport", members(project.ImpactReport), False),
+        ("27. 원자료 넣기 결과 `p.data_add(…)`", "AddResult", members(project.AddResult), False),
+        ("28. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다", "eqn", [(n, getattr(eqn, n)) for n in ADVANCED], False),
     ]
     return groups
 

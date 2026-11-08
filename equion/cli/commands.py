@@ -7,6 +7,7 @@
     equion info [경로]
     equion new 폴더 [--bare | --template desk]  ·  equion convert 옛파일 새이름 [--allow-pickle]
     equion assemble [모형] [-p 프로젝트]  ·  equion ident 블록:목표 [--check]     (프로젝트 — equion.toml, D32)
+    equion data list|add 파일|build [--use]|use 회차|diff [A B]|impact [A B]      (자료 회차 — D34)
 
 종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(--fail-on) · 3 입력 오류 · 130 중단
 """
@@ -51,7 +52,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = _Parser(prog=PROG, description="Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·정보·새 프로젝트·조립 검사",
+    p = _Parser(prog=PROG, description="Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·정보·새 프로젝트·조립 검사·자료 회차",
                 epilog="종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(--fail-on) · 3 입력 오류 · 130 중단")
     p.add_argument("--version", action="version",
                    version=f"equion {project_version()}")
@@ -127,6 +128,31 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--strict", action="store_true", help="어긋나면 실패(종료 코드 3)로 본다")
     d.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
     d.add_argument("--json", action="store_true", help="결과를 JSON으로")
+
+    da = sub.add_parser("data", help="프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향")
+    dsub = da.add_subparsers(dest="data_command", metavar="동작")
+    dsub.required = True
+
+    def _common(sp):
+        sp.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
+        sp.add_argument("--json", action="store_true", help="결과를 JSON으로")
+        return sp
+
+    _common(dsub.add_parser("list", help="자료 회차 목록(* 지금 회차)"))
+    dad = _common(dsub.add_parser("add", help="원자료 파일을 DATA/raw/에 넣는다(받은 그대로 — --source로 출처를 그 파일로)"))
+    dad.add_argument("file", help="넣을 파일(csv·xlsx·xls)")
+    dad.add_argument("--source", metavar="출처", help="series.toml의 [source.출처]가 이 파일을 읽게(틀이 맞을 때만)")
+    dad.add_argument("--as", dest="as_name", metavar="이름", help="DATA/raw/에 둘 이름(기본: 파일 이름)")
+    dad.add_argument("--note", metavar="메모", help="출처 메모(옆 파일 *.source.toml에)")
+    db = _common(dsub.add_parser("build", help="원자료를 정의대로 읽어 새 자료 회차를 만든다(같은 내용이면 만들지 않음)"))
+    db.add_argument("--use", action="store_true", help="만든 회차를 지금 회차로")
+    du = _common(dsub.add_parser("use", help="지금 자료 회차를 바꾼다(equion.toml [data] vintage)"))
+    du.add_argument("vintage", help="회차(equion data list)")
+    for nm, hl in (("diff", "두 회차의 차이 — 새·없어진 시리즈, 새 기간·개정"),
+                   ("impact", "회차를 바꾸면 영향받는 식·모형(다시 계산하지 않음)")):
+        sp = _common(dsub.add_parser(nm, help=hl))
+        sp.add_argument("a", nargs="?", help="앞 회차(기본: 지금 회차)")
+        sp.add_argument("b", nargs="?", help="뒤 회차(기본: 가장 새 회차)")
     return p
 
 
@@ -395,12 +421,22 @@ def cmd_convert(args) -> int:
 
 def cmd_new(args) -> int:
     from .new import create_project
+    prj = None
     try:
         if args.template == "desk":
             if args.bare:
                 raise ValueError("--bare는 --template script에서만 씁니다")
-            from ..projects.template import create_desk_project
-            files = create_desk_project(args.path, force=args.force)
+            from ..projects import Project, ProjectError
+            from ..workfile.output import verbose
+            old = verbose()
+            verbose(0)
+            try:
+                prj = Project.create(args.path, force=args.force)
+            except ProjectError as e:
+                raise ValueError(str(e)) from None
+            finally:
+                verbose(old)
+            files = prj.created_files
         else:
             files = create_project(args.path, bare=args.bare, force=args.force)
     except (OSError, FileExistsError, ValueError) as e:
@@ -409,7 +445,8 @@ def cmd_new(args) -> int:
     print(f"새 프로젝트 {args.path}:")
     for f in files:
         print(f"  {f}")
-    if args.template == "desk":
+    if prj is not None:
+        print(f"자료 회차 {prj.vintage}를 만들어 지금 회차로 정했습니다(work/data/{prj.vintage}/)")
         print(f"\n다음:\n  cd {args.path}\n  equion assemble main")
     elif not args.bare:
         print(f"\n다음:\n  cd {args.path}\n  equion run scripts/main.py")
@@ -482,6 +519,55 @@ def cmd_ident(args) -> int:
     return EXIT_INPUT if (args.strict and not res.ok) else EXIT_OK
 
 
+def _data_list_text(name, rows) -> str:
+    if not rows:
+        return f"[data list] {name}: 자료 회차 없음 — equion data build"
+    L = [f"[data list] {name}: 자료 회차 {len(rows)}"]
+    for r in rows:
+        span = "~".join(r["span"]) if r.get("span") else ""
+        L.append(f"  {'*' if r['current'] else ' '} {r['id']:<12} {r.get('created') or '':<20} {span:<16} "
+                 f"시리즈 {r.get('n_series')}")
+    return "\n".join(L)
+
+
+@_summary_quiet
+def cmd_data(args) -> int:
+    from ..projects import ProjectError
+    try:
+        p = _open_project(args.project)
+        act = args.data_command
+        code = EXIT_OK
+        if act == "list":
+            rows = p.data_list()
+            out = rows if args.json else _data_list_text(p.name, rows)
+        elif act == "add":
+            res = p.data_add(args.file, source=args.source, as_name=args.as_name, note=args.note)
+            out = res.to_dict() if args.json else res.text()
+            code = EXIT_INPUT if res.problems else EXIT_OK
+        elif act == "build":
+            res = p.data_build(use=args.use)
+            d = res.to_dict()
+            d["current"] = p.vintage
+            out = d if args.json else res.text() + (f"\n  지금 회차 {p.vintage}" if args.use else
+                                                    ("" if res.id == p.vintage else
+                                                     f"\n  다음   equion data use {res.id}"))
+        elif act == "use":
+            old = p.data_use(args.vintage)
+            out = ({"vintage": p.vintage, "previous": old} if args.json else
+                   f"[data use] 지금 자료 회차 {p.vintage}" + (f" (전: {old})" if old and old != p.vintage else ""))
+        elif act == "diff":
+            res = p.data_diff(args.a, args.b)
+            out = res.to_dict() if args.json else res.text()
+        else:  # impact
+            res = p.data_impact(args.a, args.b)
+            out = res.to_dict() if args.json else res.text()
+    except (ProjectError, KeyError, ValueError) as e:
+        print(f"{PROG}: 오류: {e.args[0] if isinstance(e, KeyError) else e}", file=sys.stderr)
+        return EXIT_INPUT
+    print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else out)
+    return code
+
+
 def _safe_streams():
     """표준출력·오류가 UTF-8이 아니면(예: Windows 파이프의 cp949·cp1252) 인코딩은 그대로 두고, 그 인코딩에 없는
     문자(cp949의 '—', cp1252의 한글 등)만 \\uXXXX로 쓴다 — 출력 때문에 실행이 멈추지 않게. Windows 콘솔·UTF-8은 그대로."""
@@ -527,6 +613,8 @@ def main(argv=None) -> int:
             return cmd_assemble(args)
         if args.command == "ident":
             return cmd_ident(args)
+        if args.command == "data":
+            return cmd_data(args)
     except KeyboardInterrupt:
         return EXIT_INTERRUPT
     parser.print_help()

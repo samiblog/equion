@@ -25,7 +25,7 @@ Simulation(HS)·전망·시나리오를 수행한다. **방정식(회귀 체계)
 
 ## 실행 환경
 
-**`uv` 자체 가상환경(`.venv`)**. 의존성은 `pyproject.toml`에 **범위**(numpy>=2.1·pandas>=2.2.2·scipy>=1.14·openpyxl,
+**`uv` 자체 가상환경(`.venv`)**. 의존성은 `pyproject.toml`에 **범위**(numpy>=2.1·pandas>=2.2.2·scipy>=1.14·openpyxl·tomlkit,
 Python>=3.12 — 회귀 패키지 없음, D17·D19), 이 저장소 환경은 **`uv.lock`이 정확한 버전·해시로 고정**(numpy 2.4.4·pandas 3.0.2·
 scipy 1.17.1). pyarrow·plotly는 선택 기능(`equion[parquet]`·`[plot]`, dev 그룹엔 포함). Python은 `.python-version`(3.13).
 문서의 출력은 `uv.lock` 판으로 만든 것이다.
@@ -36,7 +36,8 @@ scipy 1.17.1). pyarrow·plotly는 선택 기능(`equion[parquet]`·`[plot]`, dev
 uv sync                 # 노트북 커널 포함 + equion 편집 가능 설치(명령 .venv/bin/equion). 코어만: --no-dev
 
 uv run equion new demo                        # 바로 도는 예시 프로젝트(자료·방정식·스크립트)
-uv run equion new prj --template desk         # 블록·모형 조립 프로젝트(equion.toml) → cd prj; equion assemble main
+uv run equion new prj --template desk         # 블록·모형 조립 프로젝트(equion.toml·자료 정의·첫 회차) → cd prj; equion assemble main
+uv run equion data list -p prj               # 자료 회차 — add 파일 [--source 출처] · build [--use] · use 회차 · diff · impact
 uv run equion check demo/EQUATIONS/model.txt --data demo/DATA/data.csv   # 실행 없이 검사
 uv run python docs/make_api.py                # docs/reference/api.md 다시 만들기(공개 docstring을 고쳤을 때, --check)
 uv run python docs/build_docs.py              # 문서 예제 실행 → 출력 채우기 · examples/ 내보내기 (--check: 바꾸지 않고 검사, --only 경로)
@@ -49,7 +50,7 @@ uv run python tests/test_stats.py             # 자체 통계 166/166 (OLS·WLS�
 uv run python tests/test_ast_formula.py       # 66/66 (레거시 formula 유틸)
 uv run python tests/test_100_equations.py     # 100/100
 uv run python tests/test_error_equations.py   # 에러 검증 시각화
-uv run python tests/test_project.py           # 프로젝트 82/82 (equion.toml·부품·조립 검사·블록 HS·항등식 검사·assemble/ident 명령)
+uv run python tests/test_project.py           # 프로젝트 150/150 (equion.toml·부품·조립 검사·블록 HS·항등식 검사·자료 정의·회차·상대 기간·assemble/ident/data 명령)
 uv run python tests/test_docs.py              # 문서 검사(build_docs --check: 예제·출력·링크·API 설명과 예제·doctest)
 
 uv run pytest                                 # 위 묶음을 한 번에(파일마다 test_suite())
@@ -74,6 +75,7 @@ uv run pytest                                 # 위 묶음을 한 번에(파일�
 | `formula/ir.py` | **IR**: 시계열 연산 → `Var(이름,시차)` 산술식 전개, 벡터 평가(추정), 코드 생성(풀이), 기호 미분(자코비안), 표시 문자열 |
 | `formula/ast_formula.py` | (레거시) user→pandas 문자열 변환·정규화·대소문자 교정·매크로. 입력은 허용 목록 검증. 풀이 경로는 쓰지 않음 |
 | `data/dataset.py` · `io.py` | `Data`(주기 인지 `@seas`/`@d`/`@step`/`@trend`, 지시자 레지스트리, `extend`·`fill_series`) · 파일 읽기 |
+| `data/source.py` | **불러오기 틀(D34)**: 원자료(csv·xlsx)를 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위)대로 읽기 — 흔한 시점 꼴(`2003년 4/4분기`·`2003.10`…), 칸 위치(`D7`)와 함께 결측·숫자 아닌 칸, cp949 csv, 파일 해시 |
 | `data/transform.py` | 주기 변환(집계·확장)·Denton·Chow-Lin·STL·고전 분해(D26) — 시간 인덱스 연산은 periods를 거친다 |
 | `data/periods.py` | **기간·주기 연산은 모두 여기**(주기 추론·Period 변환·기간 첫날 인덱스·리샘플·개월 이동·`locate`) — 다른 모듈은 pandas 시간 API를 직접 부르지 않는다(pandas 버전 변화 흡수). 인덱스에 pandas freq를 달지 않는다(분기 라벨 `.loc["2001Q2"]`가 회계 분기로 어긋남). 다른 주기의 시점 표기(연간에 `2000Q1`)는 오류. `worktable/freq.py`는 옛 이름 재노출 |
 | `estimation/equation.py` | `Equation` — OLS·TSLS·NLS(해석적 자코비안)·fixed(결과는 `equion.stats`), 계수 공분산 `cov`·`lags`, 중심화 R², 시스템 인터페이스(`target`·`system_rhs`·`coef_vector`), 번들 직렬화 |
@@ -87,8 +89,8 @@ uv run pytest                                 # 위 묶음을 한 번에(파일�
 | `scenario/scenario.py` | `Scenario`(override·exclude·add-factor·충격·control)·전망 보조·확률적 모의·control·승수 |
 | `reporting/results.py` · `charts.py` | 결과 CSV(상태 열 포함) / 표시·차트 |
 | `workfile/` | **워크파일 API(라이브러리 1단계)**: `workfile.py`(`Workfile`·`wfopen`·`wfcreate`·smpl·genr·read/write·`.eqw` 저장·`ecm`·`forecast_eval`·`meta`·`page`·`convert`·`seas`) · `objects.py`(방정식·모델·시나리오·그래프·표 객체, `SolveResult`, `ECMResult`) · `sysobj.py`(시스템 객체) · `varobj.py`(VAR·VECM 객체) · `output.py`(출력 객체·스풀·`eqn.show`·`eqn.verbose`) · `runtime.py`(`eqn.params`). 엔진 API 위의 얇은 층 |
-| `projects/` | **프로젝트 — 부품·조립 층(D32, 0.8 E1)**: `config.py`(`equion.toml` 읽기·검사 — 문제를 모아 `ProjectError`) · `parts.py`(블록 파일 → 부품 `블록:목표`, 추정 없이 목표·변수) · `assembly.py`(조립 — include·exclude, 겹친 목표·모르는 변수·외생 자료 끝·블록 사이 연결·풀이 블록 → `AssemblyReport`) · `identity.py`(항등식 실측 검사) · `project.py`(`Project` — `assemble`·`model`·`hs`(블록 HS)·`ident`·`used_by`·바꿔 끼우기, `eqn.project`) · `template.py`(`equion new --template desk`). 워크파일 API 위의 얇은 층 — 추정·풀이는 엔진. `eqn.project`는 함수라 하위 패키지 이름은 `projects` |
-| `cli/` | **명령줄(2단계)**: `commands.py`(argparse·`run`/`check`/`info`/`new`/`assemble`/`ident`·`--threads` 재실행·`--watch`) · `runner.py`(스크립트 실행기·로그·종료 코드·`--fail-on`) · `report.py`(보고서 폴더·`manifest.json`·`report.html`) · `check.py` · `info.py` · `new.py`. `python -m equion` = `equion/__main__.py`. 실행 기록은 `workfile/runtime.py`의 `RunRecord` |
+| `projects/` | **프로젝트 — 부품·조립 층(D32, 0.8 E1)**: `config.py`(`equion.toml` 읽기·검사 — 문제를 모아 `ProjectError`) · `parts.py`(블록 파일 → 부품 `블록:목표`, 추정 없이 목표·변수) · `assembly.py`(조립 — include·exclude, 겹친 목표·모르는 변수·외생 자료 끝·블록 사이 연결·풀이 블록 → `AssemblyReport`) · `identity.py`(항등식 실측 검사) · `project.py`(`Project` — `assemble`·`model`·`hs`(블록 HS)·`ident`·`used_by`·바꿔 끼우기, `eqn.project`) · `vintage.py`(**자료 정의·회차(D34, E2)** — `series.toml`·`derived.txt` 검사, 회차 만들기 `work/data/<회차>/`(series·flags·meta·build·summary, 내용 해시로 같은 회차), 목록·차이·원자료 넣기, tomlkit으로 주석 지키며 고치기) · `template.py`(`equion new --template desk` — 원자료 toy_q·toy_m과 자료 정의). `Project.data_build·data_use·data_list·data_diff·data_impact·data_add`·`span`(상대 기간 `last-N`·`next:N`). 워크파일 API 위의 얇은 층 — 추정·풀이는 엔진. `eqn.project`는 함수라 하위 패키지 이름은 `projects` |
+| `cli/` | **명령줄(2단계)**: `commands.py`(argparse·`run`/`check`/`info`/`new`/`assemble`/`ident`/`data`·`--threads` 재실행·`--watch`) · `runner.py`(스크립트 실행기·로그·종료 코드·`--fail-on`) · `report.py`(보고서 폴더·`manifest.json`·`report.html`) · `check.py` · `info.py` · `new.py`. `python -m equion` = `equion/__main__.py`. 실행 기록은 `workfile/runtime.py`의 `RunRecord` |
 | `worktable/worktable.py` | (엔진 수준) `WorkTable`/`Workspace` 세션: 주기·표본, `hs(start='auto')`, `forecast`·`extend`·`simulate`·`blocks`, 번들 v3 저장/복원(v2 읽기) |
 | `worktable/freq.py` · `_serial.py` | 주기 유틸·방정식 파일 파서(분류는 parser) / 번들 JSON 헬퍼 |
 | `datasets/` | **예제 자료(D27)**: `toy_q`·`toy_a`·`toy_m`·`klein_like`(참 모형을 아는 가상 자료, 만드는 코드 `_make.py`·고정 시드) · `load`·`describe`·`path`·`klein(path)`(사용자가 구한 실제 Klein 자료). 문서·docstring·시험 예제는 이것만 쓴다 |

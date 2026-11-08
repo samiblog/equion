@@ -11,7 +11,10 @@ test_project.py — 프로젝트(부품·조립 층, D32 — 개발 계획 E1) �
   D. 모형·HS: 워크파일 API로 직접 만든 모형과 같은 해, 블록 HS, 추정 재사용, 바꿔 끼운 HS
   E. 항등식 검사: 성립·어긋남·구간·추정식 거부
   F. 명령줄: new --template desk · assemble · ident
-자료는 예제 자료 toy_q(예제 프로젝트의 DATA/data.csv)만 쓴다.
+  G. 자료 정의·회차(D34, E2): 불러오기 틀(엑셀 머리줄·단위줄·시점 꼴·결측 표시·천 단위·괄호 음수·cp949), 정의 문제(모아서),
+     만들기(값의 종류·주기 변환·배율·채움·계절조정·파생), 같은 내용, 이 회차로 바꾸기(주석 유지), 차이·영향, 원자료 넣기(틀 검사)
+  H. 상대 기간(last·last-N·next:N)과 자료 회차 명령줄(equion data list·add·build·use·diff·impact)
+자료는 예제 자료 toy_q·toy_m(예제 프로젝트의 DATA/raw/)과 코드로 만든 합성 표만 쓴다.
 """
 
 import contextlib
@@ -118,9 +121,12 @@ def _main(tmp, t0):
     print("A. 설정")
     print("=" * 80)
     p, d = new_project(tmp)
-    files = ["equion.toml", "DATA/data.csv", "EQUATIONS/demand.txt", "EQUATIONS/price.txt",
-             "EQUATIONS/finance.txt", "README.md", ".gitignore"]
-    check("만들기: 예제 프로젝트 파일", all(os.path.isfile(os.path.join(d, f)) for f in files))
+    files = ["equion.toml", "DATA/series.toml", "DATA/derived.txt", "DATA/raw/toy_q.csv", "DATA/raw/toy_m.csv",
+             "EQUATIONS/demand.txt", "EQUATIONS/price.txt", "EQUATIONS/finance.txt", "README.md", ".gitignore"]
+    check("만들기: 예제 프로젝트 파일", all(os.path.isfile(os.path.join(d, f)) for f in files)
+          and sorted(p.created_files) == sorted(files))
+    check("만들기: 첫 자료 회차를 지금 회차로", p.vintage is not None and len(p.data_list()) == 1
+          and os.path.isfile(os.path.join(d, "work", "data", p.vintage, "series.csv")), str(p.vintage))
     check("열기: 이름·블록·모형", p.name == "demo" and p.blocks == ["demand", "price", "finance"]
           and p.models == ["core", "main", "main_fixrl"], repr(p))
     check("eqn.project = Project.open", quiet(eqn.project, d).models == p.models)
@@ -152,6 +158,13 @@ def _main(tmp, t0):
     check("설정: 새 형식 판", e is not None and "형식 판 99" in str(e))
     e = config_problem(tmp, "many", '[block]\n"한" = "b.txt"\n[model.m]\nblocks = ["q"]\n', bfile)
     check("설정: 문제를 모아 한꺼번에", e is not None and len(e.problems) >= 3, str(len(e.problems) if e else 0))
+    sfile = dict(bfile, **{"s.toml": ""})
+    e = config_problem(tmp, "both", '[data]\nfile = "data.csv"\nseries = "s.toml"\nfreq = "Q"\n[block]\nb = "b.txt"\n', sfile)
+    check("설정: [data] file과 series를 함께", e is not None and "함께 쓸 수 없습니다" in str(e))
+    e = config_problem(tmp, "nofreq", '[data]\nseries = "s.toml"\n[block]\nb = "b.txt"\n', sfile)
+    check("설정: series에는 freq", e is not None and "[data] freq가 없습니다" in str(e))
+    e = config_problem(tmp, "badvid", '[data]\nseries = "s.toml"\nfreq = "Q"\nvintage = "v1"\n[block]\nb = "b.txt"\n', sfile)
+    check("설정: 회차 이름 글자", e is not None and "회차 이름" in str(e))
     q = quiet(Project.open, os.path.join(tmp, "ok"))
     write(os.path.join(tmp, "ok", "equion.toml"), base_ok + "[weird]\nx = 1\n")
     q = quiet(Project.open, os.path.join(tmp, "ok"))
@@ -236,10 +249,12 @@ def _main(tmp, t0):
 
     pe = os.path.join(tmp, "early")
     shutil.copytree(d, pe)
-    df = pd.read_csv(os.path.join(pe, "DATA", "data.csv"))
+    df = pd.read_csv(os.path.join(pe, "DATA", "raw", "toy_q.csv"))
     df.loc[df.index[-4:], "POIL"] = np.nan
-    df.to_csv(os.path.join(pe, "DATA", "data.csv"), index=False)
-    r = quiet(quiet(Project.open, pe).assemble, "main")
+    df.to_csv(os.path.join(pe, "DATA", "raw", "toy_q.csv"), index=False)
+    pq = quiet(Project.open, pe)
+    quiet(pq.data_build, use=True)
+    r = quiet(pq.assemble, "main")
     check("조립: 일찍 끝나는 외생은 주의", r.ok and any("POIL(~2018Q4)" in w for w in r.warnings), "; ".join(r.warnings))
 
     rs = quiet(p.assemble, "main", swap={"demand:CN": "CN c Y"})
@@ -263,7 +278,8 @@ def _main(tmp, t0):
     r = quiet(p.hs, "main")
     check("HS: [hs]의 구간·방식", (r.start, r.end) == ("2005Q1", "2019Q4") and r.counts()["ok"] == 60)
 
-    wf = quiet(eqn.wfopen, os.path.join(d, "DATA", "data.csv"))
+    vcsv = os.path.join(d, "work", "data", p.vintage, "series.csv")
+    wf = quiet(eqn.wfopen, vcsv, freq="Q")
     mm = quiet(lambda: wf.model("chk").merge("CN c Y CN(-1)", "I c Y(-1) R", "dlog(P) c dlog(Y) dlog(POIL)",
                                              "RL c R RL(-1)", "log(M2) c log(P) log(Y) RL log(M2(-1))")
                .append("Y = CN + I + G"))
@@ -274,7 +290,7 @@ def _main(tmp, t0):
     check("HS: 워크파일 API로 직접 만든 모형과 같은 해", max(diffs) < 1e-9, f"최대 차이 {max(diffs):.2e}")
 
     rb = quiet(p.hs, "demand")
-    wf2 = quiet(eqn.wfopen, os.path.join(d, "DATA", "data.csv"))
+    wf2 = quiet(eqn.wfopen, vcsv, freq="Q")
     md = quiet(lambda: wf2.model("d").merge("CN c Y CN(-1)", "I c Y(-1) R").append("Y = CN + I + G"))
     quiet(md.solve, "2005Q1", "2019Q4")
     dd = float(np.nanmax(np.abs(p.workfile["Y_0"].to_numpy(dtype=float) - wf2["Y_0"].to_numpy(dtype=float))))
@@ -344,11 +360,331 @@ def _main(tmp, t0):
     check("명령 뒤 출력 수준을 되돌린다(1)", eqn.verbose() == 1)
     eqn.verbose(0)
 
+    newf, badf = _data_tests(tmp, p, d, q)
+    _span_cli_tests(tmp, p, d, newf, badf)
+
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:
         print("실패:", ", ".join(FAIL))
     return len(FAIL)
+
+
+def problems_of(fn):
+    """fn이 낸 ProjectError의 문제 목록(없으면 [])."""
+    try:
+        quiet(fn)
+    except ProjectError as e:
+        return list(e.problems)
+    return []
+
+
+MINI_TOML = """\
+[project]
+name = "mini"
+[data]                            # 자료 정의 — 주석 유지 검사
+series = "DATA/series.toml"
+derived = "DATA/derived.txt"
+freq = "Q"
+[block]
+b = "EQUATIONS/b.txt"
+[model.m]
+blocks = ["b"]
+"""
+
+MINI_SERIES = """\
+# 합성 표 — 주석은 data use·add 뒤에도 남아야 한다
+[source.t]                        # 엑셀: 1줄 제목, 2줄 열 이름, 3줄 단위
+file = "DATA/raw/table.xlsx"
+sheet = "표"
+header_row = 2
+unit_row = 3
+time_col = "A"
+missing = ["–"]
+thousands = ","
+
+[source.m]                        # cp949 csv, '2001년 1월' 꼴
+file = "DATA/raw/m.csv"
+
+[source.a]
+file = "DATA/raw/a.csv"
+
+[series.X]
+from = "t:X"
+
+[series.Z]
+from = "t:z"                      # 대소문자만 다름
+scale = 10
+
+[series.W]
+from = "t:W"
+fill = "linear"
+
+[series.MQ]
+from = "m:IP"
+convert = "sum"
+
+[series.AQ]
+from = "a:GDP"
+convert = "split"
+unit = "조원"
+"""
+
+
+def make_mini(base):
+    """합성 원자료(엑셀·cp949 csv·연간 csv)와 자료 정의로 된 작은 프로젝트."""
+    import openpyxl
+    root = os.path.join(base, "mini")
+    os.makedirs(os.path.join(root, "DATA", "raw"))
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "표"
+    ws.append(["가상 분기 표(예)"])
+    ws.append(["시점", "X", "Z", "W"])
+    ws.append([None, "조원", "%", None])
+    for k, lab in enumerate(f"{y}년 {q}/4분기" for y in (2001, 2002, 2003) for q in (1, 2, 3, 4)):
+        ws.append([lab, f"{1000 + 10 * k:,}", "(5)" if k == 2 else 1.0 + k,
+                   "–" if k == 3 else ("x" if k == 4 else 100.0 + k)])
+    wb.save(os.path.join(root, "DATA", "raw", "table.xlsx"))
+    lines = ["시점,IP"] + [f"{y}년 {m}월,{12 * (y - 2001) + m}" for y in (2001, 2002, 2003) for m in range(1, 13)]
+    with open(os.path.join(root, "DATA", "raw", "m.csv"), "w", encoding="cp949", newline="\n") as f:
+        f.write("\n".join(lines) + "\n")
+    write(os.path.join(root, "DATA", "raw", "a.csv"), "year,GDP\n2001,4\n2002,8\n2003,12\n")
+    write(os.path.join(root, "DATA", "series.toml"), MINI_SERIES)
+    write(os.path.join(root, "DATA", "derived.txt"), "XZ = X + Z        # 합\n")
+    write(os.path.join(root, "EQUATIONS", "b.txt"), "X c Z MQ\n")
+    write(os.path.join(root, "equion.toml"), MINI_TOML)
+    return root
+
+
+def _data_tests(tmp, p, d, q):
+    import re
+    import tomllib
+    from equion.data import transform as tr
+    from equion.data.source import SourceSpec, file_sha256, normalize_label, read_source
+    from equion.projects.vintage import read_vintage
+    print("=" * 80)
+    print("G. 자료 정의·회차")
+    print("=" * 80)
+    got = [normalize_label(x) for x in ("2003.Q4", "2003 Q4", "2003년 4/4분기", "2003년 4분기", "2003년 10월",
+                                        "2003.10", "2003-M7", "2003년", "2003Q4")]
+    check("시점 꼴: 흔한 표기", got == ["2003Q4", "2003Q4", "2003Q4", "2003Q4", "2003-10", "2003-10", "2003-07", "2003",
+                                   "2003Q4"], str(got))
+    root = make_mini(tmp)
+    pm = quiet(Project.open, root)
+    check("회차 없음: 자료를 쓰면 알림", raises(lambda: pm.workfile, ProjectError, "equion data build"))
+    xl = os.path.join(root, "DATA", "raw", "table.xlsx")
+    t = read_source(SourceSpec("t", "DATA/raw/table.xlsx", xl, sheet="표", header_row=2, unit_row=3, time_col="A",
+                               missing=["–"], thousands=","))
+    check("틀: 엑셀 머리줄·단위줄·시점 꼴('2001년 1/4분기')", t.freq == "Q" and len(t.data) == 12
+          and t.units == {"X": "조원", "Z": "%"} and t.data.index[0] == pd.Timestamp("2001-01-01"), str(t.units))
+    check("틀: 천 단위 쉼표·괄호 음수", t.data["X"].iloc[1] == 1010 and t.data["Z"].iloc[2] == -5)
+    check("틀: 결측 표시·숫자 아닌 칸(칸 위치)", t.missing_cells == ["D7 '–'"] and t.bad_cells == ["D8 'x'"],
+          f"{t.missing_cells} {t.bad_cells}")
+    check("틀: 열 이름은 대소문자 무시", t.column("z") == ("Z", True) and t.column("nope") == (None, False))
+    tm = read_source(SourceSpec("m", "DATA/raw/m.csv", os.path.join(root, "DATA", "raw", "m.csv")))
+    check("틀: cp949 csv·'2001년 1월' 꼴", tm.freq == "M" and len(tm.data) == 36 and tm.data["IP"].iloc[-1] == 36)
+    check("틀: 시점 칸이 빈 줄(위치)", raises(lambda: read_source(SourceSpec("t", "t.xlsx", xl, sheet="표", header_row=2)),
+                                       ValueError, "3줄의 시점 칸(A3)"))
+
+    r = quiet(pm.data_build)
+    vid = r.id
+    check("만들기: 새 회차 — 지금 회차는 저절로 바뀌지 않는다", r.created and re.match(r"^d\d{4}-\d{2}a$", vid)
+          and pm.vintage is None and r.n_series == 6 and r.span == ("2001Q1", "2003Q4"), repr(r))
+    imp = " | ".join(r.implicit)
+    check("만들기: 알아서 한 것", all(k in imp for k in ("대소문자만 다름", "결측 표시로 본 칸 1개", "숫자가 아닌 칸 1개",
+                                                  "안쪽 결측 2칸을 선형으로 채움 (2001Q4부터)", "MQ: M → Q sum",
+                                                  "AQ: A → Q split")), imp)
+    df, fl, meta = read_vintage(root, vid)
+    check("만들기: 배율·채움·주기 변환·파생 값",
+          df.loc["2001Q3", "Z"] == -50 and df.loc["2001Q4", "W"] == 103 and df.loc["2002Q1", "W"] == 104
+          and df.loc["2001Q1", "MQ"] == 6 and df.loc["2003Q4", "MQ"] == 105 and df.loc["2001Q1", "AQ"] == 1
+          and np.allclose(df["XZ"], df["X"] + df["Z"]))
+    check("만들기: 값의 종류(실측·변환·채움·파생)",
+          fl.loc["2001Q1", "X"] == "actual" and fl.loc["2001Q1", "Z"] == "transformed" and fl.loc["2001Q4", "W"] == "filled"
+          and fl.loc["2001Q3", "W"] == "actual" and fl.loc["2001Q1", "MQ"] == "transformed"
+          and fl.loc["2001Q1", "XZ"] == "derived")
+    check("만들기: 단위(단위줄·정의)", meta["series"]["X"]["unit"] == "조원" and meta["series"]["AQ"]["unit"] == "조원"
+          and meta["series"]["XZ"]["expr"] == "X + Z")
+    vdir = os.path.join(root, "work", "data", vid)
+    with open(os.path.join(vdir, "build.json"), encoding="utf-8") as f:
+        build = json.load(f)
+    check("만들기: 기록(입력 해시·정의·equion 판)", build["format"] == "equion-data-vintage"
+          and {s["name"]: s["sha256"] for s in build["sources"]}["t"] == file_sha256(xl)
+          and "DATA/series.toml" in build["definitions"] and build["equion"] == eqn.__version__)
+    check("만들기: summary.md", "| XZ | = X + Z |" in read(os.path.join(vdir, "summary.md")))
+    check("만들기: 임시 폴더를 남기지 않는다", not [n for n in os.listdir(os.path.join(root, "work", "data"))
+                                          if n.startswith(".tmp")])
+    write(os.path.join(root, "DATA", "series.toml"), "# 주석만 더함\n", mode="a")
+    r2 = quiet(pm.data_build)
+    check("만들기: 같은 원자료·정의(주석만 다름)면 같은 회차", not r2.created and r2.id == vid and len(pm.data_list()) == 1)
+    old = quiet(pm.data_use, vid)
+    toml = read(os.path.join(root, "equion.toml"))
+    check("바꾸기: equion.toml [data] vintage(주석 그대로)", old is None and pm.vintage == vid
+          and f'vintage = "{vid}"' in toml and "# 자료 정의 — 주석 유지 검사" in toml)
+    check("바꾸기: 회차 자료로 연다", {"X", "Z", "W", "MQ", "AQ", "XZ"} <= set(pm.workfile.series())
+          and pm.data_list()[0]["current"])
+    check("바꾸기: 없는 회차", raises(lambda: pm.data_use("d2001-01a"), ProjectError, "없습니다"))
+    check("자료 파일 하나 프로젝트는 회차 없음", raises(lambda: q.data_build(), ProjectError, "자료 파일 하나"))
+
+    pb = os.path.join(tmp, "minibad")
+    shutil.copytree(root, pb)
+    write(os.path.join(pb, "DATA", "series.toml"),
+          '[source.t]\nfile = "DATA/raw/table.xlsx"\n[series.LOG]\nfrom = "t:X"\n[series.Q1]\nfrom = "zz:X"\n'
+          '[series.Q2]\nfrom = "t:X"\nconvert = "avg"\n[series.Q3]\nfrom = "tX"\n[extra]\nx = 1\n')
+    write(os.path.join(pb, "DATA", "derived.txt"), "XZ X + Z\nQ2 = X\n")
+    pr = problems_of(quiet(Project.open, pb).data_build)
+    want = (lambda x: "[series.LOG]" in x and "log()" in x, lambda x: "없는 원자료 'zz'" in x,
+            lambda x: "convert = 'avg'" in x, lambda x: "[series.Q3]" in x and "원자료이름:열" in x,
+            lambda x: "알 수 없는 표 [extra]" in x, lambda x: "derived.txt:1" in x and "'이름 = 식'" in x,
+            lambda x: "derived.txt:2" in x and "겹칩니다" in x)
+    check("정의 문제: 모아서 한꺼번에(위치와 함께)", all(any(w(x) for x in pr) for w in want), " | ".join(pr)[:300])
+    write(os.path.join(pb, "DATA", "series.toml"),
+          '[source.t]\nfile = "DATA/raw/table.xlsx"\nsheet = "표"\nheader_row = 2\nunit_row = 3\n'
+          '[source.u]\nfile = "DATA/raw/table.xlsx"\nsheet = "표"\nheader_row = 2\n'
+          '[source.m]\nfile = "DATA/raw/m.csv"\n'
+          '[series.X]\nfrom = "t:NOPE"\n[series.Y2]\nfrom = "u:X"\n[series.MQ]\nfrom = "m:IP"\n')
+    write(os.path.join(pb, "DATA", "derived.txt"), "BAD = X +\n")
+    pr = problems_of(quiet(Project.open, pb).data_build)
+    check("만들기 문제: 없는 열·틀·주기 변환", any("NOPE" in x and "열이 없습니다" in x and "있는 열" in x for x in pr)
+          and any("[source.u]" in x and "A3" in x for x in pr) and any("[series.MQ]" in x and "convert =" in x for x in pr),
+          " | ".join(pr)[:300])
+    write(os.path.join(pb, "DATA", "series.toml"), '[source.t]\nfile = "DATA/raw/table.xlsx"\nsheet = "표"\n'
+          'header_row = 2\nunit_row = 3\nthousands = ","\n[series.X]\nfrom = "t:X"\n')
+    pr = problems_of(quiet(Project.open, pb).data_build)
+    check("만들기 문제: 파생식 오류는 파일:줄", any(x.startswith("DATA/derived.txt:1") for x in pr), " | ".join(pr)[:200])
+
+    # 예제 프로젝트의 회차 — 계절조정·주기 변환·파생을 직접 계산과 견준다
+    vdf, vfl, _ = read_vintage(d, p.vintage)
+    rawq = pd.read_csv(os.path.join(d, "DATA", "raw", "toy_q.csv"), index_col=0)
+    y = rawq["CNNSA"].to_numpy(dtype=float)
+    S = np.exp(tr.stl(np.log(y), 4)[0])
+    check("만들기: 계절조정(STL 승법) = 직접 계산", np.allclose(vdf["CNSA"].to_numpy(), y / S, rtol=1e-12))
+    rawm = pd.read_csv(os.path.join(d, "DATA", "raw", "toy_m.csv"), index_col=0)
+    check("만들기: 월 → 분기 평균 = 직접 계산", abs(vdf.loc["2000Q1", "IPQ"] - rawm["IP"].iloc[:3].mean()) < 1e-12
+          and vfl.loc["1999Q4", "IPQ"] == "missing" and vfl.loc["2000Q1", "IPQ"] == "transformed")
+    pi = 100 * (vdf["P"] / vdf["P"].shift(4) - 1)
+    check("만들기: 파생 PI·RR", np.allclose(vdf["PI"].iloc[4:], pi.iloc[4:]) and vfl.loc["1970Q1", "PI"] == "missing"
+          and np.allclose(vdf["RR"].iloc[4:], (vdf["R"] - pi).iloc[4:]))
+    check("만들기: 원자료 값은 그대로(실측)", np.array_equal(vdf["CN"].to_numpy(), rawq["CN"].to_numpy())
+          and (vfl["CN"] == "actual").all())
+
+    # 원자료 넣기 → 새 회차 → 차이·영향 → 바꾸기
+    pu = os.path.join(tmp, "upd")
+    shutil.copytree(d, pu)
+    P = quiet(Project.open, pu)
+    sfile = os.path.join(pu, "DATA", "series.toml")
+    new = rawq.copy()
+    new.loc[new.index[-4:], "CN"] *= 1.01
+    new.loc["2020Q1"] = new.iloc[-1] * 1.005
+    newf = os.path.join(tmp, "toy_q_new.csv")
+    new.to_csv(newf)
+    badf = os.path.join(tmp, "toy_q_bad.csv")
+    new.drop(columns=["POIL"]).to_csv(badf)
+    before = read(sfile)
+    ra = quiet(P.data_add, badf, source="na")
+    check("넣기: 틀이 맞지 않으면 아무것도 바꾸지 않는다", any("POIL" in x for x in ra.problems) and not ra.copied
+          and read(sfile) == before and not os.path.exists(os.path.join(pu, "DATA", "raw", "toy_q_bad.csv"))
+          and "넣지 않았습니다" in ra.text())
+    ra = quiet(P.data_add, newf, source="na", as_name="toy_q.csv", note="2020Q1 추가")
+    check("넣기: 같은 이름·다른 내용은 날짜를 붙여 나란히", ra.copied and re.match(r"^DATA/raw/toy_q_\d{8}\.csv$", ra.file)
+          and read(os.path.join(pu, "DATA", "raw", "toy_q.csv")) == read(os.path.join(d, "DATA", "raw", "toy_q.csv")),
+          ra.file)
+    toml = read(sfile)
+    check("넣기: 출처를 새 파일로(주석 그대로)", f'file = "{ra.file}"' in toml and "# 분기 거시 자료" in toml
+          and ra.previous == "DATA/raw/toy_q.csv")
+    with open(os.path.join(pu, ra.file + ".source.toml"), "rb") as f:
+        side = tomllib.load(f)
+    check("넣기: 옆 파일에 출처·해시·메모", side["sha256"] == ra.sha256 == file_sha256(newf) and side["note"] == "2020Q1 추가"
+          and side["from"] == "toy_q_new.csv")
+    rb = quiet(P.data_add, newf)
+    check("넣기: 같은 내용은 다시 넣지 않는다(다른 이름이어도)", not rb.copied and rb.file == ra.file)
+    check("넣기: csv·xlsx·xls만", raises(lambda: P.data_add(sfile), ProjectError, "csv·xlsx·xls"))
+    check("넣기: 이름은 파일 이름 하나(폴더 밖으로 못 쓴다)",
+          raises(lambda: P.data_add(newf, as_name="../out.csv"), ProjectError, "파일 이름 하나")
+          and raises(lambda: P.data_add(newf, as_name=".hidden.csv"), ProjectError, "파일 이름 하나")
+          and not os.path.exists(os.path.join(pu, "DATA", "out.csv")))
+    check("넣기: 없는 출처", raises(lambda: P.data_add(newf, source="zz"), ProjectError, "없는 출처"))
+    v0 = P.vintage
+    rn = quiet(P.data_build)
+    check("새 원자료: 새 회차, 지금 회차는 그대로", rn.created and rn.id != v0 and P.vintage == v0
+          and rn.span == ("1970Q1", "2020Q1"))
+    dd = P.data_diff()
+    cn = dd.changes.loc["CN"]
+    check("차이: 기본은 지금 → 가장 새 회차", (dd.a, dd.b) == (v0, rn.id))
+    check("차이: 개정(기간·크기)과 새 값", cn["개정"] == 4 and cn["처음 개정"] == "2019Q1" and cn["끝 개정"] == "2019Q4"
+          and abs(cn["최대 |차이%|"] - 1) < 1e-6 and cn["새 값"] == 1, str(cn.to_dict()))
+    check("차이: 새 값만 있는 시리즈·그대로인 시리즈", dd.changes.loc["G", "개정"] == 0 and dd.changes.loc["G", "새 값"] == 1
+          and dd.unchanged == ["IPQ"], str(dd.unchanged))
+    check("차이: 글·JSON", "개정 4기(2019Q1~2019Q4)" in dd.text() and json.loads(json.dumps(dd.to_dict()))["b"] == rn.id)
+    im = P.data_impact()
+    check("영향: 바뀐 시리즈를 쓰는 식·모형", len(im.parts) == 6 and im.models == ["core", "main", "main_fixrl"]
+          and im.uses["price:P"] == ["P", "POIL", "Y"])
+    check("영향: 다시 계산하지 않는다", P.vintage == v0 and "저절로 하지 않는다" in im.text())
+    quiet(P.data_use, rn.id)
+    r = quiet(P.hs, "main")
+    check("바꾸기 뒤 HS: 상대 구간(2005Q1:last)이 새 끝을 따른다", (r.start, r.end) == ("2005Q1", "2020Q1")
+          and r.counts()["ok"] == 61, f"{r.start}~{r.end}")
+    new2 = new.copy()
+    new2.loc["2019Q4", "POIL"] *= 1.1
+    new2f = os.path.join(tmp, "toy_q_new2.csv")
+    new2.to_csv(new2f)
+    quiet(P.data_add, new2f, source="na")
+    rn2 = quiet(P.data_build)
+    im = P.data_impact()
+    check("영향: 유가만 바뀌면 물가 식과 그 모형만", (im.diff.a, im.diff.b) == (rn.id, rn2.id) and im.parts == ["price:P"]
+          and im.models == ["main", "main_fixrl"] and im.diff.changed == ["POIL"], f"{im.parts} {im.models}")
+    check("회차 목록: 만든 때 순·지금 회차", [v["id"] for v in P.data_list()] == [v0, rn.id, rn2.id]
+          and [v["current"] for v in P.data_list()] == [False, True, False])
+    return newf, badf
+
+
+def _span_cli_tests(tmp, p, d, newf, badf):
+    print("=" * 80)
+    print("H. 상대 기간·자료 회차 명령줄")
+    print("=" * 80)
+    check("상대 기간: last·last-N·first+N·next:N", p.span("last-3:last") == ("2019Q1", "2019Q4")
+          and p.span("next:4") == ("2020Q1", "2020Q4") and p.span("first:first+3") == ("1970Q1", "1970Q4")
+          and p.span("2005Q1:last") == ("2005Q1", "2019Q4"))
+    check("상대 기간: 시작이 끝보다 뒤", raises(lambda: p.span("last:first"), ValueError, "뒤입니다"))
+    r = quiet(p.hs, "main", start="last-11", end="last")
+    check("상대 기간: HS 구간", (r.start, r.end) == ("2017Q1", "2019Q4") and r.counts()["ok"] == 12)
+    check("상대 기간: 항등식 검사 구간", p.ident("demand:Y", start="last-39").n == 40)
+
+    cu = os.path.join(tmp, "clidata")
+    shutil.copytree(d, cu)
+    v0 = p.vintage
+    code, out, _ = run(["new", os.path.join(tmp, "cli3"), "--template", "desk"])
+    check("new --template desk: 첫 회차를 알린다", code == 0 and "자료 회차 d" in out and "지금 회차로" in out)
+    code, out, _ = run(["data", "list"], cu)
+    check("data list(0)", code == 0 and f"* {v0}" in out)
+    code, out, _ = run(["data", "build"], cu)
+    check("data build: 바뀐 것 없음(0)", code == 0 and "바뀐 것 없음" in out and "열기" not in out)
+    code, out, _ = run(["data", "add", badf, "--source", "na"], cu)
+    check("data add: 틀이 맞지 않으면 3", code == 3 and "넣지 않았습니다" in out)
+    code, out, _ = run(["data", "add", newf, "--source", "na", "--note", "새 분기"], cu)
+    check("data add --source(0)", code == 0 and "[source.na]" in out and "equion data build" in out)
+    code, out, _ = run(["data", "build", "--json"], cu)
+    j = json.loads(out) if code == 0 else {}
+    check("data build --json: 새 회차·지금 회차 그대로", j.get("created") and j.get("current") == v0
+          and j.get("span") == ["1970Q1", "2020Q1"])
+    code, out, _ = run(["data", "build"], cu)
+    check("data build: 다음 할 일(use)", code == 0 and f"equion data use {j.get('id')}" in out)
+    code, out, _ = run(["data", "diff"], cu)
+    check("data diff(0)", code == 0 and "개정 4기" in out)
+    code, out, _ = run(["data", "impact", "--json"], cu)
+    check("data impact --json", code == 0 and json.loads(out)["models"] == ["core", "main", "main_fixrl"])
+    code, _, err = run(["data", "use", "d1999-01a"], cu)
+    check("data use: 없는 회차(3)", code == 3 and "없습니다" in err)
+    code, out, _ = run(["data", "use", j.get("id", "")], cu)
+    check("data use(0)", code == 0 and f"지금 자료 회차 {j.get('id')} (전: {v0})" in out
+          and quiet(Project.open, cu).vintage == j.get("id"))
+    code, out, _ = run(["data", "diff", v0, j.get("id", ""), "--json"], cu)
+    check("data diff A B --json", code == 0 and json.loads(out)["a"] == v0)
+    code, _, _ = run(["data"], cu)
+    check("data: 동작 없음(3)", code == 3)
+    code, _, err = run(["data", "build", "-p", os.path.join(tmp, "ok")])
+    check("data: 자료 파일 하나 프로젝트(3)", code == 3 and "자료 파일 하나" in err)
 
 
 def test_suite():

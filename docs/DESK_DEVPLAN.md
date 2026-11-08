@@ -143,4 +143,5 @@ Desk는 같은 저장소의 `desk/`(패키지 `equion-desk`, 의존은 `equion-d
 1. ✓ **결정 옮기기**(2026-11-09): `DECISIONS.md` D31~D39, `ROADMAP.md`에 0.8(E1~E6)·Desk 0.1(D0~D5)·2차판·0.9. 기획 자료 9개와 이 계획을 `docs/`에 두고 커밋·push.
 2. ✓ **예제 프로젝트부터**(2026-11-09 — `equion new 폴더 --template desk`): 가상 분기 모형(예제 자료 `toy_q` 기반 — 블록 넷·모형 main·시나리오 oil20·스크립트 monthly.eqs)을 먼저 만들어, 모든 E 단계 시험과 문서의 기준으로 쓴다.
 3. ✓ **E1**(2026-11-09 — `equion/projects/`·`assemble`·`ident`, 시험 82개; 채택표는 기록과 함께 E3로): `equion/projects/`(설정·부품·조립·채택표)와 `equion assemble`, 블록 HS. 묶음이 끝날 때마다 완료 기준을 확인하고, 시험·문서·CI가 통과하면 진행을 이 문서에 표시한다.
+   ✓ **E2**(2026-11-09 — `equion/data/source.py`(불러오기 틀)·`equion/projects/vintage.py`(정의·회차)·`equion data list·add·build·use·diff·impact`, 상대 기간 `last-N`·`next:N`, 프로젝트 시험 150개): 같은 원자료·정의면 같은 회차, 원자료를 바꾼 뒤 `diff`가 새 기간·개정(기간·크기)을 정확히 — 예제 프로젝트는 자료 정의·회차를 쓰고 `[hs] range = "2005Q1:last"`. 시점이 열로 가는 표는 다음 판.
 4. **D0 준비(나란히)**: 런타임 묶기·격리 실행 시험과 PC 여덟 가지 목록. 여러 PC가 필요한 시험은 사용자의 도움을 받는다.
