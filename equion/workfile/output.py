@@ -115,6 +115,11 @@ class TextOutput(Output):
     def text(self):
         return (f"{self.title}\n" if self.title else "") + self.body
 
+    def md(self) -> str:
+        """md(작업 기록 카드·노트·보고서용) — 글은 코드 블록으로."""
+        from ..reporting.markdown import output_md
+        return output_md(self)
+
 
 class TableOutput(Output):
     """제목·머리 줄·표·꼬리 줄로 된 출력 (방정식 결과표, 블록 구조, 객체 목록 등)."""
@@ -153,6 +158,17 @@ class TableOutput(Output):
         lines += [rule, body, rule]
         lines += self.foot
         return "\n".join(lines)
+
+    def md(self) -> str:
+        """md 표(작업 기록 카드·노트·보고서용) — 제목은 굵게, 머리·꼬리 줄은 문단.
+
+        예
+            >>> wf = eqn.datasets.load("toy_q")
+            >>> print(wf.equation("eq_i").ls("I c Y(-1) R").output().md().splitlines()[0])
+            **방정식 eq_i**
+        """
+        from ..reporting.markdown import output_md
+        return output_md(self)
 
     def html(self) -> str:
         """HTML 표(노트북·보고서용)."""

@@ -8,6 +8,7 @@
     equion new 폴더 [--bare | --template desk]  ·  equion convert 옛파일 새이름 [--allow-pickle]
     equion assemble [모형] [-p 프로젝트]  ·  equion ident 블록:목표 [--check]     (프로젝트 — equion.toml, D32)
     equion data list|add 파일|build [--use]|use 회차|diff [A B]|impact [A B]      (자료 회차 — D34)
+    equion est · adopt · compare · hs · work · history                          (작업 명령·기록 — D33)
 
 종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(--fail-on) · 3 입력 오류 · 130 중단
 """
@@ -25,6 +26,7 @@ from ..version import project_version
 from .runner import EXIT_INPUT, EXIT_INTERRUPT, EXIT_OK, EXIT_SCRIPT, STATUS_KO, RunOptions, normalize_smpl
 
 PROG = "equion"
+_ARGV: list = []
 _THREAD_ENV = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
 
 
@@ -52,7 +54,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = _Parser(prog=PROG, description="Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·정보·새 프로젝트·조립 검사·자료 회차",
+    p = _Parser(prog=PROG, description="Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·정보·새 프로젝트·조립 검사·자료 회차·작업 명령",
                 epilog="종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(--fail-on) · 3 입력 오류 · 130 중단")
     p.add_argument("--version", action="version",
                    version=f"equion {project_version()}")
@@ -153,6 +155,9 @@ def build_parser() -> argparse.ArgumentParser:
         sp = _common(dsub.add_parser(nm, help=hl))
         sp.add_argument("a", nargs="?", help="앞 회차(기본: 지금 회차)")
         sp.add_argument("b", nargs="?", help="뒤 회차(기본: 가장 새 회차)")
+
+    from .workcmds import add_parsers
+    add_parsers(sub)
     return p
 
 
@@ -537,22 +542,25 @@ def cmd_data(args) -> int:
         p = _open_project(args.project)
         act = args.data_command
         code = EXIT_OK
+        from ..work.store import detect_who
+        who, cmdline = detect_who("terminal"), _cmdline(_ARGV)
         if act == "list":
             rows = p.data_list()
             out = rows if args.json else _data_list_text(p.name, rows)
         elif act == "add":
-            res = p.data_add(args.file, source=args.source, as_name=args.as_name, note=args.note)
+            res = p.data_add(args.file, source=args.source, as_name=args.as_name, note=args.note, who=who,
+                             command=cmdline)
             out = res.to_dict() if args.json else res.text()
             code = EXIT_INPUT if res.problems else EXIT_OK
         elif act == "build":
-            res = p.data_build(use=args.use)
+            res = p.data_build(use=args.use, who=who, command=cmdline)
             d = res.to_dict()
             d["current"] = p.vintage
             out = d if args.json else res.text() + (f"\n  지금 회차 {p.vintage}" if args.use else
                                                     ("" if res.id == p.vintage else
                                                      f"\n  다음   equion data use {res.id}"))
         elif act == "use":
-            old = p.data_use(args.vintage)
+            old = p.data_use(args.vintage, who=who, command=cmdline)
             out = ({"vintage": p.vintage, "previous": old} if args.json else
                    f"[data use] 지금 자료 회차 {p.vintage}" + (f" (전: {old})" if old and old != p.vintage else ""))
         elif act == "diff":
@@ -566,6 +574,12 @@ def cmd_data(args) -> int:
         return EXIT_INPUT
     print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else out)
     return code
+
+
+def _cmdline(argv) -> str:
+    """기록에 적을 명령 그대로(equion …)."""
+    import shlex
+    return "equion " + shlex.join(argv)
 
 
 def _safe_streams():
@@ -587,6 +601,8 @@ def main(argv=None) -> int:
     if "--" in argv:
         k = argv.index("--")
         argv, script_args = argv[:k], argv[k + 1:]
+    global _ARGV
+    _ARGV = list(argv)
     parser = build_parser()
     if not argv:
         parser.print_help()
@@ -615,6 +631,9 @@ def main(argv=None) -> int:
             return cmd_ident(args)
         if args.command == "data":
             return cmd_data(args)
+        from .workcmds import COMMANDS, dispatch
+        if args.command in COMMANDS:
+            return dispatch(args, _cmdline(argv))
     except KeyboardInterrupt:
         return EXIT_INTERRUPT
     parser.print_help()

@@ -695,8 +695,8 @@ def add_raw(root: str, src: str, as_name: str = None, note: str = None) -> AddRe
     return AddResult(_rel(root, dest), sha, True)
 
 
-def set_toml_value(path: str, table: List[str], key: str, value):
-    """TOML 파일의 표(table 경로)의 key를 value로 — 주석·순서·서식은 그대로(tomlkit)."""
+def toml_with_value(path: str, table: List[str], key: str, value) -> str:
+    """TOML 파일의 표(table 경로)의 key를 value로 바꾼 새 내용 — 주석·순서·서식은 그대로(tomlkit). 파일은 쓰지 않는다."""
     import tomlkit
     with open(path, encoding="utf-8") as f:
         doc = tomlkit.parse(f.read())
@@ -706,5 +706,11 @@ def set_toml_value(path: str, table: List[str], key: str, value):
             node[t] = tomlkit.table()
         node = node[t]
     node[key] = value
+    return tomlkit.dumps(doc)
+
+
+def set_toml_value(path: str, table: List[str], key: str, value):
+    """TOML 파일의 표(table 경로)의 key를 value로 — 주석·순서·서식은 그대로(tomlkit)."""
+    text = toml_with_value(path, table, key, value)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(tomlkit.dumps(doc))
+        f.write(text)

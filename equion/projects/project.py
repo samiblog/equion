@@ -28,6 +28,7 @@ from .vintage import (AddResult, BuildResult, VintageDiff, add_raw, build_vintag
                       load_defs, set_toml_value, vintage_path)
 from ..data.source import read_source
 from ..workfile.output import TextOutput
+from ..work.store import detect_who
 
 
 @dataclass
@@ -86,6 +87,8 @@ class Project:
         self.notes: List[str] = []
         self.created_files: List[str] = []
         self._data_cols: List[str] = []
+        self._sources: Dict[tuple, str] = {}           # 식 → 어디서 온 계수(adopted:est:… · estimated · swap:…)
+        self._swap_saved: Dict[tuple, tuple] = {}      # (부품, 식) → (est:기록, 저장된 식) — 기록의 계수로 바꿔 끼우기
 
     # ---- 열기·만들기 ---------------------------------------------------
     @classmethod
@@ -191,6 +194,7 @@ class Project:
         """설정을 다시 읽고 자료·부품·추정을 버린다(회차를 바꾼 뒤)."""
         self.config = load_config(self.config.path)
         self._wf, self._parts, self._part_problems, self._est = None, None, {}, {}
+        self._sources, self._swap_saved = {}, {}
 
     # ---- 자료 정의·회차(D34) -------------------------------------------
     def _need_defs(self):
@@ -200,7 +204,7 @@ class Project:
         c = self.config
         return load_defs(c.root, c.series_file, c.derived_file, c.freq)
 
-    def data_build(self, use: bool = False) -> BuildResult:
+    def data_build(self, use: bool = False, who: str = None, command: str = None) -> BuildResult:
         """자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다.
 
         같은 원자료·정의로 만든 회차가 이미 있으면 새로 만들지 않고 그 회차를 알린다. 지금 회차는 저절로 바뀌지 않는다(use=True면 바꾼다).
@@ -226,10 +230,10 @@ class Project:
         res = build_vintage(defs, project_version())
         say(f"[{self.name}] " + (f"자료 회차 {res.id}를 만들었습니다" if res.created else f"자료 회차 {res.id}와 같습니다"))
         if use and res.id != self.config.vintage:
-            self.data_use(res.id)
+            self.data_use(res.id, who=who, command=command)
         return res
 
-    def data_use(self, vid: str) -> str:
+    def data_use(self, vid: str, who: str = None, command: str = None) -> str:
         """이 회차로 바꾸기 — equion.toml의 [data] vintage를 고치고(주석·순서는 그대로) 자료를 다시 연다. 이전 회차를 돌려준다.
 
         오류
@@ -245,7 +249,12 @@ class Project:
         self._need_defs()
         vintage_path(self.root, vid)
         old = self.config.vintage
-        set_toml_value(self.config.path, ["data"], "vintage", vid)
+        if old != vid:
+            from .records import history_of
+            from .vintage import toml_with_value
+            history_of(self).write_files({"equion.toml": toml_with_value(self.config.path, ["data"], "vintage", vid)},
+                                         who or detect_who("python"), command or f"data use {vid}",
+                                         note=f"자료 회차 {old} → {vid}" if old else f"자료 회차 {vid}")
         self._reset()
         say(f"[{self.name}] 지금 자료 회차: {vid}" + (f" (전: {old})" if old and old != vid else ""))
         return old
@@ -309,7 +318,8 @@ class Project:
         return ImpactReport(d, [x.id for x in parts], models,
                             {x.id: sorted(touched & (x.data_vars | x.variables)) for x in parts})
 
-    def data_add(self, path: str, source: str = None, as_name: str = None, note: str = None) -> AddResult:
+    def data_add(self, path: str, source: str = None, as_name: str = None, note: str = None, who: str = None,
+                 command: str = None) -> AddResult:
         """원자료 넣기 — 파일을 DATA/raw/에 복사한다(받은 그대로, 같은 이름이면 날짜를 붙여 나란히). source를 주면 그 출처가
         이 파일을 읽도록 series.toml을 고치되, 먼저 그 출처의 불러오기 틀로 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을
         때만 넣고 고친다(틀 검사 — 맞지 않으면 아무것도 바꾸지 않고 `.problems`에 까닭).
@@ -356,7 +366,13 @@ class Project:
         res = add_raw(self.root, path, as_name=as_name, note=note)
         res.source, res.previous = source, sp.file
         if res.file != sp.file:
-            set_toml_value(os.path.join(self.root, self.config.series_file), ["source", source], "file", res.file)
+            from .records import history_of
+            from .vintage import toml_with_value
+            sf = self.config.series_file
+            history_of(self).write_files(
+                {sf: toml_with_value(os.path.join(self.root, sf), ["source", source], "file", res.file)},
+                who or detect_who("python"), command or f"data add {os.path.basename(path)} --source {source}",
+                note=f"[source.{source}] {sp.file} → {res.file}")
         return res
 
     def _load(self):
@@ -507,26 +523,72 @@ class Project:
         base = name if wf._col(name) is None else f"m_{name}"
         return base
 
+    def _part_key(self, part: Part) -> tuple:
+        """식 하나의 계수 출처 열쇠 — 채택 기록·바꿔 끼운 기록·지금 자료 추정이 서로 섞이지 않게."""
+        if part.line == 0:
+            sv = self._swap_saved.get((part.id, part.expr))
+            return (part.id, part.expr, f"swap:{sv[0]}" if sv else "swap")
+        rid = self.adopted.get(part.id)
+        return (part.id, part.expr, f"adopted:{rid}" if rid else "estimated")
+
     def _estimate(self, part: Part):
+        """식 하나의 워크파일 방정식 객체 — 채택 기록이 있고 글자가 같으면 그 계수(다시 추정하지 않음, D35), 바꿔 끼운 기록이면
+        그 기록의 계수, 아니면 지금 자료로 추정."""
+        from ..estimation.equation import Equation
         from ..workfile.objects import EquationObject
+        from ..work.store import RecordError
+        from .records import store_of
         wf = self.workfile
-        key = (part.id, part.expr)
+        key = self._part_key(part)
         obj = self._est.get(key)
         if obj is not None:
             return obj
         nm = f"{part.block}_{part.target}"
         if part.line == 0:                      # 바꿔 끼운 식 — 글자마다 다른 이름(같은 식은 같은 이름)
             import hashlib
-            nm += "_s" + hashlib.md5(part.expr.encode("utf-8")).hexdigest()[:6]
+            nm += "_s" + hashlib.md5((part.expr + key[2]).encode("utf-8")).hexdigest()[:6]
         if wf._col(nm) is not None:
             nm = "eq_" + nm
         wf._objects.pop(nm.lower(), None)
         obj = EquationObject(wf, nm)
-        eq = obj._make(part.expr)
+        saved, src = None, ("estimated" if part.line else "swap")
+        if key[2].startswith("swap:"):
+            saved, src = self._swap_saved[(part.id, part.expr)][1], key[2]
+        elif key[2].startswith("adopted:"):
+            rid = key[2][len("adopted:"):]
+            try:
+                rec = store_of(self).get(rid, "est")
+                if rec.meta.get("expr") == part.expr:
+                    saved, src = rec.meta["equation"], key[2]
+                else:
+                    self.notes.append(f"{part.id}: 채택 기록 {rid}의 식이 블록 파일과 다릅니다 — 지금 자료로 추정")
+            except RecordError:
+                self.notes.append(f"{part.id}: 채택 기록 {rid}이 없습니다 — 지금 자료로 추정")
+            if saved is None:
+                src = "estimated"
+        if saved is not None:
+            eq = quiet(Equation.restore, saved, wf._data)
+            eq.wt = wf._wt
+        else:
+            eq = obj._make(part.expr)
         wf._register(obj)
         obj._adopt(eq, part.expr, loud=False)
         self._est[key] = obj
+        self._sources[key] = src
         return obj
+
+    @property
+    def adopted(self) -> Dict[str, str]:
+        """채택표(EQUATIONS/adopted.toml) — {부품: est:기록}. 모형은 이 기록의 계수로 푼다(D35).
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> p.adopted
+            {}
+        """
+        from .records import read_adopted
+        return read_adopted(self.root)
 
     def model(self, name: str = None, swap: dict = None):
         """모형(또는 블록)을 조립해 워크파일 모델 객체로 — 추정식은 지금 자료로 추정하고 항등식은 그대로 넣는다.
@@ -552,6 +614,9 @@ class Project:
             ['CN', 'I', 'Y']
         """
         name = self._default(name)
+        if swap and any(str(v).strip().startswith("est:") for v in swap.values()):
+            from .records import _resolve_swap
+            swap, _ = _resolve_swap(self, swap)
         rep = self.assemble(name, swap=swap)
         if not rep.ok:
             raise ProjectError([f"모형 {name}을(를) 조립할 수 없습니다:"] + rep.problems)
@@ -559,15 +624,25 @@ class Project:
         obj = self._obj_name(name)
         wf._objects.pop(obj.lower(), None)
         m = wf.model(obj)
-        new = []
+        new, used = [], []
+        n0 = len(self.notes)
         for x in rep.parts:
             if x.kind == "identity":
                 m.append(x.expr)
             else:
-                fresh = (x.id, x.expr) not in self._est
+                fresh = self._part_key(x) not in self._est
                 m.merge(self._estimate(x))
-                if fresh:
+                src = self._sources.get(self._part_key(x), "")
+                if fresh and src == "estimated":
                     new.append(x.id)
+                elif fresh and src.startswith("adopted:"):
+                    used.append(f"{x.id}({src[8:]})")
+        for note in self.notes[n0:]:
+            say(f"[{name}] {note}")
+        if used:
+            note = f"채택 계수: {', '.join(used)}"
+            self.notes.append(note)
+            say(f"[{name}] {note}")
         if new:
             note = f"채택 기록 없이 지금 자료로 추정: {', '.join(new)}"
             self.notes.append(note)
@@ -603,7 +678,8 @@ class Project:
             start, end = s, e
         return start, end
 
-    def hs(self, name: str = None, start=None, end=None, mode: str = None, swap: dict = None, **opts):
+    def hs(self, name: str = None, start=None, end=None, mode: str = None, swap: dict = None, record: bool = False,
+           vs: str = None, as_name: str = None, who: str = None, command: str = None, **opts):
         """과거 재현(HS) — 모형이나 블록을 풀어 실측과 견준다. 블록이면 그 블록만 풀고 나머지 변수는 실측(블록 HS).
 
         구간·방식의 기본은 equion.toml `[hs]`의 range·mode, 없으면 자료 전체·dynamic. 풀이 값은 워크파일의 별칭 시리즈(`CN_0` …)에 쓴다.
@@ -612,11 +688,15 @@ class Project:
             name: 모형 또는 블록 이름(기본: [hs] model)
             start, end: 구간(기본: [hs] range)
             mode: 'dynamic' · 'static' · 'fit'(기본: [hs] mode)
-            swap: {부품: 식} — 그 식만 바꿔 끼워 푼다(파일은 그대로)
+            swap: {부품: 식 또는 est:기록} — 그 식만 바꿔 끼워 푼다(파일은 그대로). 기록이면 그 기록의 계수로
+            record: 참이면 작업 기록(`work/hs/<이름>/` — 조립 명세·적합도·풀린 값·summary.md)을 남기고 HSRecord를 돌려준다
+            vs: 견줄 HS 기록(record=True일 때 — 변수별 RMSPE 전후)
+            as_name: 기록 이름(기본 hs_0001, hs_0002 …)
+            who, command: 기록에 적을 '누가'·'명령'(명령줄이 채운다)
             **opts: ModelObject.solve의 선택지(on_missing · on_fail · tolerance …)
 
         돌려주는 것
-            SolveResult — .statistics() · .counts() · .summary()
+            SolveResult — .statistics() · .counts() · .summary() (record=True면 HSRecord — .id · .stats · .text())
 
         예
             >>> import tempfile, os
@@ -627,11 +707,113 @@ class Project:
             >>> p.hs("demand").counts()["ok"]
             60
         """
+        if record:
+            from .records import run_hs
+            return run_hs(self, name, start, end, mode, swap=swap, vs=vs, as_name=as_name, who=who, command=command,
+                          **opts)
         name = self._default(name)
         m = self.model(name, swap=swap)
         start, end = self._range(start, end)
         mode = mode or self.config.hs.get("mode") or "dynamic"
         return m.solve(start, end, mode=mode, **opts)
+
+    # ---- 작업 명령(기록을 남긴다, D33) ----------------------------------
+    def est(self, target: str, method: str = None, smpl: str = None, as_name: str = None, part: str = None,
+            sim: bool = False, cov: str = None, who: str = None, command: str = None):
+        """식 하나를 추정해 작업 기록(`work/est/<이름>/`)을 남긴다 — 부품(블록 파일의 그 줄) 또는 식 글자(후보).
+
+        식 글자의 목표변수가 한 부품의 목표면 그 부품의 후보가 된다(여럿이면 part로). 판단 기준(`[criteria]` — 기대 부호·진단·|t|)이
+        있으면 통과·걸러짐과 까닭을 적는다. 채택은 따로(`adopt`).
+
+        매개변수
+            target: 부품 `블록:목표` 또는 식 글자(예: "CN c Y CN(-1)")
+            method: 'auto'(기본 — @inst가 있으면 tsls) · 'ls' · 'tsls'
+            smpl: 표본 'S:E'(상대 기간 가능 — '1990Q1:last')
+            as_name: 기록 이름(기본: 목표변수_0001 …)
+            part: 어느 부품의 후보인지(목표가 같은 식이 여럿일 때)
+            sim: 참이면 식 하나의 동태 모의([hs] range — 다른 변수는 실측)와 RMSPE
+            cov: 계수 공분산('white' · 'hac' …)
+
+        돌려주는 것
+            EstRecord — .id · .coefs · .passed · .meta · .text()
+
+        오류
+            ProjectError: 항등식·추정할 수 없는 식 · RecordError: 이미 있는 기록 이름
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.est("CN c Y CN(-1) CN(-2)", as_name="cn_lag2")
+            >>> r.id, r.meta["part"], r.meta["n"]
+            ('est:cn_lag2', 'demand:CN', 198)
+        """
+        from .records import run_est
+        return run_est(self, target, method=method, smpl=smpl, as_name=as_name, part=part, sim=sim, cov=cov, who=who,
+                       command=command)
+
+    def adopt(self, record: str, part: str = None, who: str = None, command: str = None):
+        """추정 기록을 그 부품의 채택 계수로 — 블록 파일의 그 줄을 기록의 식으로 바꾸고(다르면) 채택표 `EQUATIONS/adopted.toml`을
+        고친다(주석·순서 그대로). 바뀜 기록에 남고, 그 뒤 모형은 이 계수로 푼다(다시 추정하지 않음).
+
+        돌려주는 것
+            AdoptResult — .part · .record · .previous · .line_changed · .change(바뀜 기록) · .text()
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.est("demand:CN", as_name="cn_now")
+            >>> p.adopt("est:cn_now").line_changed, p.adopted
+            (False, {'demand:CN': 'est:cn_now'})
+        """
+        from .records import adopt
+        return adopt(self, record, part=part, who=who, command=command)
+
+    def compare(self, *records: str, target: str = None, part: str = None):
+        """기록 비교 — 추정 기록이면 식·표본·적합 통계·진단·기준·단독 모의 표(종속변수·표본이 다르면 경고), HS 기록이면 변수별 RMSPE.
+
+        매개변수
+            *records: 기록 이름(est:… · hs:…)
+            target: 이 목표변수의 추정 기록 전부 · part: 이 부품의 후보 전부
+
+        돌려주는 것
+            CompareResult — .table(DataFrame) · .warnings · .text()
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = p.est("CN c Y CN(-1)", as_name="a")
+            >>> _ = p.est("CN c Y", as_name="b")
+            >>> list(p.compare(target="CN").table.index)
+            ['est:a', 'est:b']
+        """
+        from .records import compare
+        return compare(self, list(records), target=target, part=part)
+
+    def replay(self, record: str, as_name: str = None, who: str = None, command: str = None):
+        """HS 기록을 그때 그대로 다시 — 기록의 조립 명세(식 글자·계수·자료 회차·구간·방식)로 푼다. 지금 파일과 무관하고, 원래 기록의
+        풀린 값과 견주어(`.meta['replay']` — same · max_abs_diff) 새 기록을 남긴다.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> h = p.hs("main", record=True)
+            >>> p.replay(h.id).meta["replay"]["same"]
+            True
+        """
+        from .records import replay_hs
+        return replay_hs(self, record, as_name=as_name, who=who, command=command)
+
+    @property
+    def work(self):
+        """작업 기록 저장소(`work/`) — .records(종류) · .get(이름) · .log() · .mark(…)."""
+        from .records import store_of
+        return store_of(self)
+
+    @property
+    def history(self):
+        """바뀜 기록(`work/history/`) — .list() · .get(h0001) · .revert(h0001, who) · .scan()."""
+        from .records import history_of
+        return history_of(self)
 
     # ---- 항등식 검사 ----------------------------------------------------
     def ident(self, pid: str, start=None, end=None, tol: float = 1e-6) -> IdentityCheck:

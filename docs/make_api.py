@@ -81,6 +81,7 @@ def _groups():
     from equion.data import transform
     from equion.workfile import objects, output, sysobj, varobj, workfile
     import equion.projects as project
+    import equion.work as work
 
     def members(cls):
         out = []
@@ -125,7 +126,15 @@ def _groups():
         ("25. 자료 회차 차이 `p.data_diff(…)`", "VintageDiff", members(project.VintageDiff), False),
         ("26. 회차 영향 `p.data_impact(…)`", "ImpactReport", members(project.ImpactReport), False),
         ("27. 원자료 넣기 결과 `p.data_add(…)`", "AddResult", members(project.AddResult), False),
-        ("28. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다", "eqn", [(n, getattr(eqn, n)) for n in ADVANCED], False),
+        ("28. 추정 기록 `p.est(…)`", "EstRecord", members(project.EstRecord), False),
+        ("29. HS 기록 `p.hs(…, record=True)`", "HSRecord", members(project.HSRecord), False),
+        ("30. 채택 결과 `p.adopt(…)`", "AdoptResult", members(project.AdoptResult), False),
+        ("31. 기록 비교 `p.compare(…)`", "CompareResult", members(project.CompareResult), False),
+        ("32. 작업 기록 저장소 `p.work`", "WorkStore", members(work.WorkStore), False),
+        ("33. 작업 기록 하나 `p.work.get(…)`", "Record", members(work.Record), False),
+        ("34. 바뀜 기록 `p.history`", "History", members(work.History), False),
+        ("35. 바뀜 하나 `p.history.get(…)`", "Change", members(work.Change), False),
+        ("36. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다", "eqn", [(n, getattr(eqn, n)) for n in ADVANCED], False),
     ]
     return groups
 

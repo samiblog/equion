@@ -52,6 +52,14 @@ exclude = ["finance:RL"]          # 뺀 식의 목표는 외생(실측)이 된�
 [group]
 core = {{ series = ["Y", "CN", "I"], desc = "핵심 수요" }}
 
+[criteria]                        # 판단 기준 — 추정 기록의 '기준' 줄(통과·걸러짐과 까닭)
+alpha = 0.05                      # 진단 유의수준
+tests = ["lm", "reset"]           # 기준에 넣는 진단(p < alpha면 걸러짐)
+
+[criteria.signs]                  # 기대 부호
+"demand:CN" = {{ Y = "+" }}
+"demand:I" = {{ R = "-" }}
+
 [hs]                              # 과거 재현(HS) 기본값
 model = "main"
 range = "2005Q1:last"             # last = 자료의 마지막 기 — 새 자료 회차로 바꾸면 따라 늘어난다

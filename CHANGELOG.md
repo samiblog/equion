@@ -21,6 +21,14 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
   흔한 시점 꼴(`2003.Q4`·`2003년 4/4분기`·`2003년 10월`·`2003.10`)과 괄호 음수, cp949 csv를 읽습니다.
   `Project.data_build·data_use·data_list·data_diff·data_impact·data_add`, 명령줄 `equion data list·add·build·use·diff·impact`,
   상대 기간 `Project.span`(`2005Q1:last`·`last-39:last`·`first+3`·`next:12` — `[hs] range`·`hs`·`ident`에서도). 레시피 R49.
+- **작업 명령과 기록(0.8 E3, D33·D35)**: 계산할 때마다 `work/<종류>/<이름>/`에 기록(`record.json`·결과 CSV·카드 `summary.md` — 표와
+  vega-lite 차트)과 `work/log.jsonl` 한 줄. 기록은 고치지 않는다(다시 계산하면 새 기록). `Project.est`·명령줄 `equion est 부품|"식"` —
+  추정·진단·판단 기준(`[criteria]` 기대 부호·진단 p값·|t| 하한 → 통과·걸러짐과 까닭)·단독 모의, 식 글자는 목표가 같은 부품의 후보.
+  `adopt est:…` — 채택표 `EQUATIONS/adopted.toml`과 블록 파일의 그 줄(설명은 그대로), 그 뒤 모형은 **채택 계수**로 푼다(다시 추정 없음).
+  `compare` — 후보 표(종속변수·표본이 다르면 경고)·HS 기록의 변수별 RMSPE. `hs [모형] --swap 부품=est:…|"식" --vs hs:… --replay hs:…`
+  — 조립 명세(`assembly.json`: 식 글자·계수·자료 회차·정의 파일 해시)를 남기고, `--replay`는 지금 파일과 무관하게 그때 그대로 다시 푼다.
+  바뀜 기록 `work/history/`(누가·명령·전후·차이 — 명령 밖의 고침은 '바깥'으로) · `history list·show·revert`, `work list·show·pin·memo·clean`.
+  출력 객체에 `.md()`(md 렌더러 `equion.reporting.markdown`).
 - **문서 체계(D27)**: 시작하기 · 튜토리얼 8편 · 레시피 · 해설 · 참조 · 사례 연구(Klein형) · EViews 사용자 안내 ·
   영문 시작 문서. 시작점은 [`docs/README.md`](docs/README.md)입니다. 문서의 예제는 실제로 돌고, 출력도 실행 결과입니다.
   `python docs/build_docs.py --check`가 CI에서 예제 실행·출력·링크·API 설명과 예제·doctest를 확인합니다.

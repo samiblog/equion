@@ -33,7 +33,15 @@ Equion 0.7.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstri
 - [25. 자료 회차 차이 p.data_diff(…)](#25-자료-회차-차이-pdata_diff)
 - [26. 회차 영향 p.data_impact(…)](#26-회차-영향-pdata_impact)
 - [27. 원자료 넣기 결과 p.data_add(…)](#27-원자료-넣기-결과-pdata_add)
-- [28. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#28-고급엔진-수준--드라이버확장용-바뀔-수-있다)
+- [28. 추정 기록 p.est(…)](#28-추정-기록-pest)
+- [29. HS 기록 p.hs(…, record=True)](#29-hs-기록-phs-recordtrue)
+- [30. 채택 결과 p.adopt(…)](#30-채택-결과-padopt)
+- [31. 기록 비교 p.compare(…)](#31-기록-비교-pcompare)
+- [32. 작업 기록 저장소 p.work](#32-작업-기록-저장소-pwork)
+- [33. 작업 기록 하나 p.work.get(…)](#33-작업-기록-하나-pworkget)
+- [34. 바뀜 기록 p.history](#34-바뀜-기록-phistory)
+- [35. 바뀜 하나 p.history.get(…)](#35-바뀜-하나-phistoryget)
+- [36. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#36-고급엔진-수준--드라이버확장용-바뀔-수-있다)
 - [22. 명령줄 `equion`](#22-명령줄-equion)
 
 ## 1. `import equion as eqn`
@@ -2893,7 +2901,23 @@ wf.table("t1", pd.DataFrame({"a": [1, 2]})).save("doc_table.csv")
 |---|---|---|
 | `data` | `속성` | 표의 DataFrame. |
 | `text` | `()` | 글자 표(머리말·꼬리 줄 포함 — 스크립트·로그용). |
+| [`md`](#tableoutputmd) | `()` | md 표(작업 기록 카드·노트·보고서용) — 제목은 굵게, 머리·꼬리 줄은 문단. |
 | `html` | `()` | HTML 표(노트북·보고서용). |
+
+### TableOutput.md
+
+`md()`
+
+md 표(작업 기록 카드·노트·보고서용) — 제목은 굵게, 머리·꼬리 줄은 문단.
+
+**예**
+
+<!-- skip -->
+```python
+wf = eqn.datasets.load("toy_q")
+print(wf.equation("eq_i").ls("I c Y(-1) R").output().md().splitlines()[0])
+# **방정식 eq_i**
+```
 
 ## 19. 통계 `eqn.stats`
 
@@ -3731,19 +3755,26 @@ s[:4].round(6).tolist()
 | `models` | `속성` | 모형 이름 목록(설정 파일 순서). |
 | [`workfile`](#projectworkfile) | `속성` | 프로젝트 자료의 워크파일 — 자료 정의를 쓰면 지금 자료 회차, 아니면 [data] file(처음 쓸 때 연다). |
 | `vintage` | `속성` | 지금 자료 회차(equion.toml [data] vintage) — 자료 파일 하나를 쓰면 None. |
-| [`data_build`](#projectdata_build) | `(use=False)` | 자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다. |
-| [`data_use`](#projectdata_use) | `(vid)` | 이 회차로 바꾸기 — equion.toml의 [data] vintage를 고치고(주석·순서는 그대로) 자료를 다시 연다. 이전 회차를 돌려준다. |
+| [`data_build`](#projectdata_build) | `(use=False, who=None, command=None)` | 자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다. |
+| [`data_use`](#projectdata_use) | `(vid, who=None, command=None)` | 이 회차로 바꾸기 — equion.toml의 [data] vintage를 고치고(주석·순서는 그대로) 자료를 다시 연다. 이전 회차를 돌려준다. |
 | [`data_list`](#projectdata_list) | `()` | 자료 회차 목록(만든 때 순) — {id, created, span, n_series, current}. |
 | [`data_diff`](#projectdata_diff) | `(a=None, b=None)` | 두 자료 회차의 차이 — 새·없어진 시리즈, 시리즈마다 새 기간과 개정(기간·크기). |
 | [`data_impact`](#projectdata_impact) | `(a=None, b=None)` | 회차를 바꾸면 영향받는 것 — 바뀐 시리즈를 쓰는 식(부품)과 모형. 다시 계산은 하지 않는다(사람이 시킬 때만). |
-| [`data_add`](#projectdata_add) | `(path, source=None, as_name=None, note=None)` | 원자료 넣기 — 파일을 DATA/raw/에 복사한다(받은 그대로, 같은 이름이면 날짜를 붙여 나란히). source를 주면 그 출처가 이 파일을 읽도록 series.toml을 고치되, 먼저 그 출처의 불러오기 틀로 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을 때만 넣고 고친다(틀 검사 — 맞지 않으면 아무것도 바꾸지 않고 `.problems`에 까닭). |
+| [`data_add`](#projectdata_add) | `(path, source=None, as_name=None, note=None, who=None, command=None)` | 원자료 넣기 — 파일을 DATA/raw/에 복사한다(받은 그대로, 같은 이름이면 날짜를 붙여 나란히). source를 주면 그 출처가 이 파일을 읽도록 series.toml을 고치되, 먼저 그 출처의 불러오기 틀로 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을 때만 넣고 고친다(틀 검사 — 맞지 않으면 아무것도 바꾸지 않고 `.problems`에 까닭). |
 | [`parts`](#projectparts) | `(name=None)` | 부품(식·항등식) 목록 — name이 없으면 전부, 블록 이름이면 그 블록, 모형 이름이면 조립된 식들. |
 | [`part`](#projectpart) | `(pid)` | 부품 하나 — `블록:목표`(대소문자 무시). |
 | [`used_by`](#projectused_by) | `(name)` | 쓰는 곳 — 블록이나 부품(`블록:목표`)을 쓰는 모형 목록. 고치기 전에 영향 범위를 본다. |
 | [`assemble`](#projectassemble) | `(name=None, swap=None)` | 조립 검사 — 계산 없이 모형(또는 블록)의 구조를 본다: 내생·외생, 겹친 목표, 모르는 변수, 외생 자료 끝, 블록 사이 연결, 풀이 블록. |
+| [`adopted`](#projectadopted) | `속성` | 채택표(EQUATIONS/adopted.toml) — {부품: est:기록}. 모형은 이 기록의 계수로 푼다(D35). |
 | [`model`](#projectmodel) | `(name=None, swap=None)` | 모형(또는 블록)을 조립해 워크파일 모델 객체로 — 추정식은 지금 자료로 추정하고 항등식은 그대로 넣는다. |
 | [`span`](#projectspan) | `(spec)` | 구간 표기 → (시작, 끝) 라벨 — '2005Q1:2019Q4' · '2005Q1:last' · 'last-39:last' · 'next:12'. last는 자료의 마지막 값이 있는 기간. |
-| [`hs`](#projecths) | `(name=None, start=None, end=None, mode=None, swap=None, **opts)` | 과거 재현(HS) — 모형이나 블록을 풀어 실측과 견준다. 블록이면 그 블록만 풀고 나머지 변수는 실측(블록 HS). |
+| [`hs`](#projecths) | `(name=None, start=None, end=None, mode=None, swap=None, record=False, vs=None, as_name=None, who=None, command=None, **opts)` | 과거 재현(HS) — 모형이나 블록을 풀어 실측과 견준다. 블록이면 그 블록만 풀고 나머지 변수는 실측(블록 HS). |
+| [`est`](#projectest) | `(target, method=None, smpl=None, as_name=None, part=None, sim=False, cov=None, who=None, command=None)` | 식 하나를 추정해 작업 기록(`work/est/<이름>/`)을 남긴다 — 부품(블록 파일의 그 줄) 또는 식 글자(후보). |
+| [`adopt`](#projectadopt) | `(record, part=None, who=None, command=None)` | 추정 기록을 그 부품의 채택 계수로 — 블록 파일의 그 줄을 기록의 식으로 바꾸고(다르면) 채택표 `EQUATIONS/adopted.toml`을 고친다(주석·순서 그대로). 바뀜 기록에 남고, 그 뒤 모형은 이 계수로 푼다(다시 추정하지 않음). |
+| [`compare`](#projectcompare) | `(*records, target=None, part=None)` | 기록 비교 — 추정 기록이면 식·표본·적합 통계·진단·기준·단독 모의 표(종속변수·표본이 다르면 경고), HS 기록이면 변수별 RMSPE. |
+| [`replay`](#projectreplay) | `(record, as_name=None, who=None, command=None)` | HS 기록을 그때 그대로 다시 — 기록의 조립 명세(식 글자·계수·자료 회차·구간·방식)로 푼다. 지금 파일과 무관하고, 원래 기록의 풀린 값과 견주어(`.meta['replay']` — same · max_abs_diff) 새 기록을 남긴다. |
+| `work` | `속성` | 작업 기록 저장소(`work/`) — .records(종류) · .get(이름) · .log() · .mark(…). |
+| `history` | `속성` | 바뀜 기록(`work/history/`) — .list() · .get(h0001) · .revert(h0001, who) · .scan(). |
 | [`ident`](#projectident) | `(pid, start=None, end=None, tol=1e-06)` | 항등식 단독 검사 — 실측으로 좌변과 우변을 계산해 견준다(추정 없이). |
 
 ### Project.open
@@ -3809,7 +3840,7 @@ p.assemble("main").ok, p.vintage is not None
 
 ### Project.data_build
 
-`data_build(use=False)`
+`data_build(use=False, who=None, command=None)`
 
 자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다.
 
@@ -3840,7 +3871,7 @@ r.created, r.id == p.vintage        # 정의가 그대로라 같은 회차
 
 ### Project.data_use
 
-`data_use(vid)`
+`data_use(vid, who=None, command=None)`
 
 이 회차로 바꾸기 — equion.toml의 [data] vintage를 고치고(주석·순서는 그대로) 자료를 다시 연다. 이전 회차를 돌려준다.
 
@@ -3913,7 +3944,7 @@ r.parts, r.models
 
 ### Project.data_add
 
-`data_add(path, source=None, as_name=None, note=None)`
+`data_add(path, source=None, as_name=None, note=None, who=None, command=None)`
 
 원자료 넣기 — 파일을 DATA/raw/에 복사한다(받은 그대로, 같은 이름이면 날짜를 붙여 나란히). source를 주면 그 출처가 이 파일을 읽도록 series.toml을 고치되, 먼저 그 출처의 불러오기 틀로 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을 때만 넣고 고친다(틀 검사 — 맞지 않으면 아무것도 바꾸지 않고 `.problems`에 까닭).
 
@@ -4021,6 +4052,22 @@ p.assemble("main_fixrl").exogenous
 # ['G', 'POIL', 'R', 'RL']
 ```
 
+### Project.adopted
+
+`adopted` (속성)
+
+채택표(EQUATIONS/adopted.toml) — {부품: est:기록}. 모형은 이 기록의 계수로 푼다(D35).
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.adopted
+# {}
+```
+
 ### Project.model
 
 `model(name=None, swap=None)`
@@ -4072,7 +4119,7 @@ p.span("last-3:last"), p.span("next:4")
 
 ### Project.hs
 
-`hs(name=None, start=None, end=None, mode=None, swap=None, **opts)`
+`hs(name=None, start=None, end=None, mode=None, swap=None, record=False, vs=None, as_name=None, who=None, command=None, **opts)`
 
 과거 재현(HS) — 모형이나 블록을 풀어 실측과 견준다. 블록이면 그 블록만 풀고 나머지 변수는 실측(블록 HS).
 
@@ -4083,12 +4130,16 @@ p.span("last-3:last"), p.span("next:4")
 - `name`: 모형 또는 블록 이름(기본: [hs] model)
 - `start, end`: 구간(기본: [hs] range)
 - `mode`: 'dynamic' · 'static' · 'fit'(기본: [hs] mode)
-- `swap`: {부품: 식} — 그 식만 바꿔 끼워 푼다(파일은 그대로)
+- `swap`: {부품: 식 또는 est:기록} — 그 식만 바꿔 끼워 푼다(파일은 그대로). 기록이면 그 기록의 계수로
+- `record`: 참이면 작업 기록(`work/hs/<이름>/` — 조립 명세·적합도·풀린 값·summary.md)을 남기고 HSRecord를 돌려준다
+- `vs`: 견줄 HS 기록(record=True일 때 — 변수별 RMSPE 전후)
+- `as_name`: 기록 이름(기본 hs_0001, hs_0002 …)
+- `who, command`: 기록에 적을 '누가'·'명령'(명령줄이 채운다)
 - `**opts`: ModelObject.solve의 선택지(on_missing · on_fail · tolerance …)
 
 **돌려주는 것**
 
-SolveResult — .statistics() · .counts() · .summary()  
+SolveResult — .statistics() · .counts() · .summary() (record=True면 HSRecord — .id · .stats · .text())  
 
 **예**
 
@@ -4101,6 +4152,109 @@ r.start, r.end, r.counts()["ok"]
 # ('2005Q1', '2019Q4', 60)
 p.hs("demand").counts()["ok"]
 # 60
+```
+
+### Project.est
+
+`est(target, method=None, smpl=None, as_name=None, part=None, sim=False, cov=None, who=None, command=None)`
+
+식 하나를 추정해 작업 기록(`work/est/<이름>/`)을 남긴다 — 부품(블록 파일의 그 줄) 또는 식 글자(후보).
+
+식 글자의 목표변수가 한 부품의 목표면 그 부품의 후보가 된다(여럿이면 part로). 판단 기준(`[criteria]` — 기대 부호·진단·|t|)이  
+있으면 통과·걸러짐과 까닭을 적는다. 채택은 따로(`adopt`).  
+
+**매개변수**
+
+- `target`: 부품 `블록:목표` 또는 식 글자(예: "CN c Y CN(-1)")
+- `method`: 'auto'(기본 — @inst가 있으면 tsls) · 'ls' · 'tsls'
+- `smpl`: 표본 'S:E'(상대 기간 가능 — '1990Q1:last')
+- `as_name`: 기록 이름(기본: 목표변수_0001 …)
+- `part`: 어느 부품의 후보인지(목표가 같은 식이 여럿일 때)
+- `sim`: 참이면 식 하나의 동태 모의([hs] range — 다른 변수는 실측)와 RMSPE
+- `cov`: 계수 공분산('white' · 'hac' …)
+
+**돌려주는 것**
+
+EstRecord — .id · .coefs · .passed · .meta · .text()  
+
+**오류**
+
+- `ProjectError`: 항등식·추정할 수 없는 식 · RecordError: 이미 있는 기록 이름
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.est("CN c Y CN(-1) CN(-2)", as_name="cn_lag2")
+r.id, r.meta["part"], r.meta["n"]
+# ('est:cn_lag2', 'demand:CN', 198)
+```
+
+### Project.adopt
+
+`adopt(record, part=None, who=None, command=None)`
+
+추정 기록을 그 부품의 채택 계수로 — 블록 파일의 그 줄을 기록의 식으로 바꾸고(다르면) 채택표 `EQUATIONS/adopted.toml`을 고친다(주석·순서 그대로). 바뀜 기록에 남고, 그 뒤 모형은 이 계수로 푼다(다시 추정하지 않음).
+
+**돌려주는 것**
+
+AdoptResult — .part · .record · .previous · .line_changed · .change(바뀜 기록) · .text()  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.est("demand:CN", as_name="cn_now")
+p.adopt("est:cn_now").line_changed, p.adopted
+# (False, {'demand:CN': 'est:cn_now'})
+```
+
+### Project.compare
+
+`compare(*records, target=None, part=None)`
+
+기록 비교 — 추정 기록이면 식·표본·적합 통계·진단·기준·단독 모의 표(종속변수·표본이 다르면 경고), HS 기록이면 변수별 RMSPE.
+
+**매개변수**
+
+- `*records`: 기록 이름(est:… · hs:…)
+- `target`: 이 목표변수의 추정 기록 전부 · part: 이 부품의 후보 전부
+
+**돌려주는 것**
+
+CompareResult — .table(DataFrame) · .warnings · .text()  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = p.est("CN c Y CN(-1)", as_name="a")
+_ = p.est("CN c Y", as_name="b")
+list(p.compare(target="CN").table.index)
+# ['est:a', 'est:b']
+```
+
+### Project.replay
+
+`replay(record, as_name=None, who=None, command=None)`
+
+HS 기록을 그때 그대로 다시 — 기록의 조립 명세(식 글자·계수·자료 회차·구간·방식)로 푼다. 지금 파일과 무관하고, 원래 기록의 풀린 값과 견주어(`.meta['replay']` — same · max_abs_diff) 새 기록을 남긴다.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+h = p.hs("main", record=True)
+p.replay(h.id).meta["replay"]["same"]
+# True
 ```
 
 ### Project.ident
@@ -4190,7 +4344,92 @@ c.ok, c.n
 | `text` | `()` | 명령줄에 보이는 짧은 글. |
 | `to_dict` | `()` | 명령줄 --json과 같은 사전. |
 
-## 28. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
+## 28. 추정 기록 `p.est(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `id` | `속성` | 기록 이름 est:… |
+| `meta` | `속성` | record.json 내용. |
+| `coefs` | `속성` | 계수(이름 = 항, 상수항은 const). |
+| `passed` | `속성` | 판단 기준 통과(기준이 없으면 None). |
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전(record.json에서 식 직렬화를 뺀 것). |
+
+## 29. HS 기록 `p.hs(…, record=True)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `id` | `속성` | 기록 이름 hs:… |
+| `meta` | `속성` | record.json 내용. |
+| `stats` | `속성` | 변수별 적합도(stats.csv). |
+| `solved` | `속성` | 풀린 값(solved.csv — 행 = 기간). |
+| `start` | `속성` | 구간 시작. |
+| `end` | `속성` | 구간 끝. |
+| `counts` | `()` | 기간 상태 수 {'ok', 'partial', 'fallback', 'failed'}. |
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 30. 채택 결과 `p.adopt(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 31. 기록 비교 `p.compare(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+| `md` | `()` | md 표. |
+
+## 32. 작업 기록 저장소 `p.work`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `split` | `(rid)` | 'est:cons_c5' → ('est', 'cons_c5'). |
+| `dir` | `(kind)` | 그 종류의 기록 폴더(work/<종류>). |
+| `exists` | `(kind, name)` | 그 기록이 있으면 참. |
+| `names` | `(kind)` | 그 종류의 기록 이름(가나다순). |
+| `next_name` | `(kind, prefix)` | prefix_0001, prefix_0002 … — 같은 앞글자의 가장 큰 번호 다음. |
+| `check_new` | `(kind, name)` | 새 기록 이름을 검사한다 — 글자가 틀리거나 이미 있으면 RecordError(기록은 고치지 않는다). |
+| `write` | `(kind, name, meta, files, summary, log=None)` | 기록 하나를 쓴다 — files의 값은 글자·DataFrame(CSV)·dict(JSON). record.json·summary.md를 더하고 log.jsonl에 한 줄. |
+| `get` | `(rid, kind=None)` | 기록 하나. kind를 주면 그 종류여야 한다. |
+| `log` | `()` | log.jsonl의 줄(지운 기록은 뺀다) — 만든 순. |
+| `records` | `(kind=None)` | 기록 목록(만든 순). |
+| `marks` | `()` | {기록: {pinned, memo}}. |
+| `mark` | `(rid, pinned=None, memo=None)` | 고정(pinned)·메모 — 기록 자체는 그대로, marks.json에만. |
+| `remove` | `(rid)` | 기록 폴더를 지운다(정리 — 사람이 고를 때만). log.jsonl의 줄은 남고 목록에서 빠진다. |
+
+## 33. 작업 기록 하나 `p.work.get(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `id` | `속성` | 기록 이름 `종류:이름`. |
+| `file` | `(fname)` | 기록 폴더 안 파일의 경로. |
+| `read_json` | `(fname)` | 기록 폴더의 JSON 파일. |
+| `read_csv` | `(fname, index_col=0)` | 기록 폴더의 CSV(첫 열이 기간 라벨). |
+| `summary_md` | `()` | 사람이 읽는 카드(summary.md). |
+
+## 34. 바뀜 기록 `p.history`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `scan` | `()` | 명령 밖에서 바뀐 정의 파일을 '바깥' 바뀜으로 적는다. 처음이면 지금 내용을 기준으로 삼고 아무것도 적지 않는다. |
+| `write_files` | `(new, who, how, note='', reverts=None)` | 정의 파일을 고치고 바뀜 기록을 남긴다 — new: {경로: 새 내용(None이면 지움)}. 먼저 바깥 바뀜을 따로 적는다. |
+| `list` | `()` | 바뀜 기록(오래된 것부터). |
+| `get` | `(cid)` | 바뀜 하나. |
+| `revert` | `(cid, who, how=None)` | 그 바뀜 앞의 내용으로 되돌린다(그 뒤에 같은 파일이 또 바뀌었어도 — 지금 내용과의 차이가 새 바뀜으로 남는다). |
+
+## 35. 바뀜 하나 `p.history.get(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 36. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4280,3 +4519,9 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `assemble` | --help --json --project | 프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수) |
 | `ident` | --check --help --json --project --range --strict --tol | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |
 | `data` | --help | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 |
+| `est` | --as --cov --for --help --json --method --project --sim --smpl | 식 하나를 추정해 기록을 남긴다(부품 또는 식 글자 — 후보) |
+| `adopt` | --help --json --part --project | 추정 기록을 부품의 채택 계수로(블록 파일의 줄·채택표를 고치고 바뀜 기록에) |
+| `compare` | --help --json --part --project --target | 기록 비교 — 추정 후보(적합·진단·기준·단독 모의) 또는 HS(변수별 RMSPE) |
+| `hs` | --as --help --json --mode --project --range --replay --swap --vs | 과거 재현을 풀고 기록을 남긴다(바꿔 끼우기·전후 비교·그때 그대로 다시) |
+| `work` | --help | 작업 기록 — 목록·보기·고정·메모·정리 |
+| `history` | --help | 바뀜 기록 — 정의 파일이 누가·언제·어떻게 바뀌었나, 되돌리기 |
