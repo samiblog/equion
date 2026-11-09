@@ -26,7 +26,7 @@ FORMAT = "equion-change"
 FORMAT_VERSION = 1
 PATTERNS = ("equion.toml", "EQUATIONS/*.txt", "EQUATIONS/*.toml", "DATA/series.toml", "DATA/derived.txt",
             "ASSUMPTIONS/*.csv", "ASSUMPTIONS/*.toml", "ADDFACTORS/*.csv", "ADDFACTORS/*.toml",
-            "SCENARIOS/*.toml", "VIEWS/*.toml", "notes/*.md", "reports/*.md")
+            "SCENARIOS/*.toml", "VIEWS/*.toml", "notes/*.md", "reports/*.md", "FLOWS/*.eqs")
 
 
 def _sha(data: Optional[bytes]) -> Optional[str]:
@@ -71,19 +71,21 @@ class Change:
     diff: str = ""
     path: str = ""
     reverts: Optional[str] = None
+    run: Optional[str] = None          # 스크립트 실행(run:…) 안에서 바뀌었으면 그 실행
 
     def text(self) -> str:
         """명령줄에 보이는 짧은 글."""
         verb = {"added": "새로", "removed": "지움", "changed": "고침"}
         from .store import WHO_KO
         fl = " · ".join(f"{p}({verb[v['op']]})" for p, v in self.files.items())
-        return (f"[{self.id}] {self.created} · {WHO_KO.get(self.who, self.who)} · {self.how}\n  파일   {fl}"
+        return (f"[{self.id}] {self.created} · {WHO_KO.get(self.who, self.who)} · {self.how}"
+                + (f" ({self.run})" if self.run else "") + f"\n  파일   {fl}"
                 + (f"\n  메모   {self.note}" if self.note else ""))
 
     def to_dict(self) -> dict:
         """명령줄 --json과 같은 사전."""
         return {"id": self.id, "created": self.created, "who": self.who, "how": self.how, "note": self.note,
-                "files": self.files, "reverts": self.reverts, "diff": self.diff}
+                "files": self.files, "reverts": self.reverts, "run": self.run, "diff": self.diff}
 
 
 class History:
@@ -158,7 +160,8 @@ class History:
                 with open(p, "wb") as f:
                     f.write(data)
         os.makedirs(tmp, exist_ok=True)
-        ch = Change(cid, now_iso(), who, how, note, files, "\n".join(diffs), os.path.join(self.base, cid), reverts)
+        ch = Change(cid, now_iso(), who, how, note, files, "\n".join(diffs), os.path.join(self.base, cid), reverts,
+                    os.environ.get("EQUION_RUN") if who != "바깥" else None)
         meta = {"format": FORMAT, "format_version": FORMAT_VERSION, **ch.to_dict()}
         meta.pop("diff")
         with open(os.path.join(tmp, "change.json"), "w", encoding="utf-8", newline="\n") as f:
@@ -220,7 +223,7 @@ class History:
             m = json.load(f)
         diff = _read(os.path.join(self.base, cid, "diff.txt")) or b""
         return Change(m["id"], m["created"], m["who"], m["how"], m.get("note", ""), m["files"],
-                      diff.decode("utf-8", "replace"), os.path.join(self.base, cid), m.get("reverts"))
+                      diff.decode("utf-8", "replace"), os.path.join(self.base, cid), m.get("reverts"), m.get("run"))
 
     def revert(self, cid: str, who: str, how: str = None) -> Optional[Change]:
         """그 바뀜 앞의 내용으로 되돌린다(그 뒤에 같은 파일이 또 바뀌었어도 — 지금 내용과의 차이가 새 바뀜으로 남는다)."""

@@ -105,7 +105,7 @@ def load_defs(root: str, series_file: str, derived_file: Optional[str], freq: st
             problems.append(f"{where}: file이 없습니다")
             continue
         unknown = set(v) - {"file", "sheet", "header_row", "unit_row", "time_col", "time_axis", "missing", "thousands",
-                            "freq", "desc"}
+                            "freq", "desc", "inbox"}
         if unknown:
             problems.append(f"{where}: 알 수 없는 키 {', '.join(sorted(unknown))}")
         miss = v.get("missing", [])
@@ -216,12 +216,19 @@ class BuildResult:
     span: Tuple[str, str]
     implicit: List[str]
     same_as: Optional[str] = None
+    inbox: list = field(default_factory=list)      # 받은 원자료(InboxItem) — --inbox로 넣은 것
+    waiting: int = 0                               # --inbox 없이 만들 때 받은 상자에 남은 파일 수
 
     def text(self) -> str:
         """명령줄에 보이는 짧은 글."""
         head = (f"[data build] 새 회차 {self.id}" if self.created else
                 f"[data build] 바뀐 것 없음 — 회차 {self.id}와 내용이 같습니다(새로 만들지 않음)")
         L = [head, f"  시리즈 {self.n_series} · {self.span[0]}~{self.span[1]}"]
+        if self.inbox:
+            L.append(f"  받은 원자료 {len(self.inbox)}")
+            L += [f"    - {x.text()}" for x in self.inbox]
+        if self.waiting:
+            L.append(f"  받은 상자(DATA/raw/inbox/)에 파일 {self.waiting}개 — 넣으려면 equion data build --inbox ask")
         if self.implicit:
             L.append("  알아서 한 것")
             L += [f"    - {x}" for x in self.implicit]
@@ -230,7 +237,8 @@ class BuildResult:
     def to_dict(self) -> dict:
         """명령줄 --json과 같은 사전."""
         return {"id": self.id, "created": self.created, "n_series": self.n_series, "span": list(self.span),
-                "implicit": self.implicit, "path": self.path}
+                "implicit": self.implicit, "path": self.path, "inbox": [x.to_dict() for x in self.inbox],
+                "waiting": self.waiting}
 
     def __repr__(self):
         return f"<자료 회차 {self.id}{'' if self.created else ' (이미 있음)'}: 시리즈 {self.n_series}>"

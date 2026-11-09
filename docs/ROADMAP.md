@@ -82,7 +82,7 @@ Equion Desk 개발 계획(`DESK_DEVPLAN.md`)의 단계 E. 끝나면 Desk 없이�
 - [x] E3 작업 명령·기록(2026-11-09): `work/` 기록·조립 명세·알아서 한 것·`summary.md`(md 렌더러), 채택표 `adopted.toml`, 바뀜 기록·제안 —
       `est`·`adopt`·`compare`·`hs`·`sim`·`export`·`work`·`propose`·`history` (D33·D35)
 - [x] E4 분석·노트·보고서(2026-11-09): 등록부·`an`·`note`·`report`, 묶음 (D37). 블록 후보(VAR를 블록으로)·기초 통계는 2차판
-- [ ] E5 스크립트·재연: `.eqs` 해석기·`run x.eqs`·`check x.eqs`·`--replay`·`script new·export`, `DATA/raw/inbox/` (D36)
+- [x] E5 스크립트·재연(2026-11-09): `.eqs` 해석기·`run x.eqs`·`check x.eqs`·`--replay`·`script new·export`, `DATA/raw/inbox/` (D36). `expect --stop` = 종료 코드 2
 - [ ] E6 안내·문서: AI용 모형 작업 안내·`equion` 스킬 초안, 튜토리얼 "프로젝트와 스크립트", 레퍼런스, CHANGELOG
 - [ ] `tomlkit` 의존성(D38), 오류 메시지에서 문서 절 안내
 

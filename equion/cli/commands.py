@@ -3,12 +3,14 @@
 """명령줄 — `equion <명령>` (설치 시) 또는 `python -m equion <명령>` (DECISIONS D5·D6).
 
     equion run 스크립트.py [--smpl S:E] [--set 이름=값 ...] [--out 폴더] [--format csv,html] [-- 스크립트 인자]
-    equion check 방정식.txt [--data 자료.xlsx] [--smpl S:E]    |  equion check 스크립트.py
+    equion run FLOWS/monthly.eqs [--set 이름=값] [--from 단계] [--dry-run]  ·  equion run --replay run:이름   (스크립트 — D36)
+    equion check 방정식.txt [--data 자료.xlsx] [--smpl S:E]    |  equion check 스크립트.py  |  equion check 스크립트.eqs
     equion info [경로]
     equion new 폴더 [--bare | --template desk]  ·  equion convert 옛파일 새이름 [--allow-pickle]
     equion assemble [모형] [-p 프로젝트]  ·  equion ident 블록:목표 [--check]     (프로젝트 — equion.toml, D32)
     equion data list|add 파일|build [--use]|use 회차|diff [A B]|impact [A B]      (자료 회차 — D34)
     equion est · adopt · compare · hs · sim · propose · export · work · history   (작업 명령·기록 — D33)
+    equion an · note · report  (분석·노트·보고서 — D37)  ·  equion script new·export  (스크립트 — D36)
 
 종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(--fail-on) · 3 입력 오류 · 130 중단
 """
@@ -60,9 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
                    version=f"equion {project_version()}")
     sub = p.add_subparsers(dest="command", metavar="명령", parser_class=_Parser)
 
-    r = sub.add_parser("run", help="스크립트를 실행하고 보고서 폴더를 남긴다",
-                       description="평범한 Python 스크립트를 실행한다. 스크립트에 넘길 인자는 -- 뒤에 쓴다.")
-    r.add_argument("script", help="실행할 .py 스크립트")
+    r = sub.add_parser("run", help="스크립트를 실행한다 — .py는 보고서 폴더(out/), Equion 스크립트 .eqs는 실행 기록(work/run/)",
+                       description="Python 스크립트(.py)를 실행하거나(스크립트에 넘길 인자는 -- 뒤에), Equion 스크립트(.eqs — 한 줄이 "
+                                   "equion 명령 하나)를 프로젝트에서 실행한다. .eqs의 종료 코드: 멈춘 단계의 코드 · expect --stop에 "
+                                   "걸리면 2 · --fail-on에 걸리면 2.")
+    r.add_argument("script", nargs="?", help="실행할 스크립트(.py · .eqs)")
     r.add_argument("--smpl", metavar="S:E", help="새로 여는 워크파일의 기본 표본(예: 2000Q1:2022Q4, @all)")
     r.add_argument("--set", dest="sets", action="append", default=[], metavar="이름=값",
                    help="스크립트 매개변수(eqn.params)를 덮는다. 여러 번 쓸 수 있다")
@@ -87,15 +91,21 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--dry-run", action="store_true", help="실행하지 않고 문법·설정만 확인한다")
     r.add_argument("--redact", action="store_true",
                    help="공유용 보고서: 작업 폴더·실행 파일 경로·git 브랜치를 빼고 경로를 줄인다")
+    r.add_argument("--from", dest="from_step", metavar="단계", help="(.eqs) 이 단계 번호 또는 ## 제목부터(앞 단계는 건너뛴다)")
+    r.add_argument("--replay", metavar="run:이름", help="(.eqs) 실행 기록을 그때 그대로 다시 — 단계마다 같음·다름(다르면 종료 코드 2)")
+    r.add_argument("--project", "-p", metavar="폴더", help="(.eqs) 프로젝트 폴더(기본: 스크립트에서 위로 equion.toml을 찾는다)")
+    r.add_argument("--json", action="store_true", help="(.eqs) 결과를 JSON으로")
     r.add_argument("--manifest-to", help=argparse.SUPPRESS)
 
     c = sub.add_parser("check", help="실행 없이 방정식 파일·스크립트를 검사한다")
-    c.add_argument("path", help="방정식 파일(.txt) 또는 스크립트(.py)")
+    c.add_argument("path", help="방정식 파일(.txt) · 스크립트(.py) · Equion 스크립트(.eqs)")
     c.add_argument("--data", metavar="FILE", help="데이터 파일·워크파일 — 변수 존재와 결측 입력까지 검사")
     c.add_argument("--freq", choices=("Q", "M", "A"), help="주기(데이터가 없거나 추론이 안 될 때)")
     c.add_argument("--smpl", metavar="S:E", help="결측 입력을 볼 구간(기본: 데이터 전체)")
     c.add_argument("--json", action="store_true", help="결과를 JSON으로")
     c.add_argument("--strict", action="store_true", help="경고도 실패(종료 코드 3)로 본다")
+    c.add_argument("--set", dest="sets", action="append", default=[], metavar="이름=값", help="(.eqs) 매개변수도 검사")
+    c.add_argument("--project", "-p", metavar="폴더", help="(.eqs) 프로젝트 폴더(기본: 스크립트에서 위로)")
 
     i = sub.add_parser("info", help="데이터·워크파일·방정식 파일·보고서 폴더 요약(경로 없으면 실행 환경)")
     i.add_argument("path", nargs="?", help="경로")
@@ -148,6 +158,9 @@ def build_parser() -> argparse.ArgumentParser:
     dad.add_argument("--note", metavar="메모", help="출처 메모(옆 파일 *.source.toml에)")
     db = _common(dsub.add_parser("build", help="원자료를 정의대로 읽어 새 자료 회차를 만든다(같은 내용이면 만들지 않음)"))
     db.add_argument("--use", action="store_true", help="만든 회차를 지금 회차로")
+    db.add_argument("--inbox", choices=("ask", "auto", "no"), help="먼저 받은 원자료(DATA/raw/inbox/)를 출처와 짝지어 넣는다 — "
+                    "ask: 터미널이면 파일마다 묻는다(아니면 auto) · auto: 짝이 하나이고 틀이 맞으면 넣는다")
+    _common(dsub.add_parser("inbox", help="받은 원자료(DATA/raw/inbox/) — 파일마다 짝지을 출처와 틀 검사(미리보기)"))
     du = _common(dsub.add_parser("use", help="지금 자료 회차를 바꾼다(equion.toml [data] vintage)"))
     du.add_argument("vintage", help="회차(equion data list)")
     for nm, hl in (("diff", "두 회차의 차이 — 새·없어진 시리즈, 새 기간·개정"),
@@ -160,6 +173,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_parsers(sub)
     from .ancmds import add_parsers as add_an_parsers
     add_an_parsers(sub)
+    from .scriptcmds import add_parsers as add_script_parsers
+    add_script_parsers(sub)
     return p
 
 
@@ -316,11 +331,21 @@ def cmd_run(args, argv, script_args) -> int:
             return EXIT_INPUT
         if os.environ.get("EQUION_THREADS") != str(args.threads):
             return _reexec_with_threads(args.threads, argv)
+    if args.replay or (args.script and args.script.lower().endswith(".eqs")):
+        from .scriptcmds import cmd_run_eqs
+        return cmd_run_eqs(args, argv, script_args)
+    if not args.script:
+        print(f"{PROG}: 오류: 실행할 스크립트가 필요합니다(.py · .eqs) — 실행 기록을 다시 하려면 --replay run:이름", file=sys.stderr)
+        return EXIT_INPUT
+    eqs_only = [f for f, v in (("--from", args.from_step), ("-p", args.project), ("--json", args.json)) if v]
+    if eqs_only:
+        print(f"{PROG}: 오류: {', '.join(eqs_only)}는 Equion 스크립트(.eqs)에서만 씁니다", file=sys.stderr)
+        return EXIT_INPUT
     if not os.path.isfile(args.script):
         print(f"{PROG}: 오류: 스크립트가 없습니다: {args.script}", file=sys.stderr)
         return EXIT_INPUT
     if not args.script.lower().endswith(".py"):
-        print(f"{PROG}: 오류: 스크립트는 .py 파일이어야 합니다: {args.script}", file=sys.stderr)
+        print(f"{PROG}: 오류: 스크립트는 .py 또는 .eqs 파일이어야 합니다: {args.script}", file=sys.stderr)
         return EXIT_INPUT
     try:
         params = _parse_sets(args.sets, args.params)
@@ -393,6 +418,9 @@ def cmd_run(args, argv, script_args) -> int:
 # check / info / new
 # ---------------------------------------------------------------------------
 def cmd_check(args) -> int:
+    if args.path.lower().endswith(".eqs"):
+        from .scriptcmds import cmd_check_eqs
+        return cmd_check_eqs(args)
     from .check import check_path
     try:
         rep = check_path(args.path, data=args.data, freq=args.freq, smpl=args.smpl)
@@ -555,12 +583,21 @@ def cmd_data(args) -> int:
             out = res.to_dict() if args.json else res.text()
             code = EXIT_INPUT if res.problems else EXIT_OK
         elif act == "build":
-            res = p.data_build(use=args.use, who=who, command=cmdline)
+            tty = args.inbox == "ask" and _interactive()
+            res = p.data_build(use=args.use, inbox=args.inbox, ask=_ask_inbox if tty else None, who=who, command=cmdline)
             d = res.to_dict()
             d["current"] = p.vintage
-            out = d if args.json else res.text() + (f"\n  지금 회차 {p.vintage}" if args.use else
-                                                    ("" if res.id == p.vintage else
-                                                     f"\n  다음   equion data use {res.id}"))
+            note = ("\n  (터미널이 아니라 묻지 않았습니다 — 짝이 하나이고 틀이 맞는 파일만 넣음)"
+                    if args.inbox == "ask" and not tty and res.inbox else "")
+            out = d if args.json else res.text() + note + (f"\n  지금 회차 {p.vintage}" if args.use else
+                                                           ("" if res.id == p.vintage else
+                                                            f"\n  다음   equion data use {res.id}"))
+        elif act == "inbox":
+            items = p.data_inbox()
+            out = [x.to_dict() for x in items] if args.json else (
+                f"[data inbox] 받은 원자료 {len(items)} — DATA/raw/inbox/" + "".join(f"\n  {x.text()}" for x in items)
+                + ("\n  넣기   equion data build --inbox ask --use" if items else ""))
+            code = EXIT_OK if all(x.ok for x in items) else EXIT_INPUT
         elif act == "use":
             old = p.data_use(args.vintage, who=who, command=cmdline)
             out = ({"vintage": p.vintage, "previous": old} if args.json else
@@ -576,6 +613,33 @@ def cmd_data(args) -> int:
         return EXIT_INPUT
     print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else out)
     return code
+
+
+def _interactive() -> bool:
+    """사람에게 물을 수 있나 — 표준입력이 콘솔(터미널)일 때만. Windows의 NUL·파이프(자동화·Claude의 터미널)·재연(EQUION_NO_ASK)은 아니다."""
+    if os.environ.get("EQUION_NO_ASK") == "1" or os.environ.get("CI"):
+        return False
+    s = sys.__stdin__
+    try:
+        if s is None or not s.isatty():
+            return False
+        if os.name == "nt":                        # NUL도 isatty()가 참 — 콘솔인지 콘솔 모드로 본다
+            import ctypes
+            import msvcrt
+            mode = ctypes.c_uint32()
+            return bool(ctypes.windll.kernel32.GetConsoleMode(msvcrt.get_osfhandle(s.fileno()), ctypes.byref(mode)))
+        return True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def _ask_inbox(item) -> bool:
+    """받은 파일 하나를 넣을지 터미널에서 묻는다(출력이 갈무리되어도 터미널로)."""
+    err, inp = sys.__stderr__, sys.__stdin__
+    err.write(f"[data build] {item.text()} — 넣을까요? [Y/n] ")
+    err.flush()
+    ans = (inp.readline() or "").strip().lower()
+    return ans in ("", "y", "yes", "예", "네", "ㅇ")
 
 
 def _cmdline(argv) -> str:
@@ -639,6 +703,9 @@ def main(argv=None) -> int:
         from . import ancmds
         if args.command in ancmds.COMMANDS:
             return ancmds.dispatch(args, _cmdline(argv))
+        from . import scriptcmds
+        if args.command in scriptcmds.COMMANDS:
+            return scriptcmds.dispatch(args, _cmdline(argv))
     except KeyboardInterrupt:
         return EXIT_INTERRUPT
     parser.print_help()

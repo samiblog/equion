@@ -45,11 +45,19 @@ Equion 0.7.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstri
 - [37. 노트 결과 p.note_run(…)](#37-노트-결과-pnote_run)
 - [38. 보고서 결과 p.report_add(…)](#38-보고서-결과-preport_add)
 - [39. 등록부 eqn.registry](#39-등록부-eqnregistry)
-- [40. 작업 기록 저장소 p.work](#40-작업-기록-저장소-pwork)
-- [41. 작업 기록 하나 p.work.get(…)](#41-작업-기록-하나-pworkget)
-- [42. 바뀜 기록 p.history](#42-바뀜-기록-phistory)
-- [43. 바뀜 하나 p.history.get(…)](#43-바뀜-하나-phistoryget)
-- [44. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#44-고급엔진-수준--드라이버확장용-바뀔-수-있다)
+- [40. 스크립트 eqn.script](#40-스크립트-eqnscript)
+- [41. 스크립트 실행 eqn.script.session(…)](#41-스크립트-실행-eqnscriptsession)
+- [42. 단계 결과 StepResult](#42-단계-결과-stepresult)
+- [43. 실행 결과 p.run_script(…)](#43-실행-결과-prun_script)
+- [44. 미리보기 p.run_script(…, dry_run=True)](#44-미리보기-prun_script-dry_runtrue)
+- [45. 스크립트 검사 p.check_script(…)](#45-스크립트-검사-pcheck_script)
+- [46. 재연 결과 p.replay_run(…)](#46-재연-결과-preplay_run)
+- [47. 받은 원자료 p.data_inbox()](#47-받은-원자료-pdata_inbox)
+- [48. 작업 기록 저장소 p.work](#48-작업-기록-저장소-pwork)
+- [49. 작업 기록 하나 p.work.get(…)](#49-작업-기록-하나-pworkget)
+- [50. 바뀜 기록 p.history](#50-바뀜-기록-phistory)
+- [51. 바뀜 하나 p.history.get(…)](#51-바뀜-하나-phistoryget)
+- [52. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#52-고급엔진-수준--드라이버확장용-바뀔-수-있다)
 - [22. 명령줄 `equion`](#22-명령줄-equion)
 
 ## 1. `import equion as eqn`
@@ -3763,7 +3771,8 @@ s[:4].round(6).tolist()
 | `models` | `속성` | 모형 이름 목록(설정 파일 순서). |
 | [`workfile`](#projectworkfile) | `속성` | 프로젝트 자료의 워크파일 — 자료 정의를 쓰면 지금 자료 회차, 아니면 [data] file(처음 쓸 때 연다). |
 | `vintage` | `속성` | 지금 자료 회차(equion.toml [data] vintage) — 자료 파일 하나를 쓰면 None. |
-| [`data_build`](#projectdata_build) | `(use=False, who=None, command=None)` | 자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다. |
+| [`data_build`](#projectdata_build) | `(use=False, inbox=None, ask=None, who=None, command=None)` | 자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다. |
+| [`data_inbox`](#projectdata_inbox) | `()` | 받은 상자(DATA/raw/inbox/)의 파일마다 짝지을 출처와 틀 검사 — 미리보기(아무것도 바꾸지 않는다). InboxItem 목록. |
 | [`data_use`](#projectdata_use) | `(vid, who=None, command=None)` | 이 회차로 바꾸기 — equion.toml의 [data] vintage를 고치고(주석·순서는 그대로) 자료를 다시 연다. 이전 회차를 돌려준다. |
 | [`data_list`](#projectdata_list) | `()` | 자료 회차 목록(만든 때 순) — {id, created, span, n_series, current}. |
 | [`data_diff`](#projectdata_diff) | `(a=None, b=None)` | 두 자료 회차의 차이 — 새·없어진 시리즈, 시리즈마다 새 기간과 개정(기간·크기). |
@@ -3786,8 +3795,8 @@ s[:4].round(6).tolist()
 | [`keep`](#projectkeep) | `(record, as_name=None, replace=False, who=None, command=None)` | 분석 기록을 남긴다 — 만드는 분석(계절조정·파생)은 정의(`series.toml`·`derived.txt`, `made_by` = 기록)로, 부품을 내는 분석(ECM·VAR·VECM·시스템)은 식 후보(est: 기록 — 계수 그대로)로. 정의를 고치면 바뀜 기록에 남고, 자료에는 `data build`로 들어간다. |
 | [`note_run`](#projectnote_run) | `(note, block=None, stale=False, force=False, who=None, command=None)` | 노트의 ```` ```equion ```` 블록을 실행해 블록 아래 결과 구역을 채운다(블록마다 새 기록). 블록은 등록부의 계산·보기 명령만 부를 수 있고, 손으로 고친 구역은 force일 때만 덮는다. Python 블록은 block으로 고를 때만 돈다. |
 | [`note_check`](#projectnote_check) | `(note)` | 노트 검사(실행하지 않고) — 블록마다 실행 안 함 · 없는 기록 · 낡음(자료·정의가 바뀜) · 손으로 고침 · 허용 안 된 명령. |
-| [`report_new`](#projectreport_new) | `(name, title=None, from_report=None, who=None, command=None)` | 새 보고서(`reports/이름.md`) — 틀(제목·날짜·자료 회차·모형). from_report면 지난 보고서를 복사하고 구역마다 바꿔 낄 기록을 제안한다. |
-| [`report_add`](#projectreport_add) | `(report, record, rows=None, show='level', annual=False, digits=None, title=None, chart=False, under=None, who=None, command=None)` | 보고서로 보내기 — 기록의 표(와 차트)를 고른 모양(행·보이기·연간·소수점)으로 보고서에 넣는다. 구역에는 보이지 않는 표시 (기록·보낸 날·자료 회차·모양)가 붙고, 차트 자료는 보고서 옆 `_data/`로 복사한다. |
+| [`report_new`](#projectreport_new) | `(name, title=None, from_report=None, exist_ok=False, who=None, command=None)` | 새 보고서(`reports/이름.md`) — 틀(제목·날짜·자료 회차·모형). from_report면 지난 보고서를 복사하고 구역마다 바꿔 낄 기록을 제안한다. exist_ok면 이미 있는 보고서는 그대로 둔다(`.exists` — 스크립트를 같은 회차로 다시 돌릴 때 글을 지키려고). |
+| [`report_add`](#projectreport_add) | `(report, record, rows=None, show='level', annual=False, digits=None, title=None, chart=False, under=None, key=None, force=False, who=None, command=None)` | 보고서로 보내기 — 기록의 표(와 차트)를 고른 모양(행·보이기·연간·소수점)으로 보고서에 넣는다. 구역에는 보이지 않는 표시 (기록·보낸 날·자료 회차·모양)가 붙고, 차트 자료는 보고서 옆 `_data/`로 복사한다. |
 | [`report_check`](#projectreport_check) | `(report)` | 보고서 검사 — 구역마다 없는 기록 · 더 새 기록(같은 갈래) · 낡음(자료·정의가 바뀜) · 손으로 고침. |
 | [`report_update`](#projectreport_update) | `(report, region=None, to=None, dry_run=False, force=False, who=None, command=None)` | 새 기록으로 바꾸기 — 구역을 같은 모양으로 다시 만들어 차이를 보이고 적용한다(기본: 같은 갈래의 가장 새 기록). 손으로 고친 구역은 고친 곳을 차이로 보이고 force일 때만 덮는다. |
 | [`reestimate`](#projectreestimate) | `(name=None, adopt='never', who=None, command=None)` | 모형(또는 블록)의 추정식을 블록 파일의 글자 그대로 지금 자료로 다시 추정해 기록을 남기고, 정책에 따라 새 계수를 채택한다 (명령줄 `equion est --adopted [모형] --adopt 정책`, D35). |
@@ -3796,6 +3805,11 @@ s[:4].round(6).tolist()
 | [`apply_proposal`](#projectapply_proposal) | `(name, force=False, who=None, command=None)` | 제안을 적용한다 — 바꿀 파일을 새 내용으로 쓰고 바뀜 기록에 "제안 … 적용". 만든 뒤 파일이 바뀌었으면(낡음) force일 때만. |
 | [`drop_proposal`](#projectdrop_proposal) | `(name, why='', who=None)` | 제안을 버린다 — 파일은 그대로, 제안 기록은 남는다(상태 '버림'). |
 | [`export`](#projectexport) | `(records, xlsx)` | 기록(est:· hs:· sim:· data:회차)을 엑셀 한 권으로 — 값·값의 종류·출처 시트. 기록은 남기지 않는다. |
+| [`run_script`](#projectrun_script) | `(script, sets=None, from_step=None, dry_run=False, fail_on='failed', name=None, who=None, command=None, echo=None, verbosity=1, python=True)` | Equion 스크립트(`.eqs`)를 실행하고 실행 기록 `work/run/<이름>/`(`run:`)을 남긴다 — 명령줄 `equion run x.eqs`. |
+| [`check_script`](#projectcheck_script) | `(script, sets=None)` | 스크립트를 실행 없이 검사 — 문법·명령(허용 목록)·선택지·{이름}·매개변수·부품·모형·시나리오·노트·포함한 파일. |
+| [`replay_run`](#projectreplay_run) | `(run, who=None, command=None, echo=None)` | 실행 기록을 그때 그대로 다시 — 정의 사본(defs/)·받은 원자료·같은 스크립트(src/)·매개변수로 프로젝트 사본에서 돌리고 단계마다 기록의 숫자를 견준다(허용오차). 프로젝트는 바꾸지 않고 견준 결과를 새 실행 기록(`replay_of`)으로 남긴다. |
+| [`new_script`](#projectnew_script) | `(name, records=None, last=None, title=None, force=False, who=None, command=None)` | 작업 기록의 명령으로 스크립트 초안 `FLOWS/<이름>.eqs`(바뀜 기록에 남는다) — 탐색하며 한 일을 굳힌다. 명령에서 -p·--as·--note·--json은 뺀다(다시 돌려도 이름이 겹치지 않게). 기록이 없으면 빈 틀. |
+| [`export_script`](#projectexport_script) | `(script, out=None, force=False)` | 스크립트를 같은 일을 하는 Python 파일로(`eqn.script.session` — 같은 명령·같은 기록) → 프로젝트 기준 경로. |
 | `work` | `속성` | 작업 기록 저장소(`work/`) — .records(종류) · .get(이름) · .log() · .mark(…). |
 | `history` | `속성` | 바뀜 기록(`work/history/`) — .list() · .get(h0001) · .revert(h0001, who) · .scan(). |
 | [`ident`](#projectident) | `(pid, start=None, end=None, tol=1e-06)` | 항등식 단독 검사 — 실측으로 좌변과 우변을 계산해 견준다(추정 없이). |
@@ -3863,15 +3877,19 @@ p.assemble("main").ok, p.vintage is not None
 
 ### Project.data_build
 
-`data_build(use=False, who=None, command=None)`
+`data_build(use=False, inbox=None, ask=None, who=None, command=None)`
 
 자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다.
 
 같은 원자료·정의로 만든 회차가 이미 있으면 새로 만들지 않고 그 회차를 알린다. 지금 회차는 저절로 바뀌지 않는다(use=True면 바꾼다).  
+inbox를 주면 먼저 받은 상자(DATA/raw/inbox/)의 새 파일을 출처와 짝지어 넣는다(`data_inbox`로 미리 본다) — 하나라도 짝이  
+없거나 틀이 맞지 않으면 아무것도 넣지 않고 회차도 만들지 않는다.  
 
 **매개변수**
 
 - `use`: 참이면 만든(또는 같은) 회차를 지금 회차로
+- `inbox`: None · 'auto'(짝이 하나이고 틀이 맞으면 넣는다) · 'ask'(ask(item)이 참인 것만 — ask가 없으면 auto)
+- `ask`: 받은 파일마다 부르는 함수(InboxItem → 참거짓) — 명령줄은 터미널이면 묻는다
 
 **돌려주는 것**
 
@@ -3890,6 +3908,26 @@ p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
 r = p.data_build()
 r.created, r.id == p.vintage        # 정의가 그대로라 같은 회차
 # (False, True)
+```
+
+### Project.data_inbox
+
+`data_inbox()`
+
+받은 상자(DATA/raw/inbox/)의 파일마다 짝지을 출처와 틀 검사 — 미리보기(아무것도 바꾸지 않는다). InboxItem 목록.
+
+짝짓기: series.toml `[source.이름] inbox = "글롭"`을 적었으면 그것만, 아니면 출처가 지금 읽는 파일 이름(날짜 꼬리 뺌)으로  
+시작하는 파일 — 가장 긴 것. 넣기는 `data_build(inbox='auto')`·명령줄 `equion data build --inbox ask`.  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os, shutil
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = shutil.copy(eqn.datasets.path("toy_q"), os.path.join(p.root, "DATA/raw/inbox/toy_q_new.csv"))
+[(x.source, x.status) for x in p.data_inbox()]
+# [('na', 'ready')]
 ```
 
 ### Project.data_use
@@ -4407,9 +4445,9 @@ _ = open(os.path.join(p.root, "n.md"), "w", encoding="utf-8").write("```equion\n
 
 ### Project.report_new
 
-`report_new(name, title=None, from_report=None, who=None, command=None)`
+`report_new(name, title=None, from_report=None, exist_ok=False, who=None, command=None)`
 
-새 보고서(`reports/이름.md`) — 틀(제목·날짜·자료 회차·모형). from_report면 지난 보고서를 복사하고 구역마다 바꿔 낄 기록을 제안한다.
+새 보고서(`reports/이름.md`) — 틀(제목·날짜·자료 회차·모형). from_report면 지난 보고서를 복사하고 구역마다 바꿔 낄 기록을 제안한다. exist_ok면 이미 있는 보고서는 그대로 둔다(`.exists` — 스크립트를 같은 회차로 다시 돌릴 때 글을 지키려고).
 
 **예**
 
@@ -4423,7 +4461,7 @@ p.report_new("monthly").report
 
 ### Project.report_add
 
-`report_add(report, record, rows=None, show='level', annual=False, digits=None, title=None, chart=False, under=None, who=None, command=None)`
+`report_add(report, record, rows=None, show='level', annual=False, digits=None, title=None, chart=False, under=None, key=None, force=False, who=None, command=None)`
 
 보고서로 보내기 — 기록의 표(와 차트)를 고른 모양(행·보이기·연간·소수점)으로 보고서에 넣는다. 구역에는 보이지 않는 표시 (기록·보낸 날·자료 회차·모양)가 붙고, 차트 자료는 보고서 옆 `_data/`로 복사한다.
 
@@ -4432,6 +4470,7 @@ p.report_new("monthly").report
 - `record`: 기록(sim:… · hs:… · est:… · an:…#표 번호)
 - `rows`: 행(시리즈·변수 목록) · show: 'level' · 'qoq' · 'yoy' · 'diff'(전망) · annual: 연간(전망)
 - `digits`: 소수점 · title: 표 제목(번호는 저절로) · chart: 차트도 · under: 그 제목 아래 끝에
+- `key`: 구역 이름 — 같은 이름의 구역이 있으면 그 자리에서 이 기록으로 바꾼다(손으로 고친 구역은 force일 때만)
 
 **예**
 
@@ -4608,6 +4647,121 @@ h = p.hs("main", record=True)
 out = p.export([h.id, "data:" + p.vintage], "exports/hs.xlsx")
 out["sheets"][:3]
 # ['출처', 'hs_0001_적합도', 'hs_0001_해']
+```
+
+### Project.run_script
+
+`run_script(script, sets=None, from_step=None, dry_run=False, fail_on='failed', name=None, who=None, command=None, echo=None, verbosity=1, python=True)`
+
+Equion 스크립트(`.eqs`)를 실행하고 실행 기록 `work/run/<이름>/`(`run:`)을 남긴다 — 명령줄 `equion run x.eqs`.
+
+한 줄이 명령 하나이고 같은 프로세스에서 명령줄 그대로 돈다(단계의 기록·바뀜 기록에는 누가 '스크립트', 그 실행 이름).  
+명령이 실패하면 거기서 멈추고 그 종료 코드, `expect --stop`에 걸리면 2, HS·전망 기록에 fail_on 상태의 기간이 있으면 2.  
+
+**매개변수**
+
+- `script`: 스크립트 경로(프로젝트 기준) · sets: --set {이름: 값}(값은 목록 또는 띄어 쓴 글자)
+- `from_step`: 이 단계(번호 또는 ## 제목)부터 · dry_run: 미리보기(기록을 남기지 않음 → Plan)
+- `fail_on`: 'failed'·'fallback'·'partial'·'never' · name: 실행 기록 이름(기본 <스크립트>_0001 …)
+- `echo`: 단계마다 한 줄을 받는 함수(예: print) · python: Python 단계(py)를 돌릴지
+
+**돌려주는 것**
+
+RunResult — .id · .exit_code · .status · .steps(단계마다 .line·.status·.records) · .text()  
+(dry_run이면 Plan — .steps · .problems · .text())  
+
+**오류**
+
+- `ScriptError`: 문법·명령·매개변수 문제(실행하지 않는다)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.run_script("FLOWS/monthly.eqs", sets={"scenarios": "base"})
+r.exit_code, r.steps[3].line, r.steps[2].status          # 기준 미달 식이 있으면 표시(!)하고 계속
+# (0, 'hs main', 'flag')
+```
+
+### Project.check_script
+
+`check_script(script, sets=None)`
+
+스크립트를 실행 없이 검사 — 문법·명령(허용 목록)·선택지·{이름}·매개변수·부품·모형·시나리오·노트·포함한 파일.
+
+**돌려주는 것**
+
+ScriptCheck — .ok · .problems · .changing(정의 파일을 바꾸는 단계) · .python · .text()  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.check_script("FLOWS/monthly.eqs").ok
+# True
+```
+
+### Project.replay_run
+
+`replay_run(run, who=None, command=None, echo=None)`
+
+실행 기록을 그때 그대로 다시 — 정의 사본(defs/)·받은 원자료·같은 스크립트(src/)·매개변수로 프로젝트 사본에서 돌리고 단계마다 기록의 숫자를 견준다(허용오차). 프로젝트는 바꾸지 않고 견준 결과를 새 실행 기록(`replay_of`)으로 남긴다.
+
+**돌려주는 것**
+
+ReplayResult — .same · .steps(단계마다 verdict 같음·다름·detail) · .id · .exit_code(같으면 0, 다르면 2)  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.run_script("FLOWS/monthly.eqs", sets={"scenarios": "base"})
+p.replay_run(r.id).same
+# True
+```
+
+### Project.new_script
+
+`new_script(name, records=None, last=None, title=None, force=False, who=None, command=None)`
+
+작업 기록의 명령으로 스크립트 초안 `FLOWS/<이름>.eqs`(바뀜 기록에 남는다) — 탐색하며 한 일을 굳힌다. 명령에서 -p·--as·--note·--json은 뺀다(다시 돌려도 이름이 겹치지 않게). 기록이 없으면 빈 틀.
+
+**매개변수**
+
+- `records`: 기록 이름 목록 · last: 최근 기록 n개(실행 기록 run: 제외)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+e = p.est("demand:CN", as_name="c1", command="equion est demand:CN --as c1")
+rel = p.new_script("mine", records=[e.id])
+open(os.path.join(p.root, rel), encoding="utf-8").read().splitlines()[3:5]
+# ['## 추정', 'est demand:CN   # ← est:c1']
+```
+
+### Project.export_script
+
+`export_script(script, out=None, force=False)`
+
+스크립트를 같은 일을 하는 Python 파일로(`eqn.script.session` — 같은 명령·같은 기록) → 프로젝트 기준 경로.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.export_script("FLOWS/monthly.eqs")
+# 'FLOWS/monthly.py'
 ```
 
 ### Project.ident
@@ -4812,7 +4966,7 @@ c.ok, c.n
 | `analyses` | `(for_kind=None)` | 등록된 분석(등록 순) — for_kind를 주면 그 대상 종류를 받는 것만. |
 | [`get`](#eqnregistryget) | `(name)` | 분석 하나(이름). |
 | `table` | `()` | 분석 목록 표(이름·갈래·대상·만드는 것·결과) — `equion an list`·Claude 안내가 쓴다. |
-| `allowed` | `(tokens)` | 노트 블록의 명령 한 줄이 허용 목록에 있으면 None, 아니면 까닭. |
+| [`allowed`](#eqnregistryallowed) | `(tokens, where='note')` | 명령 한 줄이 허용 목록에 있으면 None, 아니면 까닭. |
 | `register` | `(a)` | 분석을 등록한다(이름이 겹치면 오류). |
 
 ### eqn.registry.get
@@ -4825,7 +4979,114 @@ c.ok, c.n
 
 - `KeyError`: 없는 분석(있는 분석 목록과 함께)
 
-## 40. 작업 기록 저장소 `p.work`
+### eqn.registry.allowed
+
+`allowed(tokens, where='note')`
+
+명령 한 줄이 허용 목록에 있으면 None, 아니면 까닭.
+
+where='note'(노트의 블록): 계산·보기 명령만 — 정의 파일을 바꾸는 줄(`est --adopt`·`an keep` 등)은 안 된다.  
+where='script'(스크립트 .eqs): 그에 더해 자료 만들기·채택·노트 실행·보고서·내보내기(SCRIPT_COMMANDS).  
+
+## 40. 스크립트 `eqn.script`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| [`session`](#eqnscriptsession) | `(project='.', **kw)` | 스크립트 실행 하나를 연다 — with 블록으로 쓰면 끝에서 실행 기록(run:)을 남긴다. 매개변수는 `Session`과 같다. |
+| `parse` | `(root, path, _stack=(), _section='')` | 스크립트를 읽는다 — `run 다른.eqs`는 그 자리에 펼친다(매개변수는 하나의 이름 공간 — 먼저 적은 기본값이 이긴다). 문제는 `.problems`에 모은다(첫 문제에서 멈추지 않는다). 경로는 프로젝트 폴더 기준. |
+| `resolve` | `(text, values, refs=None, keep=())` | {이름}을 값으로 — 목록은 띄어 쓰고(빈칸·따옴표가 든 값만 따옴표), {{·}}는 글자 그대로. keep의 이름은 그대로 둔다(미리보기). |
+| `run_script` | `(p, path, sets=None, from_step=None, fail_on='failed', name=None, who=None, command=None, echo=None, verbosity=1, python=True, today=None, replay_of=None, sc=None)` | 스크립트를 실행하고 실행 기록을 남긴다 → RunResult. 문법·검사 문제가 있으면 아무것도 하지 않고 ScriptError. |
+| `plan` | `(p, path, sets=None, from_step=None)` | 미리보기 — 실행하지 않고 단계마다 줄(바꿔 넣은 값)·바꾸는 정의 파일·실행 때 정해지는 값. 기록을 남기지 않는다. |
+| `check` | `(p, path, sets=None)` | 실행 없이 검사 — 문법·명령(허용 목록)·선택지·{이름}·매개변수(--set)·부품·모형·시나리오·노트·포함한 파일. |
+| `replay` | `(p, rid, who=None, command=None, echo=None, verbosity=1)` | 실행 기록을 그때 그대로 다시 — 정의 사본·받은 원자료·같은 스크립트(src/)·매개변수·오늘 날짜로, 프로젝트 사본에서 돌리고 단계마다 기록의 숫자를 견준다(허용오차). 프로젝트는 바꾸지 않고, 견준 결과를 새 실행 기록(replay_of)으로 남긴다. 다른 단계가 있으면 종료 코드 2. |
+| `draft` | `(p, records=None, last=None, title=None)` | 작업 기록의 명령으로 스크립트 초안(글) — 같은 종류가 이어지면 한 제목 아래. 부를 수 없는 명령은 주석으로 남긴다. |
+| `new_script` | `(p, name, records=None, last=None, title=None, force=False, who=None, command=None)` | FLOWS/<이름>.eqs를 만든다(바뀜 기록에 남는다) → 프로젝트 기준 경로. |
+| `export_py` | `(p, path, out=None, force=False)` | 스크립트를 Python 파일로(기본: 같은 자리의 .py) → 프로젝트 기준 경로. 문제가 있는 스크립트는 ScriptError. |
+| `to_python` | `(sc)` | 스크립트 → 같은 일을 하는 Python(eqn.script.session — 같은 명령·같은 기록·같은 실행 기록). |
+
+### eqn.script.session
+
+`session(project='.', **kw)`
+
+스크립트 실행 하나를 연다 — with 블록으로 쓰면 끝에서 실행 기록(run:)을 남긴다. 매개변수는 `Session`과 같다.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+with eqn.script.session(p.root, script="FLOWS/check.eqs") as s:
+    _ = s.cmd("assemble main")
+    _ = s.cmd("hs main --range 2010Q1:last")
+    _ = s.expect("hs", "Y.rmspe < 5%")
+s.result.id, s.result.exit_code, [x.status for x in s.result.steps]
+# ('run:check_0001', 0, ['ok', 'ok', 'ok'])
+```
+
+## 41. 스크립트 실행 `eqn.script.session(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `values` | `(text='')` | 줄에 들어갈 값 — 매개변수와 내장 값(지금 프로젝트 상태로 — 앞 단계가 회차를 바꿨으면 새 회차). |
+| `records` | `(kind=None, filt=None)` | 이 실행의 가장 뒤 단계가 만든 그 종류의 기록(filt: 시나리오·부품·분석·모형 이름) — 없으면 []. |
+| `resolve` | `(text)` | 줄의 {이름}을 값으로. |
+| `section` | `(title)` | 단계 묶음 제목(## 제목). |
+| `cmd` | `(line, where=None)` | 명령 한 줄(등록부의 명령 — 앞의 equion은 빼도 된다)을 같은 프로세스에서. 실패하면 ScriptStop(그 종료 코드). |
+| `expect` | `(target, cond, stop=True, where=None, _source=None)` | 확인 — target(hs·sim·est = 이 실행의 앞 단계 기록, 또는 기록 이름)의 지표가 조건을 지키나. 어긋나면 stop이면 ScriptStop(2), 아니면 표시하고 계속. 지표: HS `Y.rmspe`·`Y.mae_pct`·`Y.mae`·`Y.me`·`failed`·`fallback` · 전망 `Y.growth[2021]`·`Y.level[2021Q4]` · 추정 `r2`·`dw`·`se`·`failed`(기준 미달 식 수)·`passed`·`n`. |
+| `expect_line` | `(line, where=None)` | `expect 대상 조건 [--stop·--flag]` 한 줄. |
+| `py` | `(line, where=None)` | Python 단계 `py x.py [--set 이름=값 …]` — `equion run x.py`(보고서 폴더 없이)를 프로젝트 폴더에서. 명령줄에서만(python=False면 허용 안 됨). |
+| `close` | `(code=None)` | 실행 기록을 쓴다(한 번만) — 종료 코드: 멈춘 단계의 코드 · 아니면 fail_on에 걸리면 2 · 아니면 0. |
+
+## 42. 단계 결과 `StepResult`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `brief` | `속성` | 한 줄 요약 — 명령 출력의 첫 줄 또는 까닭. |
+| `to_dict` | `()` | 사전(출력 글은 steps/NN.txt에). |
+
+## 43. 실행 결과 `p.run_script(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `flags` | `속성` | 표시한 단계(!). |
+| `records` | `속성` | 이 실행이 만든 기록(단계 순). |
+| `text` | `()` | 명령줄에 보이는 끝 줄(단계 줄은 실행하면서 보인다). |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 44. 미리보기 `p.run_script(…, dry_run=True)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `ok` | `속성` | 문제가 없으면 참. |
+| `text` | `()` | 명령줄에 보이는 글. |
+| `to_dict` | `()` | 사전. |
+
+## 45. 스크립트 검사 `p.check_script(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `ok` | `속성` | 문제가 없으면 참. |
+| `text` | `()` | 명령줄에 보이는 글. |
+| `to_dict` | `()` | 사전. |
+
+## 46. 재연 결과 `p.replay_run(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `exit_code` | `속성` | 같으면 0, 다르면 2. |
+| `text` | `()` | 명령줄에 보이는 글. |
+| `to_dict` | `()` | 사전. |
+
+## 47. 받은 원자료 `p.data_inbox()`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `ok` | `속성` | 넣을 수 있거나 넣었으면 참. |
+| `text` | `()` | 한 줄. |
+| `to_dict` | `()` | 사전. |
+
+## 48. 작업 기록 저장소 `p.work`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4843,7 +5104,7 @@ c.ok, c.n
 | `mark` | `(rid, pinned=None, memo=None)` | 고정(pinned)·메모 — 기록 자체는 그대로, marks.json에만. |
 | `remove` | `(rid)` | 기록 폴더를 지운다(정리 — 사람이 고를 때만). log.jsonl의 줄은 남고 목록에서 빠진다. |
 
-## 41. 작업 기록 하나 `p.work.get(…)`
+## 49. 작업 기록 하나 `p.work.get(…)`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4853,7 +5114,7 @@ c.ok, c.n
 | `read_csv` | `(fname, index_col=0)` | 기록 폴더의 CSV(첫 열이 기간 라벨). |
 | `summary_md` | `()` | 사람이 읽는 카드(summary.md). |
 
-## 42. 바뀜 기록 `p.history`
+## 50. 바뀜 기록 `p.history`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4863,14 +5124,14 @@ c.ok, c.n
 | `get` | `(cid)` | 바뀜 하나. |
 | `revert` | `(cid, who, how=None)` | 그 바뀜 앞의 내용으로 되돌린다(그 뒤에 같은 파일이 또 바뀌었어도 — 지금 내용과의 차이가 새 바뀜으로 남는다). |
 
-## 43. 바뀜 하나 `p.history.get(…)`
+## 51. 바뀜 하나 `p.history.get(…)`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
 | `text` | `()` | 명령줄에 보이는 짧은 글. |
 | `to_dict` | `()` | 명령줄 --json과 같은 사전. |
 
-## 44. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
+## 52. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4952,8 +5213,8 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 
 | 명령 | 옵션 | 설명 |
 |---|---|---|
-| `run` | --dry-run --fail-on --format --help --interactive --interval --log --manifest-to --no-report --out --params --plotlyjs --quiet --redact --run-id --set --smpl --threads --verbose --watch | 스크립트를 실행하고 보고서 폴더를 남긴다 |
-| `check` | --data --freq --help --json --smpl --strict | 실행 없이 방정식 파일·스크립트를 검사한다 |
+| `run` | --dry-run --fail-on --format --from --help --interactive --interval --json --log --manifest-to --no-report --out --params --plotlyjs --project --quiet --redact --replay --run-id --set --smpl --threads --verbose --watch | 스크립트를 실행한다 — .py는 보고서 폴더(out/), Equion 스크립트 .eqs는 실행 기록(work/run/) |
+| `check` | --data --freq --help --json --project --set --smpl --strict | 실행 없이 방정식 파일·스크립트를 검사한다 |
 | `info` | --all --freq --help --json | 데이터·워크파일·방정식 파일·보고서 폴더 요약(경로 없으면 실행 환경) |
 | `convert` | --allow-pickle --help --name | 옛 저장 형식(레거시 pickle·.wt·.mmw)을 워크파일(.eqw)로 |
 | `new` | --bare --force --help --template | 새 프로젝트 폴더(예시 데이터·방정식·스크립트) |
@@ -4972,3 +5233,4 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `an` | --help | 분석 — 등록부의 분석 하나 = 기록 하나(an:) · 목록·남기기 |
 | `note` | --help | 노트 — ```equion 블록을 실행해 결과 구역을 채운다 · 검사 |
 | `report` | --help | 보고서 — 결과만 보내기(명령 블록 없이) · 검사 · 새 기록으로 바꾸기 |
+| `script` | --help | 스크립트(.eqs) — 작업 기록으로 초안 · 같은 일을 하는 Python으로 |

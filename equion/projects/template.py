@@ -14,6 +14,9 @@
       ASSUMPTIONS/base.csv   가정 세트 — 전망 구간의 정부지출·유가 경로(정책금리는 채우기 규칙)
       ADDFACTORS/base.toml   보정항 — 소비 last · 투자 decay
       SCENARIOS/oil20.toml   시나리오 — 유가 20% 상승
+      FLOWS/monthly.eqs      스크립트 — 새 원자료로 회차·다시 추정·HS·전망·보고서까지(equion run FLOWS/monthly.eqs)
+      notes/data_check.md    노트 — 자료 점검(스크립트가 실행)
+      DATA/raw/inbox/        받은 원자료를 놓는 곳(data build --inbox)
       README.md · .gitignore
 자료 회차(work/data/<회차>/)는 Project.create가 만들고 지금 회차로 정한다.
 """
@@ -188,6 +191,45 @@ RL c R RL(-1)                          # 장기금리
 log(M2) c log(P) log(Y) RL log(M2(-1)) # 통화
 """
 
+MONTHLY = """\
+# 월간 전망 — 새 원자료로 회차·다시 추정·과거 재현·전망·보고서까지
+# 새 원자료를 DATA/raw/inbox/에 놓고: equion run FLOWS/monthly.eqs   (미리보기 --dry-run · 기준선만 --set scenarios=base)
+# 문법: 한 줄 = equion 명령 하나 · ## 제목 = 단계 묶음 · {이름} = 값 · expect … = 확인(docs/reference/formats.md "스크립트")
+param scenarios = base oil20
+
+## 자료
+data build --inbox ask --use            # 받은 원자료를 넣고 회차를 만들어 바꾼다(내용이 같으면 그 회차 그대로)
+assemble main                           # 조립 검사 — 문제가 있으면 여기서 멈춘다
+
+## 추정
+est main --adopted --adopt if_pass      # 채택한 식을 새 자료로 다시 — 기준([criteria])을 통과한 식만 새 계수, 아니면 옛 계수와 표시
+
+## 과거 재현
+hs main                                 # [hs]의 구간(2005Q1:last — 새 자료면 따라 는다)
+expect hs Y.rmspe < 3% --flag           # 국민소득 적합도 — 어긋나면 표시하고 계속
+
+## 전망
+sim {scenarios} --model main            # [forecast]의 구간(next:8)·가정 세트·보정항
+
+## 결과물
+note run notes/data_check.md            # 자료 점검 노트의 결과 구역을 새 기록으로
+report new reports/forecast_{vintage}.md --title "월간 전망 — 자료 {vintage}" --exist-ok
+report add reports/forecast_{vintage}.md {sim:base} --key growth --rows Y,CN,I,P --show yoy --annual --title "성장률 전망"
+report add reports/forecast_{vintage}.md {hs} --key hs --rows Y,CN --chart --title "과거 재현"
+export {hs} {sim} --xlsx exports/forecast_{vintage}.xlsx
+"""
+
+NOTE = """\
+# 자료 점검
+
+이번 자료 회차의 핵심 수요 시리즈(묶음 core)를 본다 — 월간 스크립트(FLOWS/monthly.eqs)가 `equion note run`으로 결과 구역을 새로 채운다.
+아래 블록의 결과 구역은 손으로 고치지 않는다(글은 블록 밖에).
+
+```equion
+an summary core
+```
+"""
+
 README = """\
 # {name}
 
@@ -200,6 +242,10 @@ equion data build             # 원자료·정의가 바뀌면 새 회차 → eq
 equion assemble main          # 조립 검사 — 내생·외생·겹친 목표·모르는 변수·블록 사이 연결(계산 없이)
 equion assemble main_fixrl    # 장기금리 식을 뺀 조립
 equion ident demand:Y --check # 항등식을 실측으로 검사
+
+equion run FLOWS/monthly.eqs --dry-run    # 월간 스크립트 미리보기(기록을 남기지 않음)
+equion run FLOWS/monthly.eqs              # 실행 — 새 원자료는 먼저 DATA/raw/inbox/에
+equion run --replay run:monthly_0001      # 그 실행을 그때 그대로 다시 — 단계마다 같음·다름
 ```
 
 ```python
@@ -216,6 +262,9 @@ p.hs("demand")                # 블록 HS — 수요 블록만 풀고 나머지 
 | `DATA/raw/` | 원자료 — 받은 그대로(고치지 않는다) |
 | `DATA/series.toml` · `DATA/derived.txt` | 자료 정의 — 어느 열을 어떻게 읽어 어떤 시리즈로 · 파생 시리즈 |
 | `EQUATIONS/` | 블록 — 방정식 파일 하나가 블록 하나(한 줄에 한 식) |
+| `FLOWS/` | 스크립트(`.eqs`) — 한 줄이 equion 명령 하나, 원자료에서 보고서까지의 순서 |
+| `DATA/raw/inbox/` | 받은 원자료를 놓는 곳 — `data build --inbox ask`가 출처와 짝지어 넣는다 |
+| `notes/` · `reports/` | 노트(명령 블록 + 결과) · 보고서(결과만) |
 | `work/data/` | 자료 회차 — '자료 만들기'로만 생긴다(git 제외) |
 """
 
@@ -244,10 +293,12 @@ def create_desk_project(path: str, force: bool = False) -> list:
         "EQUATIONS/finance.txt": FINANCE,
         "ADDFACTORS/base.toml": ADDFACTORS,
         "SCENARIOS/oil20.toml": OIL20,
+        "FLOWS/monthly.eqs": MONTHLY,
+        "notes/data_check.md": NOTE,
         "README.md": README.format(name=name),
         ".gitignore": GITIGNORE,
     }
-    for d in ("DATA/raw", "EQUATIONS", "ASSUMPTIONS", "ADDFACTORS", "SCENARIOS"):
+    for d in ("DATA/raw", "DATA/raw/inbox", "EQUATIONS", "ASSUMPTIONS", "ADDFACTORS", "SCENARIOS", "FLOWS", "notes"):
         os.makedirs(os.path.join(path, d), exist_ok=True)
     created = []
     for rel, text in files.items():

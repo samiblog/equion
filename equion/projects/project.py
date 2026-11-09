@@ -204,13 +204,17 @@ class Project:
         c = self.config
         return load_defs(c.root, c.series_file, c.derived_file, c.freq)
 
-    def data_build(self, use: bool = False, who: str = None, command: str = None) -> BuildResult:
+    def data_build(self, use: bool = False, inbox: str = None, ask=None, who: str = None, command: str = None) -> BuildResult:
         """자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다.
 
         같은 원자료·정의로 만든 회차가 이미 있으면 새로 만들지 않고 그 회차를 알린다. 지금 회차는 저절로 바뀌지 않는다(use=True면 바꾼다).
+        inbox를 주면 먼저 받은 상자(DATA/raw/inbox/)의 새 파일을 출처와 짝지어 넣는다(`data_inbox`로 미리 본다) — 하나라도 짝이
+        없거나 틀이 맞지 않으면 아무것도 넣지 않고 회차도 만들지 않는다.
 
         매개변수
             use: 참이면 만든(또는 같은) 회차를 지금 회차로
+            inbox: None · 'auto'(짝이 하나이고 틀이 맞으면 넣는다) · 'ask'(ask(item)이 참인 것만 — ask가 없으면 auto)
+            ask: 받은 파일마다 부르는 함수(InboxItem → 참거짓) — 명령줄은 터미널이면 묻는다
 
         돌려주는 것
             BuildResult — .id · .created · .n_series · .span · .implicit(알아서 한 것) · .text()
@@ -226,12 +230,35 @@ class Project:
             (False, True)
         """
         from ..version import project_version
+        from . import inbox as ib
+        taken = []
+        if inbox and inbox != "no":
+            taken = ib.take(self, inbox, ask=ask, who=who, command=command)
         defs = self._need_defs()
         res = build_vintage(defs, project_version())
+        res.inbox = taken
+        if not inbox or inbox == "no":
+            res.waiting = len(ib.inbox_files(self.root))
         say(f"[{self.name}] " + (f"자료 회차 {res.id}를 만들었습니다" if res.created else f"자료 회차 {res.id}와 같습니다"))
         if use and res.id != self.config.vintage:
             self.data_use(res.id, who=who, command=command)
         return res
+
+    def data_inbox(self) -> list:
+        """받은 상자(DATA/raw/inbox/)의 파일마다 짝지을 출처와 틀 검사 — 미리보기(아무것도 바꾸지 않는다). InboxItem 목록.
+
+        짝짓기: series.toml `[source.이름] inbox = "글롭"`을 적었으면 그것만, 아니면 출처가 지금 읽는 파일 이름(날짜 꼬리 뺌)으로
+        시작하는 파일 — 가장 긴 것. 넣기는 `data_build(inbox='auto')`·명령줄 `equion data build --inbox ask`.
+
+        예
+            >>> import tempfile, os, shutil
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = shutil.copy(eqn.datasets.path("toy_q"), os.path.join(p.root, "DATA/raw/inbox/toy_q_new.csv"))
+            >>> [(x.source, x.status) for x in p.data_inbox()]
+            [('na', 'ready')]
+        """
+        from . import inbox as ib
+        return ib.plan(self)
 
     def data_use(self, vid: str, who: str = None, command: str = None) -> str:
         """이 회차로 바꾸기 — equion.toml의 [data] vintage를 고치고(주석·순서는 그대로) 자료를 다시 연다. 이전 회차를 돌려준다.
@@ -348,19 +375,8 @@ class Project:
         if not os.path.isfile(path):
             raise ProjectError(f"파일이 없습니다: {path}")
         sp = defs.sources[source]
-        from dataclasses import replace
         from ..data.source import file_sha256
-        problems = []
-        try:   # 틀 검사 — 넣기 전에, 받은 파일을 이 출처의 불러오기 틀로 읽어 본다
-            t = read_source(replace(sp, file=os.path.basename(path), path=os.path.abspath(path)))
-            for s in defs.series.values():
-                if s.source == source and t.column(s.column)[0] is None:
-                    problems.append(f"[series.{s.name}] 새 파일에 없는 열: {s.column}")
-            old_freq = read_source(sp).freq if os.path.isfile(sp.path) else t.freq
-            if t.freq != old_freq:
-                problems.append(f"주기가 다릅니다: 새 파일은 {t.freq}, 출처 '{source}'는 {old_freq}")
-        except ValueError as e:
-            problems.append(str(e))
+        problems = self._source_problems(defs, source, path)
         if problems:
             return AddResult(path, file_sha256(path), False, source, sp.file, problems)
         res = add_raw(self.root, path, as_name=as_name, note=note)
@@ -374,6 +390,23 @@ class Project:
                 who or detect_who("python"), command or f"data add {os.path.basename(path)} --source {source}",
                 note=f"[source.{source}] {sp.file} → {res.file}")
         return res
+
+    def _source_problems(self, defs, source: str, path: str) -> List[str]:
+        """틀 검사 — 받은 파일을 그 출처의 불러오기 틀로 읽어 본다: 시리즈가 쓰는 열이 다 있고 주기가 같은가."""
+        from dataclasses import replace
+        sp = defs.sources[source]
+        problems = []
+        try:
+            t = read_source(replace(sp, file=os.path.basename(path), path=os.path.abspath(path)))
+            for s in defs.series.values():
+                if s.source == source and t.column(s.column)[0] is None:
+                    problems.append(f"[series.{s.name}] 새 파일에 없는 열: {s.column}")
+            old_freq = read_source(sp).freq if os.path.isfile(sp.path) else t.freq
+            if t.freq != old_freq:
+                problems.append(f"주기가 다릅니다: 새 파일은 {t.freq}, 출처 '{source}'는 {old_freq}")
+        except ValueError as e:
+            problems.append(str(e))
+        return problems
 
     def _load(self):
         if self._parts is None:
@@ -910,8 +943,10 @@ class Project:
         from .notes import check_note
         return check_note(self, note)
 
-    def report_new(self, name: str, title: str = None, from_report: str = None, who: str = None, command: str = None):
+    def report_new(self, name: str, title: str = None, from_report: str = None, exist_ok: bool = False, who: str = None,
+                   command: str = None):
         """새 보고서(`reports/이름.md`) — 틀(제목·날짜·자료 회차·모형). from_report면 지난 보고서를 복사하고 구역마다 바꿔 낄 기록을 제안한다.
+        exist_ok면 이미 있는 보고서는 그대로 둔다(`.exists` — 스크립트를 같은 회차로 다시 돌릴 때 글을 지키려고).
 
         예
             >>> import tempfile, os
@@ -920,10 +955,11 @@ class Project:
             'reports/monthly.md'
         """
         from .reports import new_report
-        return new_report(self, name, title=title, from_report=from_report, who=who, command=command)
+        return new_report(self, name, title=title, from_report=from_report, exist_ok=exist_ok, who=who, command=command)
 
     def report_add(self, report: str, record: str, rows=None, show: str = "level", annual: bool = False, digits: int = None,
-                   title: str = None, chart: bool = False, under: str = None, who: str = None, command: str = None):
+                   title: str = None, chart: bool = False, under: str = None, key: str = None, force: bool = False,
+                   who: str = None, command: str = None):
         """보고서로 보내기 — 기록의 표(와 차트)를 고른 모양(행·보이기·연간·소수점)으로 보고서에 넣는다. 구역에는 보이지 않는 표시
         (기록·보낸 날·자료 회차·모양)가 붙고, 차트 자료는 보고서 옆 `_data/`로 복사한다.
 
@@ -931,6 +967,7 @@ class Project:
             record: 기록(sim:… · hs:… · est:… · an:…#표 번호)
             rows: 행(시리즈·변수 목록) · show: 'level' · 'qoq' · 'yoy' · 'diff'(전망) · annual: 연간(전망)
             digits: 소수점 · title: 표 제목(번호는 저절로) · chart: 차트도 · under: 그 제목 아래 끝에
+            key: 구역 이름 — 같은 이름의 구역이 있으면 그 자리에서 이 기록으로 바꾼다(손으로 고친 구역은 force일 때만)
 
         예
             >>> import tempfile, os
@@ -942,7 +979,7 @@ class Project:
         """
         from .reports import add
         return add(self, report, record, rows=rows, show=show, annual=annual, digits=digits, title=title, chart=chart,
-                   under=under, who=who, command=command)
+                   under=under, key=key, force=force, who=who, command=command)
 
     def report_check(self, report: str):
         """보고서 검사 — 구역마다 없는 기록 · 더 새 기록(같은 갈래) · 낡음(자료·정의가 바뀜) · 손으로 고침.
@@ -1076,6 +1113,104 @@ class Project:
         """
         from .export import export_xlsx
         return export_xlsx(self, list(records), xlsx)
+
+    # ---- 스크립트(.eqs, D36·E5) ----------------------------------------
+    def run_script(self, script: str, sets: dict = None, from_step=None, dry_run: bool = False, fail_on: str = "failed",
+                   name: str = None, who: str = None, command: str = None, echo=None, verbosity: int = 1,
+                   python: bool = True):
+        """Equion 스크립트(`.eqs`)를 실행하고 실행 기록 `work/run/<이름>/`(`run:`)을 남긴다 — 명령줄 `equion run x.eqs`.
+
+        한 줄이 명령 하나이고 같은 프로세스에서 명령줄 그대로 돈다(단계의 기록·바뀜 기록에는 누가 '스크립트', 그 실행 이름).
+        명령이 실패하면 거기서 멈추고 그 종료 코드, `expect --stop`에 걸리면 2, HS·전망 기록에 fail_on 상태의 기간이 있으면 2.
+
+        매개변수
+            script: 스크립트 경로(프로젝트 기준) · sets: --set {이름: 값}(값은 목록 또는 띄어 쓴 글자)
+            from_step: 이 단계(번호 또는 ## 제목)부터 · dry_run: 미리보기(기록을 남기지 않음 → Plan)
+            fail_on: 'failed'·'fallback'·'partial'·'never' · name: 실행 기록 이름(기본 <스크립트>_0001 …)
+            echo: 단계마다 한 줄을 받는 함수(예: print) · python: Python 단계(py)를 돌릴지
+
+        돌려주는 것
+            RunResult — .id · .exit_code · .status · .steps(단계마다 .line·.status·.records) · .text()
+            (dry_run이면 Plan — .steps · .problems · .text())
+
+        오류
+            ScriptError: 문법·명령·매개변수 문제(실행하지 않는다)
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.run_script("FLOWS/monthly.eqs", sets={"scenarios": "base"})
+            >>> r.exit_code, r.steps[3].line, r.steps[2].status          # 기준 미달 식이 있으면 표시(!)하고 계속
+            (0, 'hs main', 'flag')
+        """
+        from ..script import plan, run_script
+        if dry_run:
+            return plan(self, script, sets=sets, from_step=from_step)
+        return run_script(self, script, sets=sets, from_step=from_step, fail_on=fail_on, name=name, who=who,
+                          command=command, echo=echo, verbosity=verbosity, python=python)
+
+    def check_script(self, script: str, sets: dict = None):
+        """스크립트를 실행 없이 검사 — 문법·명령(허용 목록)·선택지·{이름}·매개변수·부품·모형·시나리오·노트·포함한 파일.
+
+        돌려주는 것
+            ScriptCheck — .ok · .problems · .changing(정의 파일을 바꾸는 단계) · .python · .text()
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> p.check_script("FLOWS/monthly.eqs").ok
+            True
+        """
+        from ..script import check
+        return check(self, script, sets=sets)
+
+    def replay_run(self, run: str, who: str = None, command: str = None, echo=None):
+        """실행 기록을 그때 그대로 다시 — 정의 사본(defs/)·받은 원자료·같은 스크립트(src/)·매개변수로 프로젝트 사본에서 돌리고
+        단계마다 기록의 숫자를 견준다(허용오차). 프로젝트는 바꾸지 않고 견준 결과를 새 실행 기록(`replay_of`)으로 남긴다.
+
+        돌려주는 것
+            ReplayResult — .same · .steps(단계마다 verdict 같음·다름·detail) · .id · .exit_code(같으면 0, 다르면 2)
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.run_script("FLOWS/monthly.eqs", sets={"scenarios": "base"})
+            >>> p.replay_run(r.id).same
+            True
+        """
+        from ..script import replay
+        return replay(self, run, who=who, command=command, echo=echo)
+
+    def new_script(self, name: str, records=None, last: int = None, title: str = None, force: bool = False,
+                   who: str = None, command: str = None) -> str:
+        """작업 기록의 명령으로 스크립트 초안 `FLOWS/<이름>.eqs`(바뀜 기록에 남는다) — 탐색하며 한 일을 굳힌다.
+        명령에서 -p·--as·--note·--json은 뺀다(다시 돌려도 이름이 겹치지 않게). 기록이 없으면 빈 틀.
+
+        매개변수
+            records: 기록 이름 목록 · last: 최근 기록 n개(실행 기록 run: 제외)
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> e = p.est("demand:CN", as_name="c1", command="equion est demand:CN --as c1")
+            >>> rel = p.new_script("mine", records=[e.id])
+            >>> open(os.path.join(p.root, rel), encoding="utf-8").read().splitlines()[3:5]
+            ['## 추정', 'est demand:CN   # ← est:c1']
+        """
+        from ..script import new_script
+        return new_script(self, name, records=records, last=last, title=title, force=force, who=who, command=command)
+
+    def export_script(self, script: str, out: str = None, force: bool = False) -> str:
+        """스크립트를 같은 일을 하는 Python 파일로(`eqn.script.session` — 같은 명령·같은 기록) → 프로젝트 기준 경로.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> p.export_script("FLOWS/monthly.eqs")
+            'FLOWS/monthly.py'
+        """
+        from ..script import export_py
+        return export_py(self, script, out=out, force=force)
 
     @property
     def work(self):

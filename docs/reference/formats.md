@@ -131,7 +131,7 @@ convert = "mean"                  # 원자료 주기 ≠ 자료 주기면 꼭 �
 
 | 키 | 내용 |
 |---|---|
-| `[source.이름]` | `file`(csv·xlsx·xls) · `sheet` · `header_row` · `unit_row` · `time_col` · `missing` · `thousands` · `freq`(시점에서 추론이 안 될 때) · `desc` |
+| `[source.이름]` | `file`(csv·xlsx·xls) · `sheet` · `header_row` · `unit_row` · `time_col` · `missing` · `thousands` · `freq`(시점에서 추론이 안 될 때) · `desc` · `inbox`(받은 상자의 어떤 파일이 이 출처를 바꾸나 — 파일 이름 글롭, 예 `"국민계정_*.xlsx"`) |
 | 시점 꼴 | `2003Q4` · `2003M10` · `2003-10` · `2003` · ISO 날짜, 그리고 `2003.Q4` · `2003 Q4` · `2003년 4분기` · `2003년 4/4분기` · `2003년 10월` · `2003.10` |
 | 칸 | 천 단위 구분은 `thousands`, 괄호 숫자 `(12)`는 음수. 결측 표시와 숫자가 아닌 칸은 결측으로 보고 칸 위치(`D7`)와 함께 '알아서 한 것'에 적는다 |
 | `[series.이름]` | `from`(꼭) · `convert` · `denton`(denton의 conversion, 기본 sum) · `seas` · `scale`(곱할 수) · `fill = "linear"`(안쪽 결측 선형 보간) · `unit` · `desc` |
@@ -139,6 +139,7 @@ convert = "mean"                  # 원자료 주기 ≠ 자료 주기면 꼭 �
 | `derived.txt` | 한 줄에 `이름 = 식`(방정식 문법 — `PI = 100*(P/P(-4) - 1)`), `#` 뒤는 설명. 위에서부터 차례로, 앞 줄의 파생 시리즈를 쓸 수 있다 |
 | 문제 | 없는 원자료·열, 틀이 맞지 않음, 주기 변환 빠짐, 같은 이름, 함수 이름·`C` 같은 쓸 수 없는 이름, 파생식 오류 — 위치(`series.toml [series.X]` · `derived.txt:3` · 칸 `A3`)와 함께 모아서 알린다 |
 | 원자료 넣기 | `equion data add 파일` — `DATA/raw/`에 복사(같은 내용이면 넣지 않고, 같은 이름·다른 내용이면 `_YYYYMMDD`를 붙여 나란히), 옆에 `파일.source.toml`(받은 이름·때·해시·메모). `--source 이름`이면 그 틀로 먼저 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을 때만 넣고 `[source.이름] file`을 고친다 |
+| 받은 원자료 | `DATA/raw/inbox/`에 새 파일을 놓으면 `equion data build --inbox ask`(또는 `auto`)가 출처와 짝지어 넣고(위의 `data add --source`와 같다 — 받은 상자에서는 뺀다) 회차를 만든다. 짝짓기는 `inbox` 글롭을 적었으면 그것만, 아니면 출처가 지금 읽는 파일 이름(날짜 꼬리 `_YYYYMMDD` 뺌)으로 시작하는 파일 — 가장 긴 것. 짝이 없거나 여럿이거나 틀이 맞지 않는 파일이 하나라도 있으면 아무것도 넣지 않는다. `ask`는 터미널이면 파일마다 묻고, 아니면(자동화·Claude의 터미널·재연) 짝이 하나이고 틀이 맞는 것만 넣는다. 미리 보기는 `equion data inbox` |
 
 회차 폴더는 이렇습니다(아래 코드는 예제 프로젝트를 실제로 만들어 찍습니다).
 
@@ -217,6 +218,7 @@ print(sorted(json.loads(Path(p.root, "work", "log.jsonl").read_text(encoding="ut
 | `est` | `coefs.csv`(계수·표준오차·t·p) · `series.csv`(실측·적합·잔차, `--sim`이면 목표변수의 단독 모의). `record.json`에 식 글자·펼친 식·표본·통계·진단·판단 기준·식 직렬화(계수 그대로 — 채택·바꿔 끼우기에 쓴다) |
 | `hs` | `assembly.json`(조립 명세) · `stats.csv`(변수별 RMSPE·MAE…) · `solved.csv`(해) · `status.csv`(기간 상태) · `series.csv`(해와 실측) |
 | `sim` | `assembly.json` · `levels.csv`(전망 앞 2년의 실측 + 전망) · `flags.csv`(값의 종류: 실측·해·가정·채움·결측) · `growth.csv`(전기비·전년동기비) · `annual.csv`(연간 평균·증가율) · `addfactors.csv`(식마다 보정항) · `diff.csv`(시나리오 − 기준선) |
+| `run` | 스크립트 실행 — 아래 '스크립트와 실행 기록' |
 | `an` | `table_1.csv` …(카드의 표마다) · `chart_1.csv` …(차트 자료 — 기간 열 + 시리즈 열). `record.json`에 분석·대상·옵션·표본·짧은 글·결과 값·만드는 것(`makes` — `an keep`이 쓴다)·입력(낡음 판정) |
 | 조립 명세 | `format: equion-assembly` — 모형·구간·방식·선택지, 자료(회차와 내용 해시 또는 자료 파일 해시), 식마다 글자·출처(`adopted:est:…` · `estimated` · `swap:est:…`)·계수, 정의 파일 해시, equion 판. `hs --replay`는 이것만으로 그때 그대로 푼다(자료 해시가 다르면 거부) |
 | `log.jsonl` | 한 줄에 기록 하나 — id · created · who(`terminal`·`claude`·`desk`·`python`·`script`) · command · kind · target · path · 핵심 수치 |
@@ -290,10 +292,10 @@ Lectern·GitHub·편집기에서 표와 차트째 읽힙니다.
 
 | 규칙 | 내용 |
 |---|---|
-| 블록이 부를 수 있는 것 | 등록부의 계산·보기 명령만 — `an` · `est` · `hs` · `sim` · `compare` · `assemble` · `ident` · `data list·diff·impact` · `work list·show`. 파일을 바꾸는 명령(`adopt`·`data use`·`propose apply`…)이 한 줄이라도 있으면 그 블록은 돌지 않는다 |
+| 블록이 부를 수 있는 것 | 등록부의 계산·보기 명령만 — `an` · `est` · `hs` · `sim` · `compare` · `assemble` · `ident` · `data list·diff·impact` · `work list·show`. 파일을 바꾸는 줄(`adopt`·`data use`·`propose apply`, 그리고 `est --adopt`·`an keep`·`an --note`)이 한 줄이라도 있으면 그 블록은 돌지 않는다 — 바꾸는 일은 터미널이나 스크립트에서 |
 | Python 블록 | ```` ```python ```` 블록은 `note run --block n`으로 고를 때만(터미널에서) 돈다 |
 | 구역 표시 | 여는 주석에 기록 이름·시각·자료 회차와 JSON(`records`·`h` — 노트 / 보고서는 기록·보낸 모양 `rows`·`show`·`annual`·`digits`·`title`·`chart`·`table`·`n`·`h`). `h`는 구역 본문의 해시 — 다르면 손으로 고친 구역 |
-| 다시 실행·바꾸기 | 노트는 블록을 다시 돌리면 새 기록으로 구역을 바꾸고, 보고서는 `report update`가 같은 모양으로 다시 만든다. 손으로 고친 구역은 차이를 보이고 `--force` 없이는 덮지 않는다 |
+| 다시 실행·바꾸기 | 노트는 블록을 다시 돌리면 새 기록으로 구역을 바꾸고, 보고서는 `report update`가 같은 모양으로 다시 만든다. `report add --key 이름`은 같은 이름(`key`)의 구역이 있으면 그 자리에서 새 기록으로 바꾼다(스크립트가 달마다 같은 구역을 채울 때 — `report new --exist-ok`와 함께 쓰면 다시 돌려도 글이 남는다). 손으로 고친 구역은 차이를 보이고 `--force` 없이는 덮지 않는다 |
 | 낡음 | 구역이 가리키는 기록의 자료(회차·해시)나 정의 파일이 지금과 다르면 '낡음'(`note check` · `report check`). 노트·보고서 자체는 낡음 판정의 입력이 아니다 |
 | 차트 자료 | 노트는 기록 폴더의 CSV를 가리키고, 보고서는 `reports/<보고서>_data/`로 복사한다(보고서가 혼자 선다) |
 | 정리 | 노트·보고서가 가리키는 기록은 `work clean`에서 빠진다. 노트·보고서를 고친 것은 바뀜 기록에 남는다 |
@@ -306,8 +308,83 @@ Lectern·GitHub·편집기에서 표와 차트째 읽힙니다.
 | `work/history/<h번호>/` | `change.json`(`format: equion-change` · 때 · 누가 · 어떻게(명령 그대로 또는 '명령 밖에서 고침') · 메모 · 파일마다 전후 해시 · 되돌린 바뀜) · `before/`·`after/`(전후 사본) · `diff.txt` |
 | `work/history/state/` | 지난번에 본 정의 파일의 사본 — 명령 밖의 고침(편집기·Claude의 직접 편집)을 다음 명령 때 '바깥'으로 적는 기준 |
 
-바뀜 기록에 남는 파일은 `equion.toml` · 블록 파일 · `EQUATIONS/adopted.toml` · `DATA/series.toml`·`derived.txt` · `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` · `VIEWS/`입니다.
+바뀜 기록에 남는 파일은 `equion.toml` · 블록 파일 · `EQUATIONS/adopted.toml` · `DATA/series.toml`·`derived.txt` · `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` · `VIEWS/` ·
+`notes/` · `reports/` · `FLOWS/*.eqs`입니다. 스크립트 안에서 바뀌면 `change.json`의 `run`에 그 실행 이름이 남습니다.
 되돌리기(`history revert`)는 이전 내용으로 다시 쓰는 것이고 그것도 기록에 남습니다.
+
+## 스크립트(`FLOWS/*.eqs`)와 실행 기록(`work/run/`)
+
+Equion 스크립트는 원자료에서 보고서까지 한 번에 다시 하는 단위입니다(D36). **한 줄이 `equion` 명령 하나**이고(앞의 `equion`은 빼도 된다),
+위에서 아래로 차례로 돕니다. 반복문·조건문·변수 계산·셸 명령은 없습니다 — 되풀이는 명령이 목록을 받고(`sim base oil20`), 판단은 명령의
+정책(`--adopt if_pass`)과 `expect`로 합니다. 모자라면 Python으로 내보냅니다(`equion script export --py`). EViews 프로그램(`.prg`) 문법이
+아닙니다(D13). 예제 프로젝트의 월간 스크립트:
+
+```python
+p = eqn.Project.create("flow_prj", force=True)
+print(Path(p.root, "FLOWS", "monthly.eqs").read_text(encoding="utf-8"))
+```
+<!-- out -->
+```text
+[flow_prj] 자료 회차 d2026-11a를 만들었습니다
+[flow_prj] 지금 자료 회차: d2026-11a
+# 월간 전망 — 새 원자료로 회차·다시 추정·과거 재현·전망·보고서까지
+# 새 원자료를 DATA/raw/inbox/에 놓고: equion run FLOWS/monthly.eqs   (미리보기 --dry-run · 기준선만 --set scenarios=base)
+# 문법: 한 줄 = equion 명령 하나 · ## 제목 = 단계 묶음 · {이름} = 값 · expect … = 확인(docs/reference/formats.md "스크립트")
+param scenarios = base oil20
+
+## 자료
+data build --inbox ask --use            # 받은 원자료를 넣고 회차를 만들어 바꾼다(내용이 같으면 그 회차 그대로)
+assemble main                           # 조립 검사 — 문제가 있으면 여기서 멈춘다
+
+## 추정
+est main --adopted --adopt if_pass      # 채택한 식을 새 자료로 다시 — 기준([criteria])을 통과한 식만 새 계수, 아니면 옛 계수와 표시
+
+## 과거 재현
+hs main                                 # [hs]의 구간(2005Q1:last — 새 자료면 따라 는다)
+expect hs Y.rmspe < 3% --flag           # 국민소득 적합도 — 어긋나면 표시하고 계속
+
+## 전망
+sim {scenarios} --model main            # [forecast]의 구간(next:8)·가정 세트·보정항
+
+## 결과물
+note run notes/data_check.md            # 자료 점검 노트의 결과 구역을 새 기록으로
+report new reports/forecast_{vintage}.md --title "월간 전망 — 자료 {vintage}" --exist-ok
+report add reports/forecast_{vintage}.md {sim:base} --key growth --rows Y,CN,I,P --show yoy --annual --title "성장률 전망"
+report add reports/forecast_{vintage}.md {hs} --key hs --rows Y,CN --chart --title "과거 재현"
+export {hs} {sim} --xlsx exports/forecast_{vintage}.xlsx
+```
+
+| 줄 | 뜻 |
+|---|---|
+| `# …` | 주석(줄 끝에도 — 앞이 빈칸인 `#`부터. 따옴표 안·`an:x#2`의 `#`는 글자). 첫 주석 줄이 제목 |
+| `## 제목` | 단계 묶음 — `--from 제목`으로 그 묶음부터, Desk 흐름 화면의 칸 |
+| `param 이름 = 값 …` | 매개변수와 기본값(띄어 쓴 값은 목록). 실행할 때 `--set 이름=값`으로 바꾼다 — 모르는 이름은 실행하지 않는다 |
+| `<명령> …` | 등록부의 명령 — 노트의 명령에 더해 `data build·use·add·inbox` · `adopt` · `note run·check` · `report new·add·check·update` · `export` · `work pin·memo` · `check`. 정리(`work clean`)·되돌리기(`history`)·제안·새 프로젝트는 안 된다 |
+| `{이름}` | 값 바꿔 넣기 — 매개변수 · 내장 값 `{vintage}`(그 단계 때의 지금 회차) · `{last}`(자료 끝) · `{today}` · `{model}` · `{run}`(이 실행 이름) · 앞 단계의 기록 `{hs}` · `{sim}`(그 단계의 기록 모두) · `{sim:base}`(거르기 — 시나리오·부품·분석·모형 이름) · `{est}` · `{an}`. `{{`·`}}`는 글자 그대로 |
+| `expect 대상 조건 [--stop·--flag]` | 확인 — 대상은 `hs`·`sim`·`est`(이 실행의 가장 뒤 그 단계의 기록) 또는 기록 이름. 조건은 `지표 비교 값`(`<`·`<=`·`>`·`>=`·`==`·`!=`, 값 끝의 `%`는 무시). 지표: HS `Y.rmspe`·`Y.mae_pct`·`Y.mae`·`Y.me`·`failed`·`fallback` · 전망 `Y.growth[2021]`(연간 증가율)·`Y.level[2021Q4]`·`failed` · 추정 `r2`·`adj_r2`·`dw`·`se`·`failed`(기준 미달 식 수)·`passed`·`n`. 어긋나면 `--stop`(기본)은 멈추고 종료 코드 2, `--flag`는 표시(!)하고 계속 |
+| `run 다른.eqs` | 다른 스크립트를 그 자리에 펼친다(레고) — 매개변수는 한 이름 공간(먼저 적은 기본값이 이긴다), 돌고 도는 포함은 오류 |
+| `py 스크립트.py [--set …]` | Python 단계 — `equion run 스크립트.py`(보고서 폴더 없이)를 프로젝트 폴더에서. 명령줄에서만(Desk 앱은 돌리지 않고 터미널에 붙여 넣게 한다) |
+
+경로는 모두 프로젝트 폴더 기준입니다. 단계 안의 명령은 같은 프로세스에서 명령줄 그대로 돌고, 그 기록·바뀜 기록에는 누가 `script`, `run` =
+이 실행 이름이 남습니다. 명령이 실패하면(종료 코드 ≠ 0) 거기서 멈추고 **그 종료 코드**로 끝납니다. 명령은 성공했지만 사람이 볼 것 — 판단 기준을
+통과하지 못한 식, 실패 대체 기간이 있는 HS·전망 — 은 단계를 `!`(표시)로 두고 계속합니다. 끝에 `--fail-on`(기본 `failed`) 상태의 기간이 있는
+HS·전망 기록이 있으면 종료 코드 2입니다.
+
+실행 기록 `work/run/<이름>/`(`run:monthly_0001`):
+
+| 파일 | 내용 |
+|---|---|
+| `record.json` | `format: equion-record` · 누가·명령·스크립트·제목·매개변수(바꿔 넣은 값)·`--from`·오늘 날짜·상태(`ok`·`flag`·`stop`·`error`·`interrupted`)·종료 코드 · 단계마다 줄(바꿔 넣은 뒤)·원래 줄·위치(파일:줄)·상태·종료 코드·만든 기록·바뀜 기록·바꾸는 파일·그 뒤의 회차·까닭·받은 원자료 · 자료 회차(처음·끝)·자료(내용 해시) · 판(equion·Python·numpy·pandas·scipy·OS) · `origin`(`eqs` · `python`) · `replay_of`(재연이면) |
+| `script.eqs` | 이 결과를 만든 스크립트 — 값을 바꿔 넣은 뒤의 줄(기록 이름까지). 복사해 동료나 Claude에게 |
+| `src/` | 원래 스크립트(포함한 것까지)와 Python 단계 파일 — `--replay`가 이것으로 다시 돈다 |
+| `defs/` | 시작할 때의 정의 파일 사본(바뀜 기록이 보는 파일 전부 — `equion.toml`·블록·채택표·자료 정의·가정·보정항·시나리오·보기·노트·보고서·스크립트) |
+| `steps/NN.txt` | 단계마다 명령의 출력 |
+| `summary.md` | 카드 — 단계 표(줄·상태·기록·결과)·볼 것·받은 원자료·알아서 한 것·스크립트 |
+
+**재연**(`equion run --replay run:…` · `p.replay_run`)은 프로젝트를 임시 폴더에 복사해 그때의 정의 사본·받은 원자료(그 실행이 넣은 파일을 받은
+상자에 되돌려)·같은 스크립트·매개변수·오늘 날짜로 다시 돌리고, 단계마다 기록의 숫자를 견줍니다(같은 이름의 CSV, 허용오차). 프로젝트는 바꾸지 않고
+견준 결과를 새 실행 기록(`replay_of`)으로 남깁니다 — 모두 같으면 종료 코드 0, 다른 단계가 있으면 2. 판(equion)이 다르면 알리고 허용오차로
+견줍니다. 재연 기록과 Python에서 연 실행(`origin: python`)은 다시 재연하지 않습니다.
 
 ## 워크파일(`.eqw/` 폴더)
 

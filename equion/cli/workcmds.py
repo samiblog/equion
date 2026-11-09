@@ -101,7 +101,7 @@ def add_parsers(sub):
     wsub = w.add_subparsers(dest="work_command", metavar="동작")
     wsub.required = True
     wl = _common(wsub.add_parser("list", help="기록 목록(새것이 아래)"))
-    wl.add_argument("--kind", choices=("est", "hs", "sim"), help="종류")
+    wl.add_argument("--kind", choices=("est", "hs", "sim", "an", "run"), help="종류")
     wl.add_argument("--target", metavar="이름", help="대상(목표변수·모형)")
     wl.add_argument("--part", metavar="부품", help="이 부품의 후보")
     wl.add_argument("--limit", type=int, default=30, help="보일 수(기본 30, 0이면 전부)")
@@ -115,7 +115,7 @@ def add_parsers(sub):
     wm.add_argument("record", metavar="기록")
     wm.add_argument("text", metavar="글")
     wc = _common(wsub.add_parser("clean", help="정리 — 고정·채택·참조되지 않은 기록(기본은 목록만, --yes면 지움)"))
-    wc.add_argument("--kind", choices=("est", "hs", "sim"), help="종류")
+    wc.add_argument("--kind", choices=("est", "hs", "sim", "an", "run"), help="종류")
     wc.add_argument("--yes", action="store_true", help="목록의 기록을 지운다")
 
     hi = sub.add_parser("history", help="바뀜 기록 — 정의 파일이 누가·언제·어떻게 바뀌었나, 되돌리기")
@@ -226,6 +226,12 @@ def _record_text(rec):
         return hs_text(rec.meta)
     if rec.kind == "sim":
         return sim_text(rec.meta)
+    if rec.kind == "an":
+        from ..projects.analyses import an_text
+        return an_text(rec.meta)
+    if rec.kind == "run":
+        from ..script.record import run_text
+        return run_text(rec.meta)
     return json.dumps(rec.meta, ensure_ascii=False, indent=2)
 
 

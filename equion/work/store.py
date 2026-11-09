@@ -8,6 +8,8 @@
       est/<이름>/               record.json · coefs.csv · series.csv · summary.md
       hs/<이름>/                record.json · assembly.json(조립 명세) · stats.csv · solved.csv · status.csv · summary.md
       sim/<이름>/               record.json · assembly.json · levels.csv · growth.csv · diff.csv · summary.md
+      an/<이름>/                record.json · 표 CSV · summary.md
+      run/<이름>/               스크립트 실행(.eqs) — record.json(단계) · script.eqs(값을 바꿔 넣은 뒤) · src/ · defs/ · steps/ · summary.md
 
 기록 이름은 `종류:이름`(`est:cons_c5` · `hs:hs_0003`). 기록은 고치지 않는다 — 다시 계산하면 새 기록이다. 쓰기는 임시 폴더에 다 쓴 뒤
 한 번에 옮긴다(반쯤 쓴 기록이 남지 않게).
@@ -26,8 +28,8 @@ import pandas as pd
 FORMAT = "equion-record"
 FORMAT_VERSION = 1
 WORK_DIR = "work"
-KINDS = ("est", "hs", "sim", "an")
-KIND_KO = {"est": "추정", "hs": "과거 재현", "sim": "전망", "an": "분석", "data": "자료 회차"}
+KINDS = ("est", "hs", "sim", "an", "run")
+KIND_KO = {"est": "추정", "hs": "과거 재현", "sim": "전망", "an": "분석", "run": "스크립트 실행", "data": "자료 회차"}
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]*$")     # 기록 이름(sim:2026-11_base처럼 숫자로 시작해도 된다)
 WHO_KO = {"terminal": "터미널", "claude": "Claude", "desk": "Desk", "python": "Python", "script": "스크립트"}
 
@@ -172,11 +174,20 @@ class WorkStore:
         meta["id"] = f"{kind}:{name}"
         meta["kind"] = kind
         meta.setdefault("created", now_iso())
+        run = os.environ.get("EQUION_RUN")            # 스크립트 실행(run:…) 안에서 만든 기록이면 그 실행
+        if run and kind != "run":
+            meta.setdefault("run", run)
         out = dict(files)
         out["record.json"] = meta
         out["summary.md"] = summary
         for fn, v in out.items():
             p = os.path.join(tmp, fn)
+            if "/" in fn:                              # 하위 폴더(실행 기록의 defs/·src/·steps/)
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+            if isinstance(v, bytes):
+                with open(p, "wb") as f:
+                    f.write(v)
+                continue
             if isinstance(v, pd.DataFrame):
                 v.to_csv(p, lineterminator="\n")
                 continue
@@ -187,6 +198,8 @@ class WorkStore:
         os.replace(tmp, final)
         line = {"id": meta["id"], "created": meta["created"], "who": meta.get("who"), "command": meta.get("command"),
                 "kind": kind, "target": meta.get("target"), "path": os.path.relpath(final, self.root).replace(os.sep, "/")}
+        if meta.get("run"):
+            line["run"] = meta["run"]
         line.update(log or {})
         os.makedirs(self.base, exist_ok=True)
         with open(os.path.join(self.base, "log.jsonl"), "a", encoding="utf-8", newline="\n") as f:

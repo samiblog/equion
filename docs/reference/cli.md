@@ -25,7 +25,7 @@ Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·
 
 인자:
   명령
-    run       스크립트를 실행하고 보고서 폴더를 남긴다
+    run       스크립트를 실행한다 — .py는 보고서 폴더(out/), Equion 스크립트 .eqs는 실행 기록(work/run/)
     check     실행 없이 방정식 파일·스크립트를 검사한다
     info      데이터·워크파일·방정식 파일·보고서 폴더 요약(경로 없으면 실행 환경)
     convert   옛 저장 형식(레거시 pickle·.wt·.mmw)을 워크파일(.eqw)로
@@ -45,6 +45,7 @@ Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·
     an        분석 — 등록부의 분석 하나 = 기록 하나(an:) · 목록·남기기
     note      노트 — ```equion 블록을 실행해 결과 구역을 채운다 · 검사
     report    보고서 — 결과만 보내기(명령 블록 없이) · 검사 · 새 기록으로 바꾸기
+    script    스크립트(.eqs) — 작업 기록으로 초안 · 같은 일을 하는 Python으로
 
 옵션:
   -h, --help  도움말을 보이고 끝낸다
@@ -59,7 +60,7 @@ Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·
 |---|---|
 | 0 | 성공 |
 | 1 | 스크립트 오류(예외·문법 오류) · `sys.exit(문자열)` |
-| 2 | 풀이 실패 조건(`--fail-on`)에 걸림 — 사유는 화면과 manifest의 `fail_reasons` |
+| 2 | 풀이 실패 조건(`--fail-on`)에 걸림 — 사유는 화면과 manifest의 `fail_reasons` · Equion 스크립트의 `expect --stop`에 걸림 · `--replay`에 다른 단계 |
 | 3 | 입력 오류: 파일 없음·방정식 문법·모델 구조·merge 실패·잘못된 명령줄 인자 |
 | 130 | Ctrl+C로 중단 |
 
@@ -75,12 +76,14 @@ helptext("run", "--help")
 사용법: equion run [-h] [--smpl S:E] [--set 이름=값] [--params FILE.json] [--out 폴더] [--run-id ID] [--format 목록]
                 [--no-report] [--plotlyjs {copy,cdn}] [--fail-on {failed,fallback,partial,never}]
                 [--threads N] [-q | -v] [--log FILE] [-i] [--watch] [--interval 초] [--dry-run] [--redact]
-                script
+                [--from 단계] [--replay run:이름] [--project 폴더] [--json]
+                [script]
 
-평범한 Python 스크립트를 실행한다. 스크립트에 넘길 인자는 -- 뒤에 쓴다.
+Python 스크립트(.py)를 실행하거나(스크립트에 넘길 인자는 -- 뒤에), Equion 스크립트(.eqs — 한 줄이 equion 명령 하나)를 프로젝트에서 실행한다. .eqs의 종료
+코드: 멈춘 단계의 코드 · expect --stop에 걸리면 2 · --fail-on에 걸리면 2.
 
 인자:
-  script                실행할 .py 스크립트
+  script                실행할 스크립트(.py · .eqs)
 
 옵션:
   -h, --help            도움말을 보이고 끝낸다
@@ -104,6 +107,10 @@ helptext("run", "--help")
   --interval 초          --watch 확인 간격(기본 1초)
   --dry-run             실행하지 않고 문법·설정만 확인한다
   --redact              공유용 보고서: 작업 폴더·실행 파일 경로·git 브랜치를 빼고 경로를 줄인다
+  --from 단계             (.eqs) 이 단계 번호 또는 ## 제목부터(앞 단계는 건너뛴다)
+  --replay run:이름       (.eqs) 실행 기록을 그때 그대로 다시 — 단계마다 같음·다름(다르면 종료 코드 2)
+  --project, -p 폴더      (.eqs) 프로젝트 폴더(기본: 스크립트에서 위로 equion.toml을 찾는다)
+  --json                (.eqs) 결과를 JSON으로
 ```
 
 - 스크립트는 `.py` 파일. 인코딩 선언(`# -*- coding: cp949 -*-`)과 BOM을 따른다. 스크립트가 작업 폴더를 바꿔도 보고서는 실행한 자리 기준.
@@ -118,18 +125,22 @@ helptext("check", "--help")
 ```
 <!-- out -->
 ```text
-사용법: equion check [-h] [--data FILE] [--freq {Q,M,A}] [--smpl S:E] [--json] [--strict] path
+사용법: equion check [-h] [--data FILE] [--freq {Q,M,A}] [--smpl S:E] [--json] [--strict] [--set 이름=값]
+                  [--project 폴더]
+                  path
 
 인자:
-  path            방정식 파일(.txt) 또는 스크립트(.py)
+  path              방정식 파일(.txt) · 스크립트(.py) · Equion 스크립트(.eqs)
 
 옵션:
-  -h, --help      도움말을 보이고 끝낸다
-  --data FILE     데이터 파일·워크파일 — 변수 존재와 결측 입력까지 검사
-  --freq {Q,M,A}  주기(데이터가 없거나 추론이 안 될 때)
-  --smpl S:E      결측 입력을 볼 구간(기본: 데이터 전체)
-  --json          결과를 JSON으로
-  --strict        경고도 실패(종료 코드 3)로 본다
+  -h, --help        도움말을 보이고 끝낸다
+  --data FILE       데이터 파일·워크파일 — 변수 존재와 결측 입력까지 검사
+  --freq {Q,M,A}    주기(데이터가 없거나 추론이 안 될 때)
+  --smpl S:E        결측 입력을 볼 구간(기본: 데이터 전체)
+  --json            결과를 JSON으로
+  --strict          경고도 실패(종료 코드 3)로 본다
+  --set 이름=값        (.eqs) 매개변수도 검사
+  --project, -p 폴더  (.eqs) 프로젝트 폴더(기본: 스크립트에서 위로)
 ```
 
 방정식 파일(.txt)은 문법·구조(목표변수 중복·정해지지 않는 변수)·블록, `--data`를 주면 변수 존재와 결측 입력까지, 스크립트(.py)는
@@ -243,6 +254,7 @@ helptext("data", "add", "--help")
     list      자료 회차 목록(* 지금 회차)
     add       원자료 파일을 DATA/raw/에 넣는다(받은 그대로 — --source로 출처를 그 파일로)
     build     원자료를 정의대로 읽어 새 자료 회차를 만든다(같은 내용이면 만들지 않음)
+    inbox     받은 원자료(DATA/raw/inbox/) — 파일마다 짝지을 출처와 틀 검사(미리보기)
     use       지금 자료 회차를 바꾼다(equion.toml [data] vintage)
     diff      두 회차의 차이 — 새·없어진 시리즈, 새 기간·개정
     impact    회차를 바꾸면 영향받는 식·모형(다시 계산하지 않음)
@@ -468,7 +480,7 @@ helptext("report", "add", "--help")
   --stale           낡았거나 아직 실행 안 한 블록만
   --force           손으로 고친 결과 구역도 덮는다
 사용법: equion report add [-h] [--project 폴더] [--json] [--rows A,B] [--show {level,qoq,yoy,diff}] [--annual]
-                       [--digits n] [--title TITLE] [--chart] [--under 제목]
+                       [--digits n] [--title TITLE] [--chart] [--under 제목] [--key 이름] [--force]
                        보고서 기록[#표]
 
 인자:
@@ -487,6 +499,8 @@ helptext("report", "add", "--help")
   --title TITLE         표 제목(번호는 저절로)
   --chart               차트도(자료는 보고서 옆 _data/로 복사)
   --under 제목            이 제목 아래 끝에(예: "## 전망") — 없으면 맨 끝
+  --key 이름              구역 이름 — 같은 이름의 구역이 있으면 그 자리에서 이 기록으로 바꾼다(스크립트)
+  --force               (--key) 손으로 고친 구역도 덮는다
 ```
 
 | 명령 | 하는 일 | 종료 코드 |
@@ -499,13 +513,73 @@ helptext("report", "add", "--help")
 | `report add 보고서 기록[#표] [--rows] [--show level·qoq·yoy·diff] [--annual] [--digits] [--chart] [--under 제목]` | 보고서로 보내기 — 결과만(명령 블록 없이) | 없는 행·기록 3 |
 | `report check 보고서` · `report update 보고서 [--region n] [--to 기록] [--dry-run] [--force]` | 구역마다 더 새 기록·낡음·손으로 고침 · 같은 모양으로 다시 만들어 차이를 보이고 적용(손으로 고친 구역은 고친 곳을 보이고 `--force`일 때만) | 0 |
 
+## 스크립트 — run x.eqs · run --replay · check x.eqs · script
+
+Equion 스크립트(`.eqs` — 한 줄이 equion 명령 하나, 문법은 [파일 형식 — 스크립트](formats.md#스크립트flowseqs와-실행-기록workrun))는 프로젝트 안에서
+`equion run`으로 돌고, 실행 기록 `work/run/<이름>/`(`run:`)을 남깁니다(D36). 프로젝트는 스크립트에서 위로 올라가며 `equion.toml`을 찾습니다(`-p`로 줄 수 있다).
+
+| 명령 | 하는 일 |
+|---|---|
+| `equion run FLOWS/monthly.eqs` | 실행 — 단계마다 한 줄(`[3/11] 줄 ✓ 결과`), 끝에 실행 기록 이름·표시·종료 코드. `-q`는 끝 줄만, `-v`는 단계의 출력까지 |
+| `--set 이름=값` · `--params 파일.json` | 매개변수(목록은 띄어 쓴 값 — `--set scenarios="base oil20"`). 스크립트에 없는 이름이면 실행하지 않는다(3) |
+| `--from 3` · `--from "과거 재현"` | 그 단계 번호·`##` 제목부터(앞 단계는 '건너뜀' — 그 단계의 기록이 필요한 `{hs}` 등은 프로젝트의 가장 새 기록) |
+| `--dry-run` | 미리보기 — 단계마다 실행할 줄(바꿔 넣은 값, 실행 때 정해지는 값은 `{…}` 그대로)·바꾸는 파일·Python 단계·문제. 기록을 남기지 않는다 |
+| `--fail-on` · `--threads` · `--log` · `--run-id 이름` · `--json` | `.py`와 같다(`--run-id`는 실행 기록 이름). `.py`만의 선택지(`--smpl`·`--watch`·`-i`·`--out`·`--format`·`--no-report`·`--plotlyjs`·`--redact`·`--` 인자)는 거절한다 |
+| `equion run --replay run:monthly_0001` | 그때 그대로 다시 — 단계마다 같음(`=`)·다름(`≠`)과 까닭. 프로젝트는 바꾸지 않는다 |
+| `equion check FLOWS/monthly.eqs [--set …]` | 실행 없이 검사 — 문법·명령(허용 목록)·선택지·`{이름}`·매개변수·모형·블록·시나리오·부품·노트·보고서·포함한 파일 |
+| `equion script new 이름 --from-records 기록…` · `--last n` | 작업 기록의 명령으로 초안 `FLOWS/이름.eqs`(`-p`·`--as`·`--note`·`--json`은 뺀다 — 다시 돌려도 이름이 겹치지 않게) |
+| `equion script export FLOWS/monthly.eqs --py [-o 파일]` | 같은 일을 하는 Python(`eqn.script.session` — 같은 명령·같은 기록) — 반복·조건을 더하려면 이것을 고친다 |
+| `equion data inbox` · `data build --inbox ask·auto` | 받은 원자료(`DATA/raw/inbox/`) — 짝지을 출처와 틀 검사 미리보기 · 넣고 회차 만들기 |
+
+`.eqs`의 종료 코드(D15 안에서): 단계가 실패하면 **그 단계의 종료 코드**(입력 오류 3 · 스크립트 오류 1 · 풀이 실패 2) · `expect --stop`에 걸리면 **2** ·
+끝에 `--fail-on` 상태의 기간이 있는 HS·전망 기록이 있으면 **2** · 문제가 있는 스크립트(실행 전 검사)·모르는 `--set`은 **3**(실행하지 않음) ·
+`--replay`는 다른 단계가 있으면 **2** · Ctrl+C **130**.
+
+```python
+helptext("script", "new", "--help")
+helptext("script", "export", "--help")
+```
+<!-- out -->
+```text
+사용법: equion script new [-h] [--from-records 기록 [기록 ...]] [--last n] [--title TITLE] [--force] [--project 폴더]
+                       [--json]
+                       이름
+
+인자:
+  이름
+
+옵션:
+  -h, --help            도움말을 보이고 끝낸다
+  --from-records 기록 [기록 ...]
+                        이 기록들의 명령을 차례로
+  --last n              최근 기록 n개의 명령(실행 기록 run: 제외)
+  --title TITLE         제목(첫 주석 줄)
+  --force               이미 있으면 덮는다
+  --project, -p 폴더      프로젝트 폴더(기본: 지금 폴더에서 위로)
+  --json                결과를 JSON으로
+사용법: equion script export [-h] --py [-o 파일.py] [--force] [--project 폴더] [--json] 스크립트.eqs
+
+인자:
+  스크립트.eqs
+
+옵션:
+  -h, --help        도움말을 보이고 끝낸다
+  --py              Python으로(지금은 이것만)
+  -o, --out 파일.py   쓸 파일(기본: 같은 자리의 .py)
+  --force           이미 있으면 덮는다
+  --project, -p 폴더  프로젝트 폴더(기본: 지금 폴더에서 위로)
+  --json            결과를 JSON으로
+```
+
 ## 환경변수
 
 | 이름 | 뜻 |
 |---|---|
 | `EQUION_PARAMS` | 스크립트 매개변수 JSON(`--set`이 그 위에 덮는다). 옛 이름 `MACROMODEL_PARAMS`도 읽는다 |
 | `EQUION_THREADS` | `--threads`가 다시 실행할 때 쓴다(직접 둘 필요 없음) |
-| `EQUION_WHO` | 작업 기록·바뀜 기록의 '누가'(`desk`·`script` …) — 없으면 Claude Code 안(`CLAUDECODE`)은 `claude`, 명령줄은 `terminal` |
+| `EQUION_WHO` | 작업 기록·바뀜 기록의 '누가'(`desk`·`script` …) — 없으면 Claude Code 안(`CLAUDECODE`)은 `claude`, 명령줄은 `terminal`. 스크립트의 단계는 `script` |
+| `EQUION_RUN` | 스크립트 실행 안에서 만든 기록·바뀜 기록에 그 실행 이름(`run:…`)을 적는다(스크립트가 정한다) |
+| `EQUION_NO_ASK` | `1`이면 묻지 않는다(`data build --inbox ask`가 `auto`처럼 — 재연이 쓴다). `CI`가 있어도 묻지 않는다 |
 | `PYTHONIOENCODING` | 화면 출력 인코딩. 한글을 못 쓰는 출력(영문 Windows 파이프)에서도 Equion은 멈추지 않고 `\uXXXX`로 바꿔 쓴다 |
 
 관련: [파일 형식 — 보고서 폴더·manifest](formats.md) · [명령줄 레시피](../howto/cli.md)

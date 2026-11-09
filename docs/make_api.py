@@ -83,6 +83,8 @@ def _groups():
     import equion.projects as project
     import equion.work as work
     import equion.registry as registry
+    import equion.script as script
+    from equion.projects.inbox import InboxItem
 
     def members(cls):
         out = []
@@ -140,11 +142,21 @@ def _groups():
         ("38. 보고서 결과 `p.report_add(…)`", "ReportResult", members(project.ReportResult), False),
         ("39. 등록부 `eqn.registry`", "eqn.registry",
          [(n, getattr(registry, n)) for n in ("analyses", "get", "table", "allowed", "register")], False),
-        ("40. 작업 기록 저장소 `p.work`", "WorkStore", members(work.WorkStore), False),
-        ("41. 작업 기록 하나 `p.work.get(…)`", "Record", members(work.Record), False),
-        ("42. 바뀜 기록 `p.history`", "History", members(work.History), False),
-        ("43. 바뀜 하나 `p.history.get(…)`", "Change", members(work.Change), False),
-        ("44. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다", "eqn", [(n, getattr(eqn, n)) for n in ADVANCED], False),
+        ("40. 스크립트 `eqn.script`", "eqn.script",
+         [(n, getattr(script, n)) for n in ("session", "parse", "resolve", "run_script", "plan", "check", "replay",
+                                            "draft", "new_script", "export_py", "to_python")], False),
+        ("41. 스크립트 실행 `eqn.script.session(…)`", "Session", members(script.Session), False),
+        ("42. 단계 결과 `StepResult`", "StepResult", members(script.StepResult), False),
+        ("43. 실행 결과 `p.run_script(…)`", "RunResult", members(script.RunResult), False),
+        ("44. 미리보기 `p.run_script(…, dry_run=True)`", "Plan", members(script.Plan), False),
+        ("45. 스크립트 검사 `p.check_script(…)`", "ScriptCheck", members(script.ScriptCheck), False),
+        ("46. 재연 결과 `p.replay_run(…)`", "ReplayResult", members(script.ReplayResult), False),
+        ("47. 받은 원자료 `p.data_inbox()`", "InboxItem", members(InboxItem), False),
+        ("48. 작업 기록 저장소 `p.work`", "WorkStore", members(work.WorkStore), False),
+        ("49. 작업 기록 하나 `p.work.get(…)`", "Record", members(work.Record), False),
+        ("50. 바뀜 기록 `p.history`", "History", members(work.History), False),
+        ("51. 바뀜 하나 `p.history.get(…)`", "Change", members(work.Change), False),
+        ("52. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다", "eqn", [(n, getattr(eqn, n)) for n in ADVANCED], False),
     ]
     return groups
 

@@ -56,6 +56,15 @@ jobs:
           cd demo
           uv run --locked equion check EQUATIONS/model.txt --data DATA/data.csv
           uv run --locked equion run scripts/main.py --run-id ci -q
+      - name: 예제 프로젝트 스크립트(equion new --template desk → check → run → run --replay)
+        shell: bash
+        run: |
+          set -e
+          uv run --locked equion new desk_demo --template desk
+          cd desk_demo
+          uv run --locked equion check FLOWS/monthly.eqs
+          uv run --locked equion run FLOWS/monthly.eqs --set scenarios=base -q
+          uv run --locked equion run --replay run:monthly_0001 -q
       - name: API 참조가 코드와 같은지(docs/reference/api.md)
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13'
         run: uv run --locked python docs/make_api.py --check

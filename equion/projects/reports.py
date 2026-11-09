@@ -234,10 +234,12 @@ class ReportResult:
     action: str
     items: List[dict] = field(default_factory=list)
     change: Optional[str] = None
+    exists: bool = False                   # report new --exist-ok: 이미 있어 그대로 둠
 
     def text(self) -> str:
         """명령줄에 보이는 짧은 글."""
-        L = [f"[report {self.action}] {self.report}" + (f" — 구역 {len(self.items)}" if self.items and self.action != "add" else "")]
+        L = [f"[report {self.action}] {self.report}" + (f" — 구역 {len(self.items)}" if self.items and self.action != "add" else "")
+             + (" — 이미 있어 그대로 둠" if self.exists else "")]
         for it in self.items:
             L.append(f"  #{it['n']} {it['record']}" + (f" → {it['to']}" if it.get("to") and it["to"] != it["record"] else "")
                      + f"  {it['status']}" + (f" — {it['detail']}" if it.get("detail") else ""))
@@ -249,15 +251,20 @@ class ReportResult:
 
     def to_dict(self) -> dict:
         """명령줄 --json과 같은 사전."""
-        return {"report": self.report, "action": self.action, "items": self.items, "change": self.change}
+        return {"report": self.report, "action": self.action, "items": self.items, "change": self.change,
+                "exists": self.exists}
 
 
-def new_report(p, name: str, title: str = None, from_report: str = None, who: str = None, command: str = None) -> ReportResult:
-    """새 보고서 — 틀(제목·날짜·자료 회차·모형) 또는 지난 보고서를 복사하고(from) 구역마다 바꿔 낄 기록을 제안한다."""
+def new_report(p, name: str, title: str = None, from_report: str = None, exist_ok: bool = False, who: str = None,
+               command: str = None) -> ReportResult:
+    """새 보고서 — 틀(제목·날짜·자료 회차·모형) 또는 지난 보고서를 복사하고(from) 구역마다 바꿔 낄 기록을 제안한다.
+    exist_ok면 이미 있는 보고서는 그대로 둔다(스크립트를 같은 회차로 다시 돌릴 때 — 글이 지워지지 않게)."""
     path = _path(p, name)
     rel = _rel(p, path)
     if os.path.exists(path):
-        raise ProjectError(f"이미 있는 보고서 {rel}")
+        if exist_ok:
+            return ReportResult(rel, "new", [], None, exists=True)
+        raise ProjectError(f"이미 있는 보고서 {rel} — 그대로 두려면 --exist-ok")
     items = []
     if from_report:
         src = _path(p, from_report)
@@ -285,9 +292,13 @@ def new_report(p, name: str, title: str = None, from_report: str = None, who: st
 
 
 def add(p, report: str, rid: str, rows: List[str] = None, show: str = "level", annual: bool = False, digits: int = None,
-        title: str = None, chart: bool = False, under: str = None, table: int = None, who: str = None,
-        command: str = None) -> ReportResult:
-    """보고서로 보내기 — 기록의 표(와 차트)를 고른 모양으로 보고서에 넣는다(under 제목 아래 끝, 없으면 맨 끝)."""
+        title: str = None, chart: bool = False, under: str = None, table: int = None, key: str = None, force: bool = False,
+        who: str = None, command: str = None) -> ReportResult:
+    """보고서로 보내기 — 기록의 표(와 차트)를 고른 모양으로 보고서에 넣는다(under 제목 아래 끝, 없으면 맨 끝).
+
+    key(구역 이름)를 주면 같은 이름의 구역이 있을 때 그 자리에서 이 기록으로 바꾼다 — 스크립트가 달마다 같은 구역을 새 기록으로
+    채울 때. 그 구역을 손으로 고쳤으면 force일 때만 덮는다(아니면 ProjectError — 고친 곳과 함께).
+    """
     path = _path(p, report)
     rel = _rel(p, path)
     if not os.path.isfile(path):
@@ -298,14 +309,34 @@ def add(p, report: str, rid: str, rows: List[str] = None, show: str = "level", a
     if show not in SHOW_KO:
         raise ProjectError(f"--show {show!r} — {' · '.join(SHOW_KO)}")
     text = read_text(path)
-    n = len(regions(text)) + 1
+    regs = regions(text)
+    same = [r for r in regs if key and r.shape.get("key") == key]
+    n = same[0].n if same else len(regs) + 1
     shape = {"rows": list(rows or []), "show": show, "annual": bool(annual), "digits": digits, "title": title,
-             "chart": bool(chart), "table": table, "n": n}
+             "chart": bool(chart), "table": table, "n": n, "key": key}
     body, data = render(p, path, rid, shape)
     shape["h"] = _h(body)
     rec = store_of(p).get(rid)
     block = "\n".join([_open_line(rid, shape, data_label(rec.meta.get("data") or {})), body, CLOSE])
     lines = text.split("\n")
+    if same:
+        r = same[0]
+        if r.edited and not force:
+            try:
+                orig, _ = render(p, path, r.record, dict(r.shape))
+                hand = region_diff(orig, r.body, "보낸 것 → 지금")
+            except (RecordError, ProjectError):
+                hand = ""
+            raise ProjectError(f"{rel}의 구역 #{r.n}({key})을 손으로 고쳤습니다 — 덮으려면 --force" + (f"\n{hand}" if hand else ""))
+        diff = region_diff(r.body, body, f"#{r.n}")
+        lines[r.start:r.end + 1] = block.split("\n")
+        new = "\n".join(lines)
+        _write_data(p, path, data)
+        ch = history_of(p).write_files({rel: new}, _who(who), command or f"report add {rel} {rid} --key {key}",
+                                       note=f"구역 #{n}({key}) {r.record} → {rid}")
+        return ReportResult(rel, "add", [{"n": n, "record": r.record, "to": rid,
+                                          "status": "바꿈" if diff else "그대로", "detail": f"구역 {key}", "diff": diff}],
+                            ch.id if ch else None)
     pos = len(lines)
     if under:
         hdr = [i for i, x in enumerate(lines) if x.strip() == under.strip()]

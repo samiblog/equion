@@ -45,6 +45,20 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
   계산·보기 명령만(허용 목록), 손으로 고친 구역은 `--force` 없이 덮지 않고, `note check`가 낡은 구역·없는 기록을 알린다. 보고서
   `reports/*.md` — `report new·add·check·update`: 결과만 보내고(행·전기비·전년동기비·기준선 대비·연간·소수점·차트 — 자료는 보고서 옆
   `_data/`로), 새 기록으로 바꿀 때 같은 모양으로 다시 만들어 숫자의 차이를 보이며 손으로 고친 곳은 차이로 알린다. 레시피 R53~R55.
+- **Equion 스크립트와 재연(0.8 E5, D36)**: `FLOWS/*.eqs` — 한 줄이 `equion` 명령 하나(앞의 `equion`은 빼도 된다), `# 주석` · `## 제목`(단계 묶음) ·
+  `param 이름 = 값 …` · `{이름}`(매개변수·`{vintage}`·`{last}`·`{today}`·`{model}`·`{run}`·앞 단계의 기록 `{hs}`·`{sim:base}`) ·
+  `expect 대상 조건 --stop·--flag`(HS `Y.rmspe`·전망 `Y.growth[2021]`·추정 `r2`·`failed` …) · `run 다른.eqs`(포함) · `py x.py`(Python 단계,
+  명령줄에서만). 반복·조건·셸은 없다 — 등록부의 명령만 돈다(`eqn.registry.allowed(…, where='script')`). `equion run x.eqs [--set] [--from 단계·제목]
+  [--dry-run]` → 실행 기록 `work/run/<이름>/`(`run:` — 값을 바꿔 넣은 뒤의 스크립트 `script.eqs`·원래 스크립트 `src/`·정의 사본 `defs/`·
+  단계 출력·카드), 단계의 기록·바뀜 기록에는 누가 '스크립트'와 그 실행 이름(`run`). 기준 미달 식·실패 대체 기간은 `!`로 표시하고 계속.
+  `equion run --replay run:…` — 프로젝트 사본에서 그때의 정의·받은 원자료·스크립트·매개변수로 다시 돌려 단계마다 숫자를 견준다(프로젝트는 그대로).
+  `equion check x.eqs`(실행 없이 — 문법·명령·선택지·{이름}·매개변수·모형·시나리오·부품·노트), `equion script new 이름 --from-records 기록…`
+  (작업 기록의 명령으로 초안 — `--as`·`-p`·`--json` 뺌), `equion script export x.eqs --py`(같은 일을 하는 Python — `eqn.script.session`).
+  `Project.run_script·check_script·replay_run·new_script·export_script`. 받은 원자료 `DATA/raw/inbox/` — `equion data build --inbox ask|auto`가
+  출처와 짝지어(파일 이름 또는 `[source.이름] inbox = "글롭"`) 틀 검사 뒤 넣고 회차를 만든다(하나라도 문제면 아무것도 넣지 않음),
+  미리보기 `equion data inbox` · `Project.data_inbox`. 예제 프로젝트에 월간 스크립트 `FLOWS/monthly.eqs`·자료 점검 노트. 레시피 R56~R58.
+  **종료 코드(D15 안에서)**: `.eqs`는 멈춘 단계의 종료 코드 · `expect --stop`에 걸리면 2 · `--fail-on`에 걸리면 2 · 실행 전 검사 문제·모르는
+  `--set`은 3 · `--replay`에 다른 단계가 있으면 2.
 - **문서 체계(D27)**: 시작하기 · 튜토리얼 8편 · 레시피 · 해설 · 참조 · 사례 연구(Klein형) · EViews 사용자 안내 ·
   영문 시작 문서. 시작점은 [`docs/README.md`](docs/README.md)입니다. 문서의 예제는 실제로 돌고, 출력도 실행 결과입니다.
   `python docs/build_docs.py --check`가 CI에서 예제 실행·출력·링크·API 설명과 예제·doctest를 확인합니다.
@@ -60,6 +74,9 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
 - 예제 프로젝트(`--template desk`)는 자료 정의·회차를 씁니다 — 원자료 `DATA/raw/toy_q.csv`·`toy_m.csv`, 만들 때 첫 회차를 지금 회차로,
   `[hs] range = "2005Q1:last"`(새 회차로 바꾸면 따라 늘어난다). 자료 파일 하나(`[data] file`)를 쓰는 프로젝트도 그대로 됩니다.
 - 필수 의존성 `tomlkit`(정의 파일을 주석·순서를 지키며 고친다, D38).
+- `report new --exist-ok`(있으면 그대로) · `report add --key 이름`(같은 이름의 구역을 그 자리에서 새 기록으로 — 손으로 고친 구역은 `--force`일 때만).
+  `[source.이름] inbox` 키. 작업 기록에 `run`(그 기록을 만든 스크립트 실행)·바뀜 기록에 `run`. `FLOWS/*.eqs`도 바뀜 기록에 남는다.
+- 노트의 블록은 정의 파일을 바꾸는 줄(`est --adopt`·`an keep`·`an --note`)도 부를 수 없다(전에는 명령 이름만 봤다).
 - `series.toml`의 시리즈에 `made_by`(그 정의를 만든 분석 기록)를 적을 수 있다. 노트·보고서도 바뀜 기록에 남는다(낡음 판정의 입력은 아니다).
 - 예제 프로젝트에 판단 기준 `[criteria]`·전망 `[forecast]`과 `ASSUMPTIONS/base.csv`·`ADDFACTORS/base.toml`·`SCENARIOS/oil20.toml`을 더했다.
   프로젝트의 모형은 채택 기록이 있으면 그 계수로 푼다(없으면 지금처럼 지금 자료로 추정하고 알린다).

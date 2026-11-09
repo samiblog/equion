@@ -93,7 +93,7 @@ def definition_hashes(p) -> Dict[str, str]:
     from ..work.history import tracked
     out = {}
     for rel in tracked(p.root, [b.file for b in p.config.blocks.values()] + [ADOPTED]):
-        if rel.startswith(("notes/", "reports/")):          # 노트·보고서는 글 — 계산의 입력이 아니다
+        if rel.startswith(("notes/", "reports/", "FLOWS/")):   # 노트·보고서는 글, 스크립트는 순서 — 계산의 입력이 아니다
             continue
         with open(os.path.join(p.root, rel), "rb") as f:
             out[rel] = hashlib.sha256(f.read()).hexdigest()

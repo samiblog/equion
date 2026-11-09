@@ -28,7 +28,7 @@ from .system.model import Model
 from .scenario import Scenario
 from .worktable import WorkTable, Workspace, current
 from .workfile import Workfile, wfcreate, wfopen, show, params, secret, verbose, spool
-from . import datasets, log, registry, stats
+from . import datasets, log, registry, script, stats
 from .projects import Project
 from .projects import open_project as project   # eqn.project(폴더) — 하위 패키지는 equion.projects
 
@@ -36,7 +36,7 @@ __all__ = [
     # 공개 API
     "__version__", "print_version",
     "Workfile", "wfcreate", "wfopen", "show", "params", "secret", "verbose", "spool", "stats", "log", "datasets",
-    "project", "Project",
+    "project", "Project", "registry", "script",
     # 고급(엔진 수준)
     "Data", "Equation", "Model", "Scenario", "WorkTable", "Workspace", "current",
 ]

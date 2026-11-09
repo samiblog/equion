@@ -89,6 +89,7 @@ def add_parsers(sub):
     rn.add_argument("name", metavar="이름", help="보고서 이름(reports/이름.md)")
     rn.add_argument("--title", help="제목")
     rn.add_argument("--from", dest="from_report", metavar="보고서", help="이 보고서를 복사")
+    rn.add_argument("--exist-ok", action="store_true", help="이미 있으면 그대로 둔다(스크립트를 같은 회차로 다시 돌릴 때)")
     ra = _common(rsub.add_parser("add", help="보고서로 보내기 — 기록의 표(와 차트)를 고른 모양으로"))
     ra.add_argument("report", metavar="보고서")
     ra.add_argument("record", metavar="기록[#표]", help="sim:… · hs:… · est:… · an:…#2(분석의 표 번호)")
@@ -99,6 +100,8 @@ def add_parsers(sub):
     ra.add_argument("--title", help="표 제목(번호는 저절로)")
     ra.add_argument("--chart", action="store_true", help="차트도(자료는 보고서 옆 _data/로 복사)")
     ra.add_argument("--under", metavar="제목", help='이 제목 아래 끝에(예: "## 전망") — 없으면 맨 끝')
+    ra.add_argument("--key", metavar="이름", help="구역 이름 — 같은 이름의 구역이 있으면 그 자리에서 이 기록으로 바꾼다(스크립트)")
+    ra.add_argument("--force", action="store_true", help="(--key) 손으로 고친 구역도 덮는다")
     rc = _common(rsub.add_parser("check", help="구역마다 — 없는 기록·더 새 기록·낡음·손으로 고침"))
     rc.add_argument("report", metavar="보고서")
     ru = _common(rsub.add_parser("update", help="새 기록으로 바꾸기 — 같은 모양으로 다시 만들어 차이를 보이고 적용"))
@@ -165,11 +168,13 @@ def _an(p, args, who, cmdline):
 def _report(p, args, who, cmdline):
     act = args.report_command
     if act == "new":
-        r = p.report_new(args.name, title=args.title, from_report=args.from_report, who=who, command=cmdline)
+        r = p.report_new(args.name, title=args.title, from_report=args.from_report, exist_ok=args.exist_ok, who=who,
+                         command=cmdline)
     elif act == "add":
         rows = [x.strip() for x in args.rows.split(",") if x.strip()] if args.rows else None
         r = p.report_add(args.report, args.record, rows=rows, show=args.show, annual=args.annual, digits=args.digits,
-                         title=args.title, chart=args.chart, under=args.under, who=who, command=cmdline)
+                         title=args.title, chart=args.chart, under=args.under, key=args.key, force=args.force, who=who,
+                         command=cmdline)
     elif act == "check":
         r = p.report_check(args.report)
     else:
