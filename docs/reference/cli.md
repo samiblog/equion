@@ -42,6 +42,9 @@ Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·
     export    기록의 값·값의 종류·출처를 엑셀로
     work      작업 기록 — 목록·보기·고정·메모·정리
     history   바뀜 기록 — 정의 파일이 누가·언제·어떻게 바뀌었나, 되돌리기
+    an        분석 — 등록부의 분석 하나 = 기록 하나(an:) · 목록·남기기
+    note      노트 — ```equion 블록을 실행해 결과 구역을 채운다 · 검사
+    report    보고서 — 결과만 보내기(명령 블록 없이) · 검사 · 새 기록으로 바꾸기
 
 옵션:
   -h, --help  도움말을 보이고 끝낸다
@@ -416,6 +419,85 @@ helptext("history", "--help")
 `propose new`는 파일을 바꾸지 않고 바꿀 내용·까닭·미리 계산한 기록을 `work/proposals/<이름>/`에 남기고, `propose apply`가 바꿉니다(만든 뒤 그 파일이
 바뀌었으면 낡음 — `--force`). `propose drop`은 버리되 기록은 남깁니다. `work clean`은 고정·채택·다른 기록이나 제안이 가리키는 기록을 빼고 지울
 목록만 보이고, `--yes`일 때 지웁니다. `history`는 정의 파일의 바뀜(누가·명령·전후·차이 — 명령 밖의 고침은 '바깥')을 보이고 되돌립니다.
+
+## 분석·노트·보고서 — an · note · report
+
+분석의 이름·대상·옵션·도움말은 등록부(`eqn.registry`)에서 나옵니다 — 분석 하나 = 명령 하나 = 기록 하나(`an:`) = md 카드 하나(D37).
+
+```python
+helptext("an", "list")
+helptext("an", "unitroot", "--help")
+helptext("note", "run", "--help")
+helptext("report", "add", "--help")
+```
+<!-- out -->
+```text
+
+사용법: equion an unitroot [-h] [--project 폴더] [--json] [--trend {n,c,ct}] [--lags LAGS] [--ic {bic,aic}]
+                        [--maxlag MAXLAG] [--smpl S:E] [--as 이름] [--note 노트]
+                        대상
+
+단위근: ADF(귀무: 단위근)와 KPSS(귀무: 정상)를 함께 — 둘이 다르면 '엇갈림'. 결과: 시리즈 × ADF·KPSS·판단 표
+
+인자:
+  대상                시리즈 · 묶음 · 식(log(Y) 등)
+
+옵션:
+  -h, --help        도움말을 보이고 끝낸다
+  --project, -p 폴더  프로젝트 폴더(기본: 지금 폴더)
+  --json            결과를 JSON으로
+  --trend {n,c,ct}  결정항 — n 없음 · c 상수 · ct 상수+추세 (기본 c)
+  --lags LAGS       ADF 시차 수(없으면 정보기준으로)
+  --ic {bic,aic}    시차를 고르는 정보기준 (기본 bic)
+  --maxlag MAXLAG   고를 때의 최대 시차
+  --smpl S:E        표본(상대 기간 가능 — 1990Q1:last)
+  --as 이름           기록 이름(기본 unitroot_0001 …)
+  --note 노트         그 노트 끝에 명령 블록과 결과 구역을 더한다
+
+예: equion an unitroot core --trend ct
+사용법: equion note run [-h] [--project 폴더] [--json] [--block n] [--stale] [--force] 노트
+
+인자:
+  노트
+
+옵션:
+  -h, --help        도움말을 보이고 끝낸다
+  --project, -p 폴더  프로젝트 폴더(기본: 지금 폴더)
+  --json            결과를 JSON으로
+  --block n         그 블록만(Python 블록은 이것으로만 돈다)
+  --stale           낡았거나 아직 실행 안 한 블록만
+  --force           손으로 고친 결과 구역도 덮는다
+사용법: equion report add [-h] [--project 폴더] [--json] [--rows A,B] [--show {level,qoq,yoy,diff}] [--annual]
+                       [--digits n] [--title TITLE] [--chart] [--under 제목]
+                       보고서 기록[#표]
+
+인자:
+  보고서
+  기록[#표]                sim:… · hs:… · est:… · an:…#2(분석의 표 번호)
+
+옵션:
+  -h, --help            도움말을 보이고 끝낸다
+  --project, -p 폴더      프로젝트 폴더(기본: 지금 폴더)
+  --json                결과를 JSON으로
+  --rows A,B            행(시리즈·변수) — 쉼표로
+  --show {level,qoq,yoy,diff}
+                        보이기(전망 — 수준·전기비·전년동기비·기준선 대비)
+  --annual              연간(전망)
+  --digits n            소수점 자리(기본: 전망 1 · 그 밖 3)
+  --title TITLE         표 제목(번호는 저절로)
+  --chart               차트도(자료는 보고서 옆 _data/로 복사)
+  --under 제목            이 제목 아래 끝에(예: "## 전망") — 없으면 맨 끝
+```
+
+| 명령 | 하는 일 | 종료 코드 |
+|---|---|---|
+| `an <분석> <대상> [옵션] [--smpl S:E] [--as 이름] [--note 노트]` | 분석 하나 → 짧은 글 + 기록. `--note`면 그 노트 끝에 명령 블록과 결과 구역 | 대상·옵션 문제 3 |
+| `an keep an:이름 [--as 이름] [--replace]` | 계절조정 → `series.toml`의 새 시리즈(`made_by`), 파생 → `derived.txt` 한 줄, ECM·VAR·VECM·시스템 → 식 후보(`est:` — 계수 그대로) | 보는 분석이면 3 |
+| `note run 노트 [--block n] [--stale] [--force]` | 블록을 실행해 결과 구역을 채운다(블록마다 새 기록). 손으로 고친 구역은 `--force`일 때만 덮는다 | 블록에 오류·허용 안 된 명령이 있으면 1 |
+| `note check 노트…` | 실행하지 않고 — 실행 안 함·없는 기록·낡음·손으로 고침·허용 안 된 명령 | 허용 안 된 명령이 있으면 3 |
+| `report new 이름 [--title] [--from 보고서]` | 새 보고서(틀) — `--from`이면 복사하고 구역마다 바꿔 낄 기록을 제안 | 0 |
+| `report add 보고서 기록[#표] [--rows] [--show level·qoq·yoy·diff] [--annual] [--digits] [--chart] [--under 제목]` | 보고서로 보내기 — 결과만(명령 블록 없이) | 없는 행·기록 3 |
+| `report check 보고서` · `report update 보고서 [--region n] [--to 기록] [--dry-run] [--force]` | 구역마다 더 새 기록·낡음·손으로 고침 · 같은 모양으로 다시 만들어 차이를 보이고 적용(손으로 고친 구역은 고친 곳을 보이고 `--force`일 때만) | 0 |
 
 ## 환경변수
 

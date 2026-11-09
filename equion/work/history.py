@@ -26,7 +26,7 @@ FORMAT = "equion-change"
 FORMAT_VERSION = 1
 PATTERNS = ("equion.toml", "EQUATIONS/*.txt", "EQUATIONS/*.toml", "DATA/series.toml", "DATA/derived.txt",
             "ASSUMPTIONS/*.csv", "ASSUMPTIONS/*.toml", "ADDFACTORS/*.csv", "ADDFACTORS/*.toml",
-            "SCENARIOS/*.toml", "VIEWS/*.toml")
+            "SCENARIOS/*.toml", "VIEWS/*.toml", "notes/*.md", "reports/*.md")
 
 
 def _sha(data: Optional[bytes]) -> Optional[str]:

@@ -40,11 +40,16 @@ Equion 0.7.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstri
 - [32. 전망 기록 p.sim(…)](#32-전망-기록-psim)
 - [33. 다시 추정 결과 p.reestimate(…)](#33-다시-추정-결과-preestimate)
 - [34. 제안 p.propose(…)](#34-제안-ppropose)
-- [35. 작업 기록 저장소 p.work](#35-작업-기록-저장소-pwork)
-- [36. 작업 기록 하나 p.work.get(…)](#36-작업-기록-하나-pworkget)
-- [37. 바뀜 기록 p.history](#37-바뀜-기록-phistory)
-- [38. 바뀜 하나 p.history.get(…)](#38-바뀜-하나-phistoryget)
-- [39. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#39-고급엔진-수준--드라이버확장용-바뀔-수-있다)
+- [35. 분석 기록 p.an(…)](#35-분석-기록-pan)
+- [36. 남기기 결과 p.keep(…)](#36-남기기-결과-pkeep)
+- [37. 노트 결과 p.note_run(…)](#37-노트-결과-pnote_run)
+- [38. 보고서 결과 p.report_add(…)](#38-보고서-결과-preport_add)
+- [39. 등록부 eqn.registry](#39-등록부-eqnregistry)
+- [40. 작업 기록 저장소 p.work](#40-작업-기록-저장소-pwork)
+- [41. 작업 기록 하나 p.work.get(…)](#41-작업-기록-하나-pworkget)
+- [42. 바뀜 기록 p.history](#42-바뀜-기록-phistory)
+- [43. 바뀜 하나 p.history.get(…)](#43-바뀜-하나-phistoryget)
+- [44. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#44-고급엔진-수준--드라이버확장용-바뀔-수-있다)
 - [22. 명령줄 `equion`](#22-명령줄-equion)
 
 ## 1. `import equion as eqn`
@@ -3777,6 +3782,14 @@ s[:4].round(6).tolist()
 | [`compare`](#projectcompare) | `(*records, target=None, part=None)` | 기록 비교 — 추정 기록이면 식·표본·적합 통계·진단·기준·단독 모의 표(종속변수·표본이 다르면 경고), HS 기록이면 변수별 RMSPE. |
 | [`replay`](#projectreplay) | `(record, as_name=None, who=None, command=None)` | HS 기록을 그때 그대로 다시 — 기록의 조립 명세(식 글자·계수·자료 회차·구간·방식)로 푼다. 지금 파일과 무관하고, 원래 기록의 풀린 값과 견주어(`.meta['replay']` — same · max_abs_diff) 새 기록을 남긴다. |
 | [`sim`](#projectsim) | `(scenario='base', model=None, range=None, vintage=None, vs=None, as_name=None, mode=None, who=None, command=None)` | 전망·시나리오 — 가정 세트(`ASSUMPTIONS/이름.csv`, 빈 외생은 `[forecast] fill`)·보정항(`ADDFACTORS/이름.toml`)·시나리오 (`SCENARIOS/이름.toml`)로 풀고 작업 기록(`work/sim/<이름>/`)을 남긴다. 시나리오면 같은 가정·보정항의 기준선도 풀어 차이를 적는다. |
+| [`an`](#projectan) | `(analysis, target, smpl=None, as_name=None, note=None, who=None, command=None, **options)` | 분석 하나 — 등록부(`equion.registry`)의 분석을 돌려 기록(`work/an/<이름>/` — 표 CSV·차트 CSV·카드 summary.md)을 남긴다. |
+| [`keep`](#projectkeep) | `(record, as_name=None, replace=False, who=None, command=None)` | 분석 기록을 남긴다 — 만드는 분석(계절조정·파생)은 정의(`series.toml`·`derived.txt`, `made_by` = 기록)로, 부품을 내는 분석(ECM·VAR·VECM·시스템)은 식 후보(est: 기록 — 계수 그대로)로. 정의를 고치면 바뀜 기록에 남고, 자료에는 `data build`로 들어간다. |
+| [`note_run`](#projectnote_run) | `(note, block=None, stale=False, force=False, who=None, command=None)` | 노트의 ```` ```equion ```` 블록을 실행해 블록 아래 결과 구역을 채운다(블록마다 새 기록). 블록은 등록부의 계산·보기 명령만 부를 수 있고, 손으로 고친 구역은 force일 때만 덮는다. Python 블록은 block으로 고를 때만 돈다. |
+| [`note_check`](#projectnote_check) | `(note)` | 노트 검사(실행하지 않고) — 블록마다 실행 안 함 · 없는 기록 · 낡음(자료·정의가 바뀜) · 손으로 고침 · 허용 안 된 명령. |
+| [`report_new`](#projectreport_new) | `(name, title=None, from_report=None, who=None, command=None)` | 새 보고서(`reports/이름.md`) — 틀(제목·날짜·자료 회차·모형). from_report면 지난 보고서를 복사하고 구역마다 바꿔 낄 기록을 제안한다. |
+| [`report_add`](#projectreport_add) | `(report, record, rows=None, show='level', annual=False, digits=None, title=None, chart=False, under=None, who=None, command=None)` | 보고서로 보내기 — 기록의 표(와 차트)를 고른 모양(행·보이기·연간·소수점)으로 보고서에 넣는다. 구역에는 보이지 않는 표시 (기록·보낸 날·자료 회차·모양)가 붙고, 차트 자료는 보고서 옆 `_data/`로 복사한다. |
+| [`report_check`](#projectreport_check) | `(report)` | 보고서 검사 — 구역마다 없는 기록 · 더 새 기록(같은 갈래) · 낡음(자료·정의가 바뀜) · 손으로 고침. |
+| [`report_update`](#projectreport_update) | `(report, region=None, to=None, dry_run=False, force=False, who=None, command=None)` | 새 기록으로 바꾸기 — 구역을 같은 모양으로 다시 만들어 차이를 보이고 적용한다(기본: 같은 갈래의 가장 새 기록). 손으로 고친 구역은 고친 곳을 차이로 보이고 force일 때만 덮는다. |
 | [`reestimate`](#projectreestimate) | `(name=None, adopt='never', who=None, command=None)` | 모형(또는 블록)의 추정식을 블록 파일의 글자 그대로 지금 자료로 다시 추정해 기록을 남기고, 정책에 따라 새 계수를 채택한다 (명령줄 `equion est --adopted [모형] --adopt 정책`, D35). |
 | [`propose`](#projectpropose) | `(name=None, title='', why='', parts=None, files=None, previews=(), who=None, command=None)` | 제안을 만든다 — 파일은 바꾸지 않고 "이렇게 바꾸면"을 `work/proposals/<이름>/`에 남긴다(바뀔 내용·까닭·미리 계산한 기록). |
 | [`proposals`](#projectproposals) | `()` | 제안 목록(만든 순) — 열림·적용·버림 모두. |
@@ -4304,6 +4317,171 @@ p.sim("oil20", as_name="oil_a").meta["vs_base"]["P"] > 0
 # True
 ```
 
+### Project.an
+
+`an(analysis, target, smpl=None, as_name=None, note=None, who=None, command=None, **options)`
+
+분석 하나 — 등록부(`equion.registry`)의 분석을 돌려 기록(`work/an/<이름>/` — 표 CSV·차트 CSV·카드 summary.md)을 남긴다.
+
+분석 목록은 `eqn.registry.table()`(명령줄 `equion an list`). 계절조정·파생은 미리보기만 하고 `keep`이 정의로, ECM·VAR·VECM·시스템은  
+`keep`이 식 후보로 남긴다. 나머지(요약·단위근·공적분·식 진단·예측 평가·안정성·승수)는 아무 파일도 바꾸지 않는다.  
+
+**매개변수**
+
+- `analysis`: 분석 이름(summary · unitroot · coint · diag · fcsteval · stability · multipliers · seas · genr · ecm · var · vecm · system)
+- `target`: 대상 — 시리즈·묶음([group])·식('log(Y) R')·부품·est: 기록·모형·블록·'이름 = 식'(분석마다)
+- `smpl`: 표본 'S:E'(상대 기간 가능)
+- `as_name`: 기록 이름(기본 분석_0001 …)
+- `note`: 노트 경로 — 그 끝에 명령 블록과 결과 구역을 더한다
+- `**options`: 분석의 옵션(`equion an <분석> --help`)
+
+**돌려주는 것**
+
+AnRecord — .id · .table(k) · .meta · .text()  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.an("unitroot", "dlog(Y) R")
+r.table(1)["판단"].tolist()
+# ['정상', '단위근']
+```
+
+### Project.keep
+
+`keep(record, as_name=None, replace=False, who=None, command=None)`
+
+분석 기록을 남긴다 — 만드는 분석(계절조정·파생)은 정의(`series.toml`·`derived.txt`, `made_by` = 기록)로, 부품을 내는 분석(ECM·VAR·VECM·시스템)은 식 후보(est: 기록 — 계수 그대로)로. 정의를 고치면 바뀜 기록에 남고, 자료에는 `data build`로 들어간다.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+k = p.keep(p.an("genr", "GAP = Y - CN - I").id)
+k.kind, k.what[0]
+# ('derived', 'DATA/derived.txt: GAP = Y - CN - I   # an:genr_0001')
+```
+
+### Project.note_run
+
+`note_run(note, block=None, stale=False, force=False, who=None, command=None)`
+
+노트의 ```` ```equion ```` 블록을 실행해 블록 아래 결과 구역을 채운다(블록마다 새 기록). 블록은 등록부의 계산·보기 명령만 부를 수 있고, 손으로 고친 구역은 force일 때만 덮는다. Python 블록은 block으로 고를 때만 돈다.
+
+**돌려주는 것**
+
+NoteResult — .blocks(블록마다 상태) · .ok · .change · .text()  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = open(os.path.join(p.root, "n.md"), "w", encoding="utf-8").write("# n\n\n```equion\nan unitroot R\n```\n")
+[b.status for b in p.note_run("n.md").blocks]
+# ['run']
+```
+
+### Project.note_check
+
+`note_check(note)`
+
+노트 검사(실행하지 않고) — 블록마다 실행 안 함 · 없는 기록 · 낡음(자료·정의가 바뀜) · 손으로 고침 · 허용 안 된 명령.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = open(os.path.join(p.root, "n.md"), "w", encoding="utf-8").write("```equion\nan unitroot R\n```\n")
+[b.status for b in p.note_check("n.md").blocks]
+# ['never']
+```
+
+### Project.report_new
+
+`report_new(name, title=None, from_report=None, who=None, command=None)`
+
+새 보고서(`reports/이름.md`) — 틀(제목·날짜·자료 회차·모형). from_report면 지난 보고서를 복사하고 구역마다 바꿔 낄 기록을 제안한다.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.report_new("monthly").report
+# 'reports/monthly.md'
+```
+
+### Project.report_add
+
+`report_add(report, record, rows=None, show='level', annual=False, digits=None, title=None, chart=False, under=None, who=None, command=None)`
+
+보고서로 보내기 — 기록의 표(와 차트)를 고른 모양(행·보이기·연간·소수점)으로 보고서에 넣는다. 구역에는 보이지 않는 표시 (기록·보낸 날·자료 회차·모양)가 붙고, 차트 자료는 보고서 옆 `_data/`로 복사한다.
+
+**매개변수**
+
+- `record`: 기록(sim:… · hs:… · est:… · an:…#표 번호)
+- `rows`: 행(시리즈·변수 목록) · show: 'level' · 'qoq' · 'yoy' · 'diff'(전망) · annual: 연간(전망)
+- `digits`: 소수점 · title: 표 제목(번호는 저절로) · chart: 차트도 · under: 그 제목 아래 끝에
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = p.report_new("m")
+s = p.sim(as_name="b")
+p.report_add("m", "sim:b", rows=["Y", "CN"], show="yoy", annual=True).items[0]["detail"]
+# '**표 1. 전망 — base (main)** (전년동기비, %)'
+```
+
+### Project.report_check
+
+`report_check(report)`
+
+보고서 검사 — 구역마다 없는 기록 · 더 새 기록(같은 갈래) · 낡음(자료·정의가 바뀜) · 손으로 고침.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = p.report_new("m")
+_ = p.report_add("m", p.hs("main", record=True).id)
+p.report_check("m").items[0]["status"]
+# '정상'
+```
+
+### Project.report_update
+
+`report_update(report, region=None, to=None, dry_run=False, force=False, who=None, command=None)`
+
+새 기록으로 바꾸기 — 구역을 같은 모양으로 다시 만들어 차이를 보이고 적용한다(기본: 같은 갈래의 가장 새 기록). 손으로 고친 구역은 고친 곳을 차이로 보이고 force일 때만 덮는다.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = p.report_new("m")
+_ = p.report_add("m", p.hs("main", record=True).id)
+h2 = p.hs("main", record=True, swap={"demand:CN": "CN c Y"})
+p.report_update("m").items[0]["to"] == h2.id
+# True
+```
+
 ### Project.reestimate
 
 `reestimate(name=None, adopt='never', who=None, command=None)`
@@ -4595,7 +4773,59 @@ c.ok, c.n
 | `text` | `()` | 명령줄에 보이는 짧은 글. |
 | `to_dict` | `()` | 명령줄 --json과 같은 사전. |
 
-## 35. 작업 기록 저장소 `p.work`
+## 35. 분석 기록 `p.an(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `id` | `속성` | 기록 이름 an:… |
+| `meta` | `속성` | record.json 내용. |
+| `table` | `(k=1)` | 표 k번(1부터 — table_k.csv). |
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 36. 남기기 결과 `p.keep(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 37. 노트 결과 `p.note_run(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `ok` | `속성` | 오류·허용 안 됨이 없으면 참. |
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 38. 보고서 결과 `p.report_add(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 39. 등록부 `eqn.registry`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `analyses` | `(for_kind=None)` | 등록된 분석(등록 순) — for_kind를 주면 그 대상 종류를 받는 것만. |
+| [`get`](#eqnregistryget) | `(name)` | 분석 하나(이름). |
+| `table` | `()` | 분석 목록 표(이름·갈래·대상·만드는 것·결과) — `equion an list`·Claude 안내가 쓴다. |
+| `allowed` | `(tokens)` | 노트 블록의 명령 한 줄이 허용 목록에 있으면 None, 아니면 까닭. |
+| `register` | `(a)` | 분석을 등록한다(이름이 겹치면 오류). |
+
+### eqn.registry.get
+
+`get(name)`
+
+분석 하나(이름).
+
+**오류**
+
+- `KeyError`: 없는 분석(있는 분석 목록과 함께)
+
+## 40. 작업 기록 저장소 `p.work`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4613,7 +4843,7 @@ c.ok, c.n
 | `mark` | `(rid, pinned=None, memo=None)` | 고정(pinned)·메모 — 기록 자체는 그대로, marks.json에만. |
 | `remove` | `(rid)` | 기록 폴더를 지운다(정리 — 사람이 고를 때만). log.jsonl의 줄은 남고 목록에서 빠진다. |
 
-## 36. 작업 기록 하나 `p.work.get(…)`
+## 41. 작업 기록 하나 `p.work.get(…)`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4623,7 +4853,7 @@ c.ok, c.n
 | `read_csv` | `(fname, index_col=0)` | 기록 폴더의 CSV(첫 열이 기간 라벨). |
 | `summary_md` | `()` | 사람이 읽는 카드(summary.md). |
 
-## 37. 바뀜 기록 `p.history`
+## 42. 바뀜 기록 `p.history`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4633,14 +4863,14 @@ c.ok, c.n
 | `get` | `(cid)` | 바뀜 하나. |
 | `revert` | `(cid, who, how=None)` | 그 바뀜 앞의 내용으로 되돌린다(그 뒤에 같은 파일이 또 바뀌었어도 — 지금 내용과의 차이가 새 바뀜으로 남는다). |
 
-## 38. 바뀜 하나 `p.history.get(…)`
+## 43. 바뀜 하나 `p.history.get(…)`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
 | `text` | `()` | 명령줄에 보이는 짧은 글. |
 | `to_dict` | `()` | 명령줄 --json과 같은 사전. |
 
-## 39. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
+## 44. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4739,3 +4969,6 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `export` | --help --json --project --xlsx | 기록의 값·값의 종류·출처를 엑셀로 |
 | `work` | --help | 작업 기록 — 목록·보기·고정·메모·정리 |
 | `history` | --help | 바뀜 기록 — 정의 파일이 누가·언제·어떻게 바뀌었나, 되돌리기 |
+| `an` | --help | 분석 — 등록부의 분석 하나 = 기록 하나(an:) · 목록·남기기 |
+| `note` | --help | 노트 — ```equion 블록을 실행해 결과 구역을 채운다 · 검사 |
+| `report` | --help | 보고서 — 결과만 보내기(명령 블록 없이) · 검사 · 새 기록으로 바꾸기 |

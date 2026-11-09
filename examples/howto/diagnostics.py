@@ -38,3 +38,11 @@ e = eqs["투자"]
 e.wald("c(2) = 0.15")
 e.wald("c(3) = -1")
 e.wald("c(2) = 0.15", "c(3) = -1")             # 함께
+
+# %% R53. 분석을 기록으로 — 단위근·공적분·오차수정, 그리고 남기기
+p = eqn.Project.create("an_prj", force=True)
+print(p.an("unitroot", "core", trend="ct").text())      # 명령줄 equion an unitroot core --trend ct
+print(p.an("coint", "RL R").text())
+e = p.an("ecm", "log(CN) log(Y)", as_name="ecm_1")
+print(p.keep(e.id, as_name="cons_ecm1").text())         # 단기식을 demand:CN의 후보로 — 계수 그대로
+print(p.compare(part="demand:CN").table[["R²adj", "기준"]])

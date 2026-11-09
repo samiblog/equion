@@ -94,4 +94,43 @@ e.wald("c(2) = 0.15", "c(3) = -1")             # 함께
 [eq_i] Wald 계수 제약 검정: 통계량 0.6198, p=0.5391
 ```
 
+## R53. 분석을 기록으로 — 단위근·공적분·오차수정, 그리고 남기기
+
+프로젝트에서는 분석 하나가 명령 하나(`equion an <분석> <대상>`)이고 기록 하나(`an:`)입니다. 분석 목록·옵션은 등록부(`eqn.registry.table()`,
+명령줄 `equion an list`·`equion an <분석> --help`)에 있습니다. 계절조정·파생은 미리보기이고 `keep`이 정의로, ECM·VAR·VECM·시스템은
+`keep`이 식 후보(`est:`)로 남깁니다 — 계산한 값을 실측 자리에 바로 쓰지 않습니다.
+
+```python
+p = eqn.Project.create("an_prj", force=True)
+print(p.an("unitroot", "core", trend="ct").text())      # 명령줄 equion an unitroot core --trend ct
+print(p.an("coint", "RL R").text())
+e = p.an("ecm", "log(CN) log(Y)", as_name="ecm_1")
+print(p.keep(e.id, as_name="cons_ecm1").text())         # 단기식을 demand:CN의 후보로 — 계수 그대로
+print(p.compare(part="demand:CN").table[["R²adj", "기준"]])
+```
+<!-- out -->
+```text
+[an_prj] 자료 회차 d2026-11a를 만들었습니다
+[an_prj] 지금 자료 회차: d2026-11a
+[an_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[an:unitroot_0001] 단위근 · 묶음 core(Y · CN · I) · 1970Q1~2019Q4 · 자료 data:d2026-11a
+  Y            ADF -1.831 p=0.689 · KPSS 0.184 p=0.022 → 단위근
+  CN           ADF -2.564 p=0.297 · KPSS 0.182 p=0.023 → 단위근
+  I            ADF -2.142 p=0.523 · KPSS 0.249 p=0.010 → 단위근
+  알아서 한 것  ADF 시차 수를 BIC로 골랐다 · 판단: ADF(귀무 단위근)·KPSS(귀무 정상) 모두 5%
+  기록   an:unitroot_0001 (work/an/unitroot_0001/summary.md)
+[an:coint_0001] 공적분 · RL · R · 1980Q1~2019Q4 · 자료 data:d2026-11a
+  Johansen 순위(5%) 트레이스 1 · 최대 고유값 1
+  알아서 한 것  Johansen — 차분 시차 1
+  기록   an:coint_0001 (work/an/coint_0001/summary.md)
+[an keep] an:ecm_1 → 식 후보(est:)
+  est:cons_ecm1
+  다음   equion compare --part … · equion hs --swap 부품=est:… · equion adopt est:…
+                  R²adj  기준
+기록
+est:cons_ecm1  0.931958  통과
+```
+
+분석 카드(`work/an/<이름>/summary.md`)에는 그 결과를 낸 명령이 그대로 적혀 있어, 같은 자료 회차에서 그 명령을 치면 같은 결과가 새 기록으로 나옵니다.
+
 관련: [튜토리얼 3](../tutorial/03-diagnostics.md)

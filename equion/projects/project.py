@@ -836,6 +836,145 @@ class Project:
         return run_sim(self, scenario, model=model, rng=range, vintage=vintage, vs=vs, as_name=as_name, mode=mode,
                        who=who, command=command)
 
+    # ---- 분석·노트·보고서(D37) ------------------------------------------
+    def an(self, analysis: str, target: str, smpl: str = None, as_name: str = None, note: str = None, who: str = None,
+           command: str = None, **options):
+        """분석 하나 — 등록부(`equion.registry`)의 분석을 돌려 기록(`work/an/<이름>/` — 표 CSV·차트 CSV·카드 summary.md)을 남긴다.
+
+        분석 목록은 `eqn.registry.table()`(명령줄 `equion an list`). 계절조정·파생은 미리보기만 하고 `keep`이 정의로, ECM·VAR·VECM·시스템은
+        `keep`이 식 후보로 남긴다. 나머지(요약·단위근·공적분·식 진단·예측 평가·안정성·승수)는 아무 파일도 바꾸지 않는다.
+
+        매개변수
+            analysis: 분석 이름(summary · unitroot · coint · diag · fcsteval · stability · multipliers · seas · genr · ecm · var · vecm · system)
+            target: 대상 — 시리즈·묶음([group])·식('log(Y) R')·부품·est: 기록·모형·블록·'이름 = 식'(분석마다)
+            smpl: 표본 'S:E'(상대 기간 가능)
+            as_name: 기록 이름(기본 분석_0001 …)
+            note: 노트 경로 — 그 끝에 명령 블록과 결과 구역을 더한다
+            **options: 분석의 옵션(`equion an <분석> --help`)
+
+        돌려주는 것
+            AnRecord — .id · .table(k) · .meta · .text()
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.an("unitroot", "dlog(Y) R")
+            >>> r.table(1)["판단"].tolist()
+            ['정상', '단위근']
+        """
+        from .analyses import run_an
+        return run_an(self, analysis, target, options, smpl=smpl, as_name=as_name, note=note, who=who, command=command)
+
+    def keep(self, record: str, as_name: str = None, replace: bool = False, who: str = None, command: str = None):
+        """분석 기록을 남긴다 — 만드는 분석(계절조정·파생)은 정의(`series.toml`·`derived.txt`, `made_by` = 기록)로, 부품을 내는
+        분석(ECM·VAR·VECM·시스템)은 식 후보(est: 기록 — 계수 그대로)로. 정의를 고치면 바뀜 기록에 남고, 자료에는 `data build`로 들어간다.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> k = p.keep(p.an("genr", "GAP = Y - CN - I").id)
+            >>> k.kind, k.what[0]
+            ('derived', 'DATA/derived.txt: GAP = Y - CN - I   # an:genr_0001')
+        """
+        from .analyses import keep
+        return keep(self, record, as_name=as_name, replace=replace, who=who, command=command)
+
+    def note_run(self, note: str, block: int = None, stale: bool = False, force: bool = False, who: str = None,
+                 command: str = None):
+        """노트의 ```` ```equion ```` 블록을 실행해 블록 아래 결과 구역을 채운다(블록마다 새 기록). 블록은 등록부의 계산·보기 명령만
+        부를 수 있고, 손으로 고친 구역은 force일 때만 덮는다. Python 블록은 block으로 고를 때만 돈다.
+
+        돌려주는 것
+            NoteResult — .blocks(블록마다 상태) · .ok · .change · .text()
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = open(os.path.join(p.root, "n.md"), "w", encoding="utf-8").write("# n\\n\\n```equion\\nan unitroot R\\n```\\n")
+            >>> [b.status for b in p.note_run("n.md").blocks]
+            ['run']
+        """
+        from .notes import run_note
+        return run_note(self, note, block=block, stale=stale, force=force, who=who, command=command)
+
+    def note_check(self, note: str):
+        """노트 검사(실행하지 않고) — 블록마다 실행 안 함 · 없는 기록 · 낡음(자료·정의가 바뀜) · 손으로 고침 · 허용 안 된 명령.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = open(os.path.join(p.root, "n.md"), "w", encoding="utf-8").write("```equion\\nan unitroot R\\n```\\n")
+            >>> [b.status for b in p.note_check("n.md").blocks]
+            ['never']
+        """
+        from .notes import check_note
+        return check_note(self, note)
+
+    def report_new(self, name: str, title: str = None, from_report: str = None, who: str = None, command: str = None):
+        """새 보고서(`reports/이름.md`) — 틀(제목·날짜·자료 회차·모형). from_report면 지난 보고서를 복사하고 구역마다 바꿔 낄 기록을 제안한다.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> p.report_new("monthly").report
+            'reports/monthly.md'
+        """
+        from .reports import new_report
+        return new_report(self, name, title=title, from_report=from_report, who=who, command=command)
+
+    def report_add(self, report: str, record: str, rows=None, show: str = "level", annual: bool = False, digits: int = None,
+                   title: str = None, chart: bool = False, under: str = None, who: str = None, command: str = None):
+        """보고서로 보내기 — 기록의 표(와 차트)를 고른 모양(행·보이기·연간·소수점)으로 보고서에 넣는다. 구역에는 보이지 않는 표시
+        (기록·보낸 날·자료 회차·모양)가 붙고, 차트 자료는 보고서 옆 `_data/`로 복사한다.
+
+        매개변수
+            record: 기록(sim:… · hs:… · est:… · an:…#표 번호)
+            rows: 행(시리즈·변수 목록) · show: 'level' · 'qoq' · 'yoy' · 'diff'(전망) · annual: 연간(전망)
+            digits: 소수점 · title: 표 제목(번호는 저절로) · chart: 차트도 · under: 그 제목 아래 끝에
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = p.report_new("m")
+            >>> s = p.sim(as_name="b")
+            >>> p.report_add("m", "sim:b", rows=["Y", "CN"], show="yoy", annual=True).items[0]["detail"]
+            '**표 1. 전망 — base (main)** (전년동기비, %)'
+        """
+        from .reports import add
+        return add(self, report, record, rows=rows, show=show, annual=annual, digits=digits, title=title, chart=chart,
+                   under=under, who=who, command=command)
+
+    def report_check(self, report: str):
+        """보고서 검사 — 구역마다 없는 기록 · 더 새 기록(같은 갈래) · 낡음(자료·정의가 바뀜) · 손으로 고침.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = p.report_new("m")
+            >>> _ = p.report_add("m", p.hs("main", record=True).id)
+            >>> p.report_check("m").items[0]["status"]
+            '정상'
+        """
+        from .reports import check
+        return check(self, report)
+
+    def report_update(self, report: str, region: int = None, to: str = None, dry_run: bool = False, force: bool = False,
+                      who: str = None, command: str = None):
+        """새 기록으로 바꾸기 — 구역을 같은 모양으로 다시 만들어 차이를 보이고 적용한다(기본: 같은 갈래의 가장 새 기록). 손으로 고친 구역은
+        고친 곳을 차이로 보이고 force일 때만 덮는다.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = p.report_new("m")
+            >>> _ = p.report_add("m", p.hs("main", record=True).id)
+            >>> h2 = p.hs("main", record=True, swap={"demand:CN": "CN c Y"})
+            >>> p.report_update("m").items[0]["to"] == h2.id
+            True
+        """
+        from .reports import update
+        return update(self, report, region=region, to=to, dry_run=dry_run, force=force, who=who, command=command)
+
     def reestimate(self, name: str = None, adopt: str = "never", who: str = None, command: str = None):
         """모형(또는 블록)의 추정식을 블록 파일의 글자 그대로 지금 자료로 다시 추정해 기록을 남기고, 정책에 따라 새 계수를 채택한다
         (명령줄 `equion est --adopted [모형] --adopt 정책`, D35).

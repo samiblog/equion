@@ -26,8 +26,8 @@ import pandas as pd
 FORMAT = "equion-record"
 FORMAT_VERSION = 1
 WORK_DIR = "work"
-KINDS = ("est", "hs", "sim")
-KIND_KO = {"est": "추정", "hs": "과거 재현", "sim": "전망", "data": "자료 회차"}
+KINDS = ("est", "hs", "sim", "an")
+KIND_KO = {"est": "추정", "hs": "과거 재현", "sim": "전망", "an": "분석", "data": "자료 회차"}
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]*$")     # 기록 이름(sim:2026-11_base처럼 숫자로 시작해도 된다)
 WHO_KO = {"terminal": "터미널", "claude": "Claude", "desk": "Desk", "python": "Python", "script": "스크립트"}
 

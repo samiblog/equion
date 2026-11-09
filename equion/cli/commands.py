@@ -158,6 +158,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     from .workcmds import add_parsers
     add_parsers(sub)
+    from .ancmds import add_parsers as add_an_parsers
+    add_an_parsers(sub)
     return p
 
 
@@ -634,6 +636,9 @@ def main(argv=None) -> int:
         from .workcmds import COMMANDS, dispatch
         if args.command in COMMANDS:
             return dispatch(args, _cmdline(argv))
+        from . import ancmds
+        if args.command in ancmds.COMMANDS:
+            return ancmds.dispatch(args, _cmdline(argv))
     except KeyboardInterrupt:
         return EXIT_INTERRUPT
     parser.print_help()

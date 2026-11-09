@@ -93,6 +93,8 @@ def definition_hashes(p) -> Dict[str, str]:
     from ..work.history import tracked
     out = {}
     for rel in tracked(p.root, [b.file for b in p.config.blocks.values()] + [ADOPTED]):
+        if rel.startswith(("notes/", "reports/")):          # 노트·보고서는 글 — 계산의 입력이 아니다
+            continue
         with open(os.path.join(p.root, rel), "rb") as f:
             out[rel] = hashlib.sha256(f.read()).hexdigest()
     return out
@@ -323,6 +325,32 @@ def run_est(p, target: str, method: str = None, smpl: str = None, as_name: str =
         obj._adopt(eq, expr, loud=False)
     finally:
         wf._smpl = old_smpl
+    return _write_est(p, store, obj, text, expr, pt, tv, name, req, notes, sim, who, command or f"est {target}")
+
+
+def record_equation(p, obj, part: str = None, as_name: str = None, notes=(), who: str = None,
+                    command: str = None) -> EstRecord:
+    """이미 계수가 있는 방정식 객체(분석이 낸 식 — ECM 단기식·VAR·VECM·시스템)를 추정 기록(후보)으로 남긴다. 다시 추정하지 않는다."""
+    from .parts import parse_line
+    history_of(p).scan()
+    store = store_of(p)
+    expr = obj.spec
+    tv = obj.eq.target
+    pt = p.part(part) if part else None
+    if pt is None:
+        cands = [x for x in p.parts() if x.kind == "equation" and x.target == tv]
+        pt = cands[0] if len(cands) == 1 else None
+    elif pt.target != tv:
+        raise ProjectError(f"--part {pt.id}: 목표가 {pt.target}인데 이 식의 목표는 {tv}입니다")
+    quiet(parse_line, expr, p.workfile._data)
+    name = as_name or store.next_name("est", tv.lower())
+    store.check_new("est", name)
+    return _write_est(p, store, obj, expr, expr, pt, tv, name, None, list(notes), False, who, command or "an keep")
+
+
+def _write_est(p, store, obj, text, expr, pt, tv, name, req, notes, sim, who, command) -> EstRecord:
+    wf = p.workfile
+    eq = obj.eq
     res = eq.residuals
     lab = _labels(wf, res.index)
     s, e = lab[0], lab[-1]
@@ -362,7 +390,7 @@ def run_est(p, target: str, method: str = None, smpl: str = None, as_name: str =
         sim_info, sim_s = _single_sim(p, obj, tv, s1, e1)
     rel = f"work/est/{name}"
     meta = {
-        "who": _who(who), "command": command or f"est {target}", "project": p.name, "equion": _version(),
+        "who": _who(who), "command": command, "project": p.name, "equion": _version(),
         "target": tv, "part": pt.id if pt else None, "text": text, "expr": expr, "method": eq.method,
         "dependent": eq.dependent_var, "sample": [s, e], "n": int(obj.nobs),
         "stats": {k: st.get(k) for k in ("r_squared", "adj_r_squared", "se_regression", "durbin_watson",

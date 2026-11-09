@@ -28,7 +28,7 @@ from .system.model import Model
 from .scenario import Scenario
 from .worktable import WorkTable, Workspace, current
 from .workfile import Workfile, wfcreate, wfopen, show, params, secret, verbose, spool
-from . import datasets, log, stats
+from . import datasets, log, registry, stats
 from .projects import Project
 from .projects import open_project as project   # eqn.project(폴더) — 하위 패키지는 equion.projects
 

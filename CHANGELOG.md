@@ -37,6 +37,14 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
   `equion propose new|list|show|apply|drop` — 바꿀 내용·까닭·미리 계산한 기록을 먼저 보이고(낡으면 적용하지 않음), 적용은 바뀜 기록에.
   `Project.export`·`equion export 기록… --xlsx` — 값·값의 종류·출처 시트. `[forecast]`·`[criteria]`가 `equion.toml`의 표가 됐다.
   레시피 R50~R52.
+- **분석 등록부·노트·보고서(0.8 E4, D37)**: 분석 하나 = 명령 하나 = 기록 하나(`work/an/<이름>/`) = md 카드 하나. 등록부 `eqn.registry`에
+  분석 13개 — 보는 분석(요약·단위근 ADF+KPSS·공적분 Johansen/Engle-Granger·식 진단 Chow/CUSUM·예측 평가 DM·동태 안정성·충격 승수),
+  만드는 분석(계절조정·파생 — `an keep`이 `series.toml`의 새 시리즈(`made_by`)·`derived.txt` 한 줄로), 부품을 내는 분석(ECM·VAR·VECM·
+  시스템 추정 — `an keep`이 식 후보 `est:`로, 계수 그대로). `Project.an`·`keep`, 명령줄 `equion an list·<분석>·--help·keep`(옵션은 등록부에서).
+  노트 `notes/*.md` — ```` ```equion ```` 블록을 `equion note run`이 실행해 바로 아래 결과 구역(펼친 md 카드)을 채운다. 블록은 등록부의
+  계산·보기 명령만(허용 목록), 손으로 고친 구역은 `--force` 없이 덮지 않고, `note check`가 낡은 구역·없는 기록을 알린다. 보고서
+  `reports/*.md` — `report new·add·check·update`: 결과만 보내고(행·전기비·전년동기비·기준선 대비·연간·소수점·차트 — 자료는 보고서 옆
+  `_data/`로), 새 기록으로 바꿀 때 같은 모양으로 다시 만들어 숫자의 차이를 보이며 손으로 고친 곳은 차이로 알린다. 레시피 R53~R55.
 - **문서 체계(D27)**: 시작하기 · 튜토리얼 8편 · 레시피 · 해설 · 참조 · 사례 연구(Klein형) · EViews 사용자 안내 ·
   영문 시작 문서. 시작점은 [`docs/README.md`](docs/README.md)입니다. 문서의 예제는 실제로 돌고, 출력도 실행 결과입니다.
   `python docs/build_docs.py --check`가 CI에서 예제 실행·출력·링크·API 설명과 예제·doctest를 확인합니다.
@@ -52,6 +60,7 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
 - 예제 프로젝트(`--template desk`)는 자료 정의·회차를 씁니다 — 원자료 `DATA/raw/toy_q.csv`·`toy_m.csv`, 만들 때 첫 회차를 지금 회차로,
   `[hs] range = "2005Q1:last"`(새 회차로 바꾸면 따라 늘어난다). 자료 파일 하나(`[data] file`)를 쓰는 프로젝트도 그대로 됩니다.
 - 필수 의존성 `tomlkit`(정의 파일을 주석·순서를 지키며 고친다, D38).
+- `series.toml`의 시리즈에 `made_by`(그 정의를 만든 분석 기록)를 적을 수 있다. 노트·보고서도 바뀜 기록에 남는다(낡음 판정의 입력은 아니다).
 - 예제 프로젝트에 판단 기준 `[criteria]`·전망 `[forecast]`과 `ASSUMPTIONS/base.csv`·`ADDFACTORS/base.toml`·`SCENARIOS/oil20.toml`을 더했다.
   프로젝트의 모형은 채택 기록이 있으면 그 계수로 푼다(없으면 지금처럼 지금 자료로 추정하고 알린다).
 - `docs/EQUATION_GUIDE.md` → `docs/explain/equations.md`, `docs/API.md` → `docs/reference/api.md`(옛 위치에는 안내만 남김).

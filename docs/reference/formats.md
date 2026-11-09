@@ -217,6 +217,7 @@ print(sorted(json.loads(Path(p.root, "work", "log.jsonl").read_text(encoding="ut
 | `est` | `coefs.csv`(계수·표준오차·t·p) · `series.csv`(실측·적합·잔차, `--sim`이면 목표변수의 단독 모의). `record.json`에 식 글자·펼친 식·표본·통계·진단·판단 기준·식 직렬화(계수 그대로 — 채택·바꿔 끼우기에 쓴다) |
 | `hs` | `assembly.json`(조립 명세) · `stats.csv`(변수별 RMSPE·MAE…) · `solved.csv`(해) · `status.csv`(기간 상태) · `series.csv`(해와 실측) |
 | `sim` | `assembly.json` · `levels.csv`(전망 앞 2년의 실측 + 전망) · `flags.csv`(값의 종류: 실측·해·가정·채움·결측) · `growth.csv`(전기비·전년동기비) · `annual.csv`(연간 평균·증가율) · `addfactors.csv`(식마다 보정항) · `diff.csv`(시나리오 − 기준선) |
+| `an` | `table_1.csv` …(카드의 표마다) · `chart_1.csv` …(차트 자료 — 기간 열 + 시리즈 열). `record.json`에 분석·대상·옵션·표본·짧은 글·결과 값·만드는 것(`makes` — `an keep`이 쓴다)·입력(낡음 판정) |
 | 조립 명세 | `format: equion-assembly` — 모형·구간·방식·선택지, 자료(회차와 내용 해시 또는 자료 파일 해시), 식마다 글자·출처(`adopted:est:…` · `estimated` · `swap:est:…`)·계수, 정의 파일 해시, equion 판. `hs --replay`는 이것만으로 그때 그대로 푼다(자료 해시가 다르면 거부) |
 | `log.jsonl` | 한 줄에 기록 하나 — id · created · who(`terminal`·`claude`·`desk`·`python`·`script`) · command · kind · target · path · 핵심 수치 |
 
@@ -256,6 +257,46 @@ pct = 20
 ```
 
 시나리오는 같은 가정·보정항의 기준선도 함께 풀어 차이(`diff.csv` — 수준 차이와 %)를 적습니다. 시나리오 이름 `base`는 파일이 없어도 됩니다(기준선).
+
+## 노트(`notes/*.md`)·보고서(`reports/*.md`)
+
+노트는 작업 문서입니다 — 글 사이의 ```` ```equion ```` 블록이 명령이고(한 줄에 명령 하나, 앞의 `equion`은 빼도 된다), `equion note run`이
+블록 바로 아래에 결과 구역을 채웁니다(D37). 보고서는 남이 읽는 글이라 명령 블록 없이 결과만 받습니다(`equion report add`). 두 파일 모두 평범한 md라
+Lectern·GitHub·편집기에서 표와 차트째 읽힙니다.
+
+노트의 블록과 결과 구역:
+
+    ```equion
+    an unitroot core --trend ct
+    ```
+
+    <!-- equion:out an:unitroot_0001 · 2026-11-09T10:12:00 · d2026-11a {"records": ["an:unitroot_0001"], "h": "eaa93ec97822"} -->
+    **단위근 — 묶음 core(Y · CN · I)**
+    … (기록 카드의 표·차트 — 차트 자료는 기록 폴더의 CSV를 노트에서 본 상대 경로로)
+    <!-- /equion:out -->
+
+보고서의 구역:
+
+    <!-- equion:report sim:2026-11_base #1 · 2026-11-09 · data:d2026-11a {"rows": ["Y", "CN"], "show": "yoy", "annual": true, "n": 1, "h": "…"} -->
+    **표 1. 전망 — base (main)** (전년동기비, %)
+
+    | 시리즈 | 2020 | 2021 |
+    |---|---|---|
+    | Y | 0.9 | 1.7 |
+    | CN | 0.9 | 1.7 |
+
+    자료: Equion sim:2026-11_base(자료 회차 d2026-11a)
+    <!-- /equion:report -->
+
+| 규칙 | 내용 |
+|---|---|
+| 블록이 부를 수 있는 것 | 등록부의 계산·보기 명령만 — `an` · `est` · `hs` · `sim` · `compare` · `assemble` · `ident` · `data list·diff·impact` · `work list·show`. 파일을 바꾸는 명령(`adopt`·`data use`·`propose apply`…)이 한 줄이라도 있으면 그 블록은 돌지 않는다 |
+| Python 블록 | ```` ```python ```` 블록은 `note run --block n`으로 고를 때만(터미널에서) 돈다 |
+| 구역 표시 | 여는 주석에 기록 이름·시각·자료 회차와 JSON(`records`·`h` — 노트 / 보고서는 기록·보낸 모양 `rows`·`show`·`annual`·`digits`·`title`·`chart`·`table`·`n`·`h`). `h`는 구역 본문의 해시 — 다르면 손으로 고친 구역 |
+| 다시 실행·바꾸기 | 노트는 블록을 다시 돌리면 새 기록으로 구역을 바꾸고, 보고서는 `report update`가 같은 모양으로 다시 만든다. 손으로 고친 구역은 차이를 보이고 `--force` 없이는 덮지 않는다 |
+| 낡음 | 구역이 가리키는 기록의 자료(회차·해시)나 정의 파일이 지금과 다르면 '낡음'(`note check` · `report check`). 노트·보고서 자체는 낡음 판정의 입력이 아니다 |
+| 차트 자료 | 노트는 기록 폴더의 CSV를 가리키고, 보고서는 `reports/<보고서>_data/`로 복사한다(보고서가 혼자 선다) |
+| 정리 | 노트·보고서가 가리키는 기록은 `work clean`에서 빠진다. 노트·보고서를 고친 것은 바뀜 기록에 남는다 |
 
 ## 제안(`work/proposals/`)·바뀜 기록(`work/history/`)
 
@@ -298,7 +339,7 @@ print([(o["type"], o["name"]) for o in man["objects"]])
 [eq_cn] OLS CN — n=199, R²=0.9999
 [annual] 새 워크파일 — 연(Annual) 1970~2019 (50기)
 [toy_q] 페이지 annual — 연(Annual) 1970~2019
-[annual] 저장 → demo.eqw/pages/annual.eqw (시리즈 0 · 객체 0)
+[annual] 저장 → demo.eqw\pages\annual.eqw (시리즈 0 · 객체 0)
 [toy_q] 저장 → demo.eqw (시리즈 10 · 객체 3)
 data.npz
 pages/annual.eqw/data.npz

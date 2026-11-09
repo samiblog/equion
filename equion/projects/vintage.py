@@ -136,7 +136,7 @@ def load_defs(root: str, series_file: str, derived_file: Optional[str], freq: st
         if not isinstance(v, dict) or not v.get("from"):
             problems.append(f"{where}: from = \"원자료이름:열\"이 없습니다")
             continue
-        unknown = set(v) - {"from", "convert", "denton", "seas", "scale", "fill", "unit", "desc"}
+        unknown = set(v) - {"from", "convert", "denton", "seas", "scale", "fill", "unit", "desc", "made_by"}
         if unknown:
             problems.append(f"{where}: 알 수 없는 키 {', '.join(sorted(unknown))}")
         src, _, col = str(v["from"]).partition(":")

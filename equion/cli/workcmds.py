@@ -198,7 +198,23 @@ def _referenced(p, store):
     for pr in p.proposals():
         keep |= set(pr.meta.get("previews") or [])
         keep |= {v for v in (pr.meta.get("parts") or {}).values() if str(v).startswith("est:")}
+    keep |= _used_by_documents(p)
     return keep
+
+
+def _used_by_documents(p) -> set:
+    """노트의 결과 구역·보고서의 구역이 가리키는 기록."""
+    import glob
+    from ..projects.notes import parse, read_text
+    from ..projects.reports import regions
+    out = set()
+    for f in glob.glob(os.path.join(p.root, "notes", "**", "*.md"), recursive=True):
+        for b in parse(read_text(f)):
+            if b.region:
+                out |= set(b.region[2].get("records") or [])
+    for f in glob.glob(os.path.join(p.root, "reports", "**", "*.md"), recursive=True):
+        out |= {r.record for r in regions(read_text(f))}
+    return out
 
 
 def _record_text(rec):
