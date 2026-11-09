@@ -252,9 +252,10 @@ def run_blocks(md_path, blocks, work):
 
 def _clean(text, work):
     """임시 작업 폴더·저장소 경로를 '.'로, 줄 끝 공백 제거."""
-    for p in {work, os.path.realpath(work)}:
+    # 긴 경로부터 — macOS의 /var는 /private/var를 가리켜, 짧은 것을 먼저 지우면 '/private'가 남는다
+    for p in sorted({work, os.path.realpath(work)}, key=len, reverse=True):
         text = text.replace(p + os.sep, "").replace(p + "/", "").replace(p, ".")
-    for p in {ROOT, os.path.realpath(ROOT)}:
+    for p in sorted({ROOT, os.path.realpath(ROOT)}, key=len, reverse=True):
         text = text.replace(p + os.sep, "").replace(p + "/", "").replace(p, ".")
     return "\n".join(line.rstrip() for line in text.rstrip("\n").split("\n"))
 
