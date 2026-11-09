@@ -25,15 +25,20 @@ def _common(sp):
     return sp
 
 
+def _esc(text: str) -> str:
+    """argparse 도움말의 %를 글자 그대로(등록부의 글은 서식이 아니다)."""
+    return str(text).replace("%", "%%")
+
+
 def _add_option(sp, o: reg.Opt):
     flag = "--" + o.name.replace("_", "-")
     if o.type == "bool":
         if o.default:
-            sp.add_argument(f"--no-{o.name.replace('_', '-')}", dest=o.name, action="store_false", help=f"{o.help}을(를) 하지 않음")
+            sp.add_argument(f"--no-{o.name.replace('_', '-')}", dest=o.name, action="store_false", help=_esc(f"{o.help}을(를) 하지 않음"))
         else:
-            sp.add_argument(flag, dest=o.name, action="store_true", help=o.help)
+            sp.add_argument(flag, dest=o.name, action="store_true", help=_esc(o.help))
         return
-    kw = {"dest": o.name, "default": None, "help": o.help + (f" (기본 {o.default})" if o.default is not None else "")}
+    kw = {"dest": o.name, "default": None, "help": _esc(o.help + (f" (기본 {o.default})" if o.default is not None else ""))}
     if o.type == "int":
         kw["type"] = int
     elif o.type == "float":
@@ -56,8 +61,8 @@ def add_parsers(sub):
     ak.add_argument("--as", dest="as_name", metavar="이름", help="새 시리즈·파생·후보 기록의 이름")
     ak.add_argument("--replace", action="store_true", help="(계절조정) 새 시리즈 대신 그 시리즈의 정의를 바꾼다")
     for x in reg.analyses():
-        sp = _common(asub.add_parser(x.name, help=f"{x.label} — {x.help}", description=f"{x.label}: {x.help}. 결과: {x.results}"
-                                                                                       + (f". 만드는 것: {reg.MAKES_KO[x.makes]}" if x.makes else ""),
+        desc = f"{x.label}: {x.help}. 결과: {x.results}" + (f". 만드는 것: {reg.MAKES_KO[x.makes]}" if x.makes else "")
+        sp = _common(asub.add_parser(x.name, help=_esc(f"{x.label} — {x.help}"), description=desc,
                                      epilog=f"예: {x.example}" if x.example else None))
         sp.add_argument("target", metavar="대상", help=" · ".join(reg.TARGET_KO[t] for t in x.targets))
         for o in x.options:
