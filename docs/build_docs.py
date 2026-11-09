@@ -38,7 +38,7 @@ DOCS = os.path.join(ROOT, "docs")
 EXAMPLES = os.path.join(ROOT, "examples")
 
 # 예제를 실행하는 문서(사용자 문서). 프로젝트 문서(DECISIONS·ROADMAP …)의 코드는 설명용이라 돌리지 않는다.
-RUN_DIRS = ("start", "tutorial", "howto", "explain", "reference", "cases", "en")
+RUN_DIRS = ("start", "tutorial", "howto", "guide", "explain", "reference", "cases", "en")
 RUN_FILES = ("docs/README.md", "docs/eviews.md", "README.md", "README.en.md")
 # examples/로 내보내는 문서 묶음: 묶음 → 노트북도 만들지
 EXPORT = {"start": True, "tutorial": True, "howto": False}
@@ -74,7 +74,7 @@ def parse(text):
         if m:
             if m.group(1) == "out":
                 if last_py is None:
-                    raise ValueError(f"{i + 1}행: <!-- out --> 앞에 python 블록이 없습니다")
+                    raise ValueError(f"{i + 1}행: <!-- out --> 앞에 python·console 블록이 없습니다")
                 last_py.out_marker = i
                 want_out = last_py
             else:
@@ -97,7 +97,7 @@ def parse(text):
             else:
                 want_out = None
                 blocks.append(b)
-                if lang == "python":
+                if lang in ("python", "console"):
                     last_py = b
             i = j + 1
             continue
@@ -160,8 +160,43 @@ def _reset_equion():
     eqn.spool.mode = "auto"
 
 
+CONSOLE_ENV = {"PYTHONIOENCODING": "utf-8", "EQUION_WHO": "terminal"}
+
+
+def run_console(code: str):
+    """```console 블록 — `$ equion …`(명령줄 그대로, 하위 프로세스)과 `$ cd 폴더`만 받는다. → (기록 글, 0이 아닌 종료 코드 목록, 문제)."""
+    import shlex
+    import subprocess
+    out, bad = [], []
+    for raw in code.split("\n"):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if not line.startswith("$ "):
+            return "\n".join(out), bad, f"console 블록의 줄은 '$ '로 시작해야 합니다: {line!r}"
+        cmd = line[2:].strip()
+        toks = shlex.split(cmd, posix=True)
+        if toks[0] == "cd" and len(toks) == 2:
+            os.chdir(toks[1])
+            out.append(f"$ {cmd}")
+            continue
+        if toks[0] != "equion":
+            return "\n".join(out), bad, f"console 블록은 equion·cd만 실행합니다: {cmd!r}"
+        env = dict(os.environ, **CONSOLE_ENV)
+        r = subprocess.run([sys.executable, "-m", "equion", *toks[1:]], capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", env=env, stdin=subprocess.DEVNULL)
+        text = (r.stdout + r.stderr).rstrip()
+        out.append(f"$ {cmd}" + ("\n" + text if text else ""))
+        if r.returncode:
+            out.append(f"(종료 코드 {r.returncode})")
+            bad.append((cmd, r.returncode))
+        out.append("")
+    return "\n".join(out).rstrip(), bad, None
+
+
 def run_blocks(md_path, blocks, work):
-    """python 블록을 차례로 실행 → [(블록, 출력 글, 문제 또는 None)]."""
+    """python·console 블록을 차례로 실행 → [(블록, 출력 글, 문제 또는 None)]. console의 0이 아닌 종료 코드는
+    `<!-- error -->`를 붙인 블록에서만 괜찮다."""
     ns = {"__name__": "__main__"}
     results = []
     old = os.getcwd()
@@ -170,6 +205,19 @@ def run_blocks(md_path, blocks, work):
     _reset_equion()
     try:
         for b in blocks:
+            if b.lang == "console" and "skip" not in b.flags:
+                text, bad, problem = run_console(b.code)
+                if problem:
+                    problem = f"{rel(md_path)}:{b.start + 1}: {problem}"
+                elif bad and "error" not in b.flags:
+                    problem = (f"{rel(md_path)}:{b.start + 1}: 명령이 실패했습니다 — "
+                               + " · ".join(f"{c} → {k}" for c, k in bad) + f"\n{text[-600:]}")
+                elif "error" in b.flags and not bad:
+                    problem = f"{rel(md_path)}:{b.start + 1}: 오류로 끝나야 하는 명령이 모두 성공했습니다"
+                results.append((b, _clean(text, work), problem))
+                if problem:
+                    break
+                continue
             if b.lang != "python" or "skip" in b.flags:
                 continue
             _link_repo_dirs(work, b.code)

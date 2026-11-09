@@ -92,6 +92,7 @@ def cmd_run_eqs(args, argv, script_args=()) -> int:
     text = json.dumps(out, ensure_ascii=False, indent=2, default=str) if args.json else out
     print(text, file=sys.stderr if (code and not args.json) else sys.stdout)
     if args.log:
+        os.makedirs(os.path.dirname(os.path.abspath(args.log)), exist_ok=True)   # logs/처럼 아직 없는 폴더도
         with open(args.log, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(log + [text if isinstance(text, str) else ""]) + "\n")
     return code

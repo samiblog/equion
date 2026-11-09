@@ -415,6 +415,7 @@ def cmd_run(args, argv, script_args) -> int:
     if args.manifest_to:
         report._write_json(args.manifest_to, report.safe_manifest(res))
     if args.log:
+        os.makedirs(os.path.dirname(os.path.abspath(args.log)), exist_ok=True)   # logs/처럼 아직 없는 폴더도
         with open(args.log, "w", encoding="utf-8") as f:
             f.write(report.scrub(res.log, report.collect_secrets(res)))
     print(_summary_line(res, report_path), file=sys.stderr if res.exit_code else sys.stdout)
