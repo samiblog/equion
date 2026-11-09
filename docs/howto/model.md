@@ -257,7 +257,8 @@ print(pr.diff())
 p.apply_proposal(pr.name)                                     # equion propose apply p1
 for c in p.history.list():
     print(c.text())
-print(p.replay("hs:before").meta["replay"])                   # 파일이 바뀐 뒤에도 그때 그대로 — equion hs --replay hs:before
+rp = p.replay("hs:before")                                    # 파일이 바뀐 뒤에도 그때 그대로 — equion hs --replay hs:before
+print(rp.meta["replay"]["of"], "같은 결과" if rp.meta["replay"]["same"] else "다름")
 ```
 <!-- out -->
 ```text
@@ -267,7 +268,7 @@ print(p.replay("hs:before").meta["replay"])                   # 파일이 바뀐
 @@ -1,4 +1,4 @@
  # 수요 블록 — 한 줄에 한 식, '#' 뒤는 설명(문법: docs/explain/equations.md)
 -CN c Y CN(-1)            # 소비
-+CN c Y CN(-1) CN(-2)   # 소비
++CN c Y CN(-1) CN(-2)     # 소비
  I c Y(-1) R              # 투자
  Y = CN + I + G           # 국민소득(항등식)
 
@@ -277,16 +278,16 @@ print(p.replay("hs:before").meta["replay"])                   # 파일이 바뀐
  # 채택표 — 식(부품)마다 채택한 추정 기록. 모형은 이 계수로 푼다(equion adopt가 고친다)
 -"demand:CN" = "est:cons_c1"
 
-[h0001] 2026-11-09T09:37:23 · Python · data use d2026-11a
+[h0001] 2026-11-09T09:51:18 · Python · data use d2026-11a
   파일   equion.toml(고침)
   메모   자료 회차 d2026-11a
-[h0002] 2026-11-09T09:37:23 · Python · adopt est:cons_c1
+[h0002] 2026-11-09T09:51:19 · Python · adopt est:cons_c1
   파일   EQUATIONS/adopted.toml(새로)
   메모   demand:CN ← est:cons_c1
-[h0003] 2026-11-09T09:37:23 · Python · propose apply p1
+[h0003] 2026-11-09T09:51:19 · Python · propose apply p1
   파일   EQUATIONS/adopted.toml(고침) · EQUATIONS/demand.txt(고침)
   메모   제안 prop:p1 적용: 소비에 시차 하나 더
 [demo_prj_replay] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
 [replay] baseline(_0) dynamic 2005Q1~2019Q4: 정상 60 · 일부식 제외 0 · 실패대체 0 · 실패 0
-{'of': 'hs:before', 'same': True, 'max_abs_diff': 4.547473508864641e-13}
+hs:before 같은 결과
 ```

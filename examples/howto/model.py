@@ -85,4 +85,5 @@ print(pr.diff())
 p.apply_proposal(pr.name)                                     # equion propose apply p1
 for c in p.history.list():
     print(c.text())
-print(p.replay("hs:before").meta["replay"])                   # 파일이 바뀐 뒤에도 그때 그대로 — equion hs --replay hs:before
+rp = p.replay("hs:before")                                    # 파일이 바뀐 뒤에도 그때 그대로 — equion hs --replay hs:before
+print(rp.meta["replay"]["of"], "같은 결과" if rp.meta["replay"]["same"] else "다름")
