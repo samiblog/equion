@@ -102,14 +102,42 @@ class ProjectConfig:
 
 
 def find_config(path: str = ".") -> str:
-    """폴더(또는 equion.toml 경로) → equion.toml 경로. 없으면 ProjectError."""
+    """폴더(또는 equion.toml 경로) → equion.toml 경로. 폴더면 그 폴더에서 위로 올라가며 찾는다(프로젝트의 하위 폴더에서 쳐도 된다).
+    없으면 ProjectError."""
     p = os.path.abspath(path)
     if os.path.isdir(p):
+        d = p
+        while True:
+            c = os.path.join(d, CONFIG_NAME)
+            if os.path.isfile(c):
+                return c
+            up = os.path.dirname(d)
+            if up == d:
+                break
+            d = up
         p = os.path.join(p, CONFIG_NAME)
     if not os.path.isfile(p):
         raise ProjectError(f"프로젝트 설정 파일이 없습니다: {p} — 프로젝트 폴더에서 실행하거나 경로를 주세요"
                            f"(새 프로젝트: equion new 폴더 --template desk)")
     return p
+
+
+def inside(root: str, path: str) -> bool:
+    """path가 root(프로젝트 폴더) 안이면 참 — `..`·절대 경로·다른 드라이브로 나가면 거짓."""
+    r = os.path.normcase(os.path.abspath(root))
+    x = os.path.normcase(os.path.abspath(path))
+    try:
+        return os.path.commonpath([r, x]) == r
+    except ValueError:
+        return False
+
+
+def project_path(root: str, path: str, what: str) -> str:
+    """프로젝트 기준 경로 → 절대 경로. 프로젝트 밖이면 ProjectError(파일을 쓰거나 고치는 명령은 연 폴더와 그 아래만)."""
+    full = os.path.normpath(path if os.path.isabs(path) else os.path.join(root, path))
+    if not inside(root, full):
+        raise ProjectError(f"{what}는 프로젝트 안에만 둡니다 — {path!r}는 프로젝트 밖입니다")
+    return full
 
 
 def _str_list(val, where: str, problems: List[str]) -> List[str]:

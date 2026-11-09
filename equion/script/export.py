@@ -86,7 +86,11 @@ def new_script(p, name: str, records: List[str] = None, last: int = None, title:
     if not re.match(r"^[A-Za-z0-9가-힣][\w\-가-힣]*$", os.path.basename(nm)):
         raise ScriptError(f"스크립트 이름은 글자·숫자·_·-: {name!r}")
     rel = (nm if "/" in nm.replace(os.sep, "/") else f"{FLOWS}/{nm}") + ".eqs"
-    path = os.path.join(p.root, rel)
+    from ..projects.config import inside
+    path = os.path.normpath(os.path.join(p.root, rel))
+    if not inside(p.root, path):
+        raise ScriptError(f"스크립트는 프로젝트 안에 둡니다 — {name!r}는 프로젝트 밖입니다")
+    rel = os.path.relpath(path, p.root)
     if os.path.exists(path) and not force:
         raise ScriptError(f"이미 있는 스크립트 {rel} — 덮으려면 --force")
     text = draft(p, records, last, title or nm)
@@ -144,7 +148,10 @@ def export_py(p, path: str, out: str = None, force: bool = False) -> str:
     if sc.problems:
         raise ScriptError("스크립트 문제 — 내보내지 않았습니다:\n" + "\n".join(f"  - {x}" for x in sc.problems))
     dst = out or os.path.splitext(full)[0] + ".py"
-    dst = dst if os.path.isabs(dst) else os.path.join(p.root, dst)
+    dst = os.path.normpath(dst if os.path.isabs(dst) else os.path.join(p.root, dst))
+    from ..projects.config import inside
+    if not inside(p.root, dst):
+        raise ScriptError(f"내보낼 파일은 프로젝트 안에 — {dst}는 프로젝트 밖입니다")
     if os.path.exists(dst) and not force:
         raise ScriptError(f"이미 있는 파일 {os.path.relpath(dst, p.root)} — 덮으려면 --force")
     os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)

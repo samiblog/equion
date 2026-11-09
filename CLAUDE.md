@@ -54,6 +54,7 @@ uv run python tests/test_stats.py             # 자체 통계 166/166 (OLS·WLS�
 uv run python tests/test_ast_formula.py       # 66/66 (레거시 formula 유틸)
 uv run python tests/test_100_equations.py     # 100/100
 uv run python tests/test_error_equations.py   # 에러 검증 시각화
+uv run python tests/test_journeys.py          # 사용자 관점 시나리오 34/34 (docs/TEST_SCENARIOS.md — 한 해 운영·협업·실패와 회복·적대적 입력·이식성·명령줄·규모)
 uv run python tests/test_guide.py             # Claude용 안내·스킬 21/21 (자동 표가 코드와 같음·예시 명령이 모두 읽힘·방정식 예·guide 명령·예제 CLAUDE.md)
 uv run python tests/test_script.py            # 스크립트·재연 72/72 (문법·값 바꿔 넣기·허용 목록·받은 원자료·실행 기록·expect·Python 단계·미리보기·검사·재연·초안·Python으로·명령줄·완료 기준)
 uv run python tests/test_analysis.py          # 분석·노트·보고서 97/97 (등록부·보는 분석 = 엔진·남기기(정의·후보)·노트·보고서·명령줄·분석 시나리오 A1~A5)
@@ -112,8 +113,8 @@ uv run pytest                                 # 위 묶음을 한 번에(파일�
 
 | 위치 | 내용 |
 |------|------|
-| `tests/` | `test_engine.py` · `test_workfile.py` · `test_cli.py` · `test_stats.py` · `test_scenarios.py`(상황별 시나리오) · `test_project.py`(프로젝트) · `test_work.py`(작업 명령·기록) · `test_analysis.py`(분석·노트·보고서) · `test_script.py`(스크립트·재연) · `test_guide.py`(Claude용 안내) · `test_ast_formula.py` · `test_100_equations.py` · `test_error_equations.py` · `test_docs.py`. 모두 예제 자료·합성 자료로 돈다. 기준값 `fixtures/{stats,estimation,data}_reference.json` — 만드는 `fixtures/make_*_reference.py`는 statsmodels·linearmodels·mpmath가 있는 **별도 환경**에서만(`PYTHONPATH=.`). `uv run pytest`가 파일마다 `test_suite()`를 부른다 |
-| `docs/` | **사용자 문서(D27, Markdown 원본)**: `README.md`(첫 페이지) · `start/`(설치·첫 모델·치트시트) · `tutorial/`(1~8) · `howto/`(레시피) · `explain/`(방정식 문법 `equations.md`·추정·풀이·시나리오·동태·검증·엔진 API) · `reference/`(`api.md` **자동 생성** — `make_api.py` · 명령줄·함수·출력·오류·파일 형식·예제 자료) · `cases/`(Klein형) · `eviews.md` · `en/`. 도구 `build_docs.py`·`make_api.py`. 프로젝트 문서 `DECISIONS.md`(D-번호) · `ROADMAP.md` · Desk 개발 계획 `DESK_DEVPLAN.md`와 기획 자료 `DESK*.md`. `USER_GUIDE.md`·`EQUATION_GUIDE.md`·`API.md`는 새 위치 안내만 |
+| `tests/` | `test_engine.py` · `test_workfile.py` · `test_cli.py` · `test_stats.py` · `test_scenarios.py`(상황별 시나리오) · `test_project.py`(프로젝트) · `test_work.py`(작업 명령·기록) · `test_analysis.py`(분석·노트·보고서) · `test_script.py`(스크립트·재연) · `test_guide.py`(Claude용 안내) · `test_journeys.py`(사용자 관점 시나리오 — `docs/TEST_SCENARIOS.md`) · `test_ast_formula.py` · `test_100_equations.py` · `test_error_equations.py` · `test_docs.py`. 모두 예제 자료·합성 자료로 돈다. 기준값 `fixtures/{stats,estimation,data}_reference.json` — 만드는 `fixtures/make_*_reference.py`는 statsmodels·linearmodels·mpmath가 있는 **별도 환경**에서만(`PYTHONPATH=.`). `uv run pytest`가 파일마다 `test_suite()`를 부른다 |
+| `docs/` | **사용자 문서(D27, Markdown 원본)**: `README.md`(첫 페이지) · `start/`(설치·첫 모델·치트시트) · `tutorial/`(1~8) · `howto/`(레시피) · `explain/`(방정식 문법 `equations.md`·추정·풀이·시나리오·동태·검증·엔진 API) · `reference/`(`api.md` **자동 생성** — `make_api.py` · 명령줄·함수·출력·오류·파일 형식·예제 자료) · `cases/`(Klein형) · `eviews.md` · `en/`. 도구 `build_docs.py`·`make_api.py`. 프로젝트 문서 `DECISIONS.md`(D-번호) · `ROADMAP.md` · 사용자 관점 시험 시나리오 `TEST_SCENARIOS.md` · Desk 개발 계획 `DESK_DEVPLAN.md`와 기획 자료 `DESK*.md`. `USER_GUIDE.md`·`EQUATION_GUIDE.md`·`API.md`는 새 위치 안내만 |
 | `examples/` | `start/`·`tutorial/` 스크립트와 `notebooks/` — **문서에서 자동 생성**(`build_docs.py`), 손으로 고치지 않는다 |
 | `.github/` | `workflows/ci.yml`(locked 3 OS × py3.12~3.14 · minimal · lowest · latest · audit) · `release.yml`(태그 → 휠·설치 시험, PyPI는 `PYPI_PUBLISH` 변수로만) · `dependabot.yml` |
 | `out/` · `WT/` | CLI 보고서 `out/<실행ID>/` · 워크파일 `.eqw/`·Work Table `.wt/` 번들(자동 생성·git 제외) |

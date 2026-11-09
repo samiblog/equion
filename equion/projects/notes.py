@@ -186,7 +186,8 @@ class NoteResult:
 
 
 def _note_path(p, note: str) -> str:
-    path = note if os.path.isabs(note) else os.path.join(p.root, note)
+    from .config import project_path
+    path = project_path(p.root, note, "노트")
     if not os.path.isfile(path):
         raise ProjectError(f"노트가 없습니다: {note}")
     return path
@@ -369,7 +370,8 @@ def _exists(store, rid) -> bool:
 
 def append_block(p, note: str, cmd: str, rid: str, who: str = None):
     """노트 끝에 명령 블록과 그 결과 구역을 더한다(`an … --note`). 노트가 없으면 만든다."""
-    path = note if os.path.isabs(note) else os.path.join(p.root, note)
+    from .config import project_path
+    path = project_path(p.root, note, "노트")
     rel = os.path.relpath(path, p.root).replace(os.sep, "/")
     toks = shlex.split(cmd)
     clean = []

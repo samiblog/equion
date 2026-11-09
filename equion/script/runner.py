@@ -31,8 +31,20 @@ def _sets(script: Script, sets: Dict[str, object]) -> Dict[str, List[str]]:
         raise ScriptError(f"모르는 매개변수 --set {', '.join(bad)} (이 스크립트의 param: {', '.join(script.params) or '없음'})")
     out = dict(script.params)
     for k, v in sets.items():
-        out[k] = v if isinstance(v, (list, tuple)) else shlex.split(str(v))
+        vals = [str(x) for x in v] if isinstance(v, (list, tuple)) else shlex.split(str(v))
+        opt = [x for x in vals if x.startswith("-") and not _number(x)]
+        if opt:
+            raise ScriptError(f"--set {k}의 값에 선택지({', '.join(opt)})를 넣을 수 없습니다 — 값만(선택지는 스크립트에 적는다)")
+        out[k] = vals
     return out
+
+
+def _number(x: str) -> bool:
+    try:
+        float(x.rstrip("%"))
+        return True
+    except ValueError:
+        return False
 
 
 def _from(script: Script, spec) -> Optional[int]:
@@ -59,6 +71,9 @@ def load(p, path: str) -> Script:
         raise ScriptError(f"Equion 스크립트는 .eqs입니다: {path}")
     if not os.path.isfile(full):
         raise ScriptError(f"스크립트가 없습니다: {path}")
+    from ..projects.config import inside
+    if not inside(p.root, full):
+        raise ScriptError(f"스크립트는 프로젝트 안에 둡니다 — {path}는 프로젝트 밖입니다(실행 기록이 그 사본을 가진다)")
     return parse(p.root, full)
 
 

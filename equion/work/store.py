@@ -181,6 +181,9 @@ class WorkStore:
         out["record.json"] = meta
         out["summary.md"] = summary
         for fn, v in out.items():
+            parts = fn.replace("\\", "/").split("/")
+            if os.path.isabs(fn) or ".." in parts:
+                raise RecordError(f"기록 안의 파일 이름이 기록 폴더 밖을 가리킵니다: {fn!r}")
             p = os.path.join(tmp, fn)
             if "/" in fn:                              # 하위 폴더(실행 기록의 defs/·src/·steps/)
                 os.makedirs(os.path.dirname(p), exist_ok=True)

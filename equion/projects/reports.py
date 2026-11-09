@@ -77,10 +77,13 @@ def regions(text: str) -> List[Region]:
 
 
 def _path(p, report: str) -> str:
+    from .config import project_path
+    if not str(report or "").strip() or os.path.splitext(os.path.basename(str(report).strip()))[0] in ("", "."):
+        raise ProjectError("보고서 이름이 비었습니다")
     name = report if report.endswith(".md") else f"{report}.md"
     if not os.path.isabs(name) and "/" not in name.replace(os.sep, "/"):
         name = os.path.join(REP_DIR, name)
-    return name if os.path.isabs(name) else os.path.join(p.root, name)
+    return project_path(p.root, name, "보고서")
 
 
 def _rel(p, path):

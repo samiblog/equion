@@ -6,7 +6,8 @@
 짝짓기는 두 가지뿐이다(알아맞히지 않는다):
 
 1. `series.toml`의 `[source.이름] inbox = "toy_q*.csv"`(파일 이름 글롭, 대소문자 무시) — 적었으면 이것만 본다.
-2. 적지 않았으면 파일 이름이 그 출처가 지금 읽는 파일의 이름(날짜 꼬리 `_20261109` 뺌)으로 시작하는 것 — 가장 긴 것.
+2. 적지 않았으면 파일 이름이 그 출처가 지금 읽는 파일의 이름(끝의 날짜·기간 꼬리 `_20261109`·`_2020Q1`·`_2026-12` 뺌)으로 시작하는 것 —
+   가장 긴 것. 그래서 `toy_q.csv` 다음 달 `toy_q_2020Q1.csv`, 그다음 달 `toy_q_2020Q2.csv`가 모두 같은 출처다.
 
 짝이 없거나 여럿이면, 또는 그 출처의 불러오기 틀로 읽히지 않으면(쓰는 열이 없음·주기가 다름) 아무것도 넣지 않고 까닭을 알린다.
 `ask`는 터미널이면 파일마다 묻고, 터미널이 아니면(스크립트를 Claude·자동화가 돌릴 때) 짝이 하나이고 틀이 맞는 것만 넣는다 — `auto`와 같다.
@@ -25,6 +26,13 @@ from .config import ProjectError
 INBOX_DIR = os.path.join("DATA", "raw", "inbox")
 RAW_EXT = (".csv", ".xlsx", ".xls")
 _DATE_TAIL = re.compile(r"_\d{8}(_\d+)?$")
+_PERIOD_TAIL = re.compile(r"(?:[_\-\s.]+[^_\-\s.]*\d[^_\-\s.]*)+$")      # 숫자가 든 끝 토막들(_2020Q1 · _2026-12 · -v2)
+
+
+def family(stem: str) -> str:
+    """파일 이름의 몸통 — 끝의 날짜·기간 토막을 뺀다('toy_q_2020Q1' → 'toy_q', '국민계정_2026-12' → '국민계정')."""
+    s = _PERIOD_TAIL.sub("", _DATE_TAIL.sub("", stem))
+    return s or stem
 STATUS_KO = {"ready": "넣을 수 있음", "none": "짝 없음", "many": "짝이 여럿", "bad": "틀이 맞지 않음", "taken": "넣음",
              "same": "같은 파일이 이미 있음", "declined": "넣지 않음(답)"}
 
@@ -89,14 +97,14 @@ def _rules(p) -> dict:
 
 
 def _base_stems(p, spec) -> List[str]:
-    stems = [_DATE_TAIL.sub("", os.path.splitext(os.path.basename(spec.file))[0])]
+    stems = [family(os.path.splitext(os.path.basename(spec.file))[0])]
     side = spec.path + ".source.toml"
     if os.path.isfile(side):
         try:
             with open(side, "rb") as f:
                 frm = tomllib.load(f).get("from")
             if frm:
-                stems.append(_DATE_TAIL.sub("", os.path.splitext(os.path.basename(frm))[0]))
+                stems.append(family(os.path.splitext(os.path.basename(frm))[0]))
         except (OSError, tomllib.TOMLDecodeError):
             pass
     return [s.lower() for s in dict.fromkeys(stems) if s]

@@ -114,7 +114,8 @@ def add_parsers(sub):
     wm = _common(wsub.add_parser("memo", help="메모(기록은 그대로, marks.json에)"))
     wm.add_argument("record", metavar="기록")
     wm.add_argument("text", metavar="글")
-    wc = _common(wsub.add_parser("clean", help="정리 — 고정·채택·참조되지 않은 기록(기본은 목록만, --yes면 지움)"))
+    wc = _common(wsub.add_parser("clean", help="정리 — 고정·채택·참조되지 않은 기록(기본은 목록만, --yes면 지움). 실행 기록(run:)과 그 "
+                                                "단계의 기록은 남긴다 — 실행 기록은 --kind run일 때만"))
     wc.add_argument("--kind", choices=("est", "hs", "sim", "an", "run"), help="종류")
     wc.add_argument("--yes", action="store_true", help="목록의 기록을 지운다")
 
@@ -200,6 +201,9 @@ def _referenced(p, store):
         keep |= set(pr.meta.get("previews") or [])
         keep |= {v for v in (pr.meta.get("parts") or {}).values() if str(v).startswith("est:")}
     keep |= _used_by_documents(p)
+    for r in store.records("run"):                  # 실행 기록이 남아 있으면 그 단계의 기록도(재연이 견준다)
+        for s in r.meta.get("steps") or []:
+            keep |= {x for x in s.get("records") or [] if not str(x).startswith("data:")}
     return keep
 
 
@@ -305,19 +309,32 @@ def dispatch(args, cmdline: str) -> int:
     return code
 
 
+def _load(store, lines):
+    from ..work.store import RecordError
+    out = []
+    for x in lines:
+        try:
+            out.append(store.get(x["id"]))
+        except RecordError:
+            continue
+    return out
+
+
 def _work(p, args):
     store = p.work
     act = args.work_command
     if act == "list":
         adopted, marks = p.adopted, store.marks()
-        recs = store.records(args.kind)
+        lines = [x for x in store.log() if not args.kind or x.get("kind") == args.kind]   # 목록은 log.jsonl로 거르고
         if args.target:
-            recs = [r for r in recs if str(r.meta.get("target", "")).lower() == args.target.lower()]
+            lines = [x for x in lines if str(x.get("target", "")).lower() == args.target.lower()]
         if args.part:
             pid = p.part(args.part).id
-            recs = [r for r in recs if r.meta.get("part") == pid]
-        if args.limit:
-            recs = recs[-args.limit:]
+            recs = [r for r in _load(store, lines) if r.meta.get("part") == pid]
+            if args.limit:
+                recs = recs[-args.limit:]
+        else:
+            recs = _load(store, lines[-args.limit:] if args.limit else lines)   # 보일 기록만 연다(기록이 많아도 빠르게)
         rows = [{"id": r.id, "created": r.meta.get("created"), "who": r.meta.get("who"), "target": r.meta.get("target"),
                  "part": r.meta.get("part"), "metric": _metric(r), "flags": _flags(p, store, r, adopted, marks)}
                 for r in recs]
@@ -349,7 +366,8 @@ def _work(p, args):
         return e if args.json else f"[work memo] {args.record} — {args.text}"
     # clean
     keep = _referenced(p, store)
-    cand = [r for r in store.records(args.kind) if r.id not in keep]
+    cand = [r for r in store.records(args.kind) if r.id not in keep
+            and (r.kind != "run" or args.kind == "run")]   # 실행 기록은 --kind run으로 고를 때만
     if args.yes:
         for r in cand:
             store.remove(r.id)

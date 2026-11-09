@@ -107,6 +107,11 @@ def _rel(root, path):
     return os.path.relpath(path, root).replace(os.sep, "/")
 
 
+def _inside(root, path) -> bool:
+    from ..projects.config import inside
+    return inside(root, path)
+
+
 def parse(root: str, path: str, _stack: tuple = (), _section: str = "") -> Script:
     """스크립트를 읽는다 — `run 다른.eqs`는 그 자리에 펼친다(매개변수는 하나의 이름 공간 — 먼저 적은 기본값이 이긴다).
     문제는 `.problems`에 모은다(첫 문제에서 멈추지 않는다). 경로는 프로젝트 폴더 기준."""
@@ -173,6 +178,9 @@ def parse(root: str, path: str, _stack: tuple = (), _section: str = "") -> Scrip
                 sc.problems.append(f"{where}: run은 다른 스크립트(.eqs)를 포함합니다 — Python은 'py {target}'")
                 continue
             tfull = os.path.normpath(os.path.join(root, target))
+            if not _inside(root, tfull):
+                sc.problems.append(f"{where}: run {target} — 프로젝트 밖의 스크립트는 포함하지 않습니다")
+                continue
             trel = _rel(root, tfull)
             if trel in _stack or trel == rel:
                 sc.problems.append(f"{where}: 스크립트가 돌고 돕니다: {' → '.join((*_stack, rel, trel))}")
@@ -192,6 +200,9 @@ def parse(root: str, path: str, _stack: tuple = (), _section: str = "") -> Scrip
         if head == "py":
             if len(toks) < 2 or not toks[1].lower().endswith(".py"):
                 sc.problems.append(f"{where}: 'py 스크립트.py [--set 이름=값 …]'")
+                continue
+            if not _inside(root, os.path.join(root, toks[1])):
+                sc.problems.append(f"{where}: py {toks[1]} — 프로젝트 밖의 Python 스크립트는 돌리지 않습니다")
                 continue
             if not os.path.isfile(os.path.join(root, toks[1])):
                 sc.problems.append(f"{where}: Python 스크립트가 없습니다: {toks[1]}")

@@ -66,7 +66,8 @@ def export_xlsx(p, ids: List[str], path: str) -> dict:
             if os.path.isfile(rec.file(fn)):
                 stem = fn[:-4]
                 frames.append((f"{rec.name}_{SHEET_KO.get(stem, stem)}", rec.read_csv(fn)))
-    full = os.path.abspath(os.path.join(p.root, path) if not os.path.isabs(path) else path)
+    from .config import project_path
+    full = project_path(p.root, path, "내보낼 엑셀")
     os.makedirs(os.path.dirname(full), exist_ok=True)
     with pd.ExcelWriter(full, engine="openpyxl") as xw:
         pv = pd.DataFrame(prov).set_index("기록")
