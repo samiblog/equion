@@ -97,8 +97,8 @@ print(text.split("<!-- /equion:report -->")[0].strip())     # 머리와 첫 구�
 
 ## 본문
 
-<!-- equion:report sim:2026-11_base #1 · 2026-11-09 · data:d2026-11b {"rows": ["Y", "CN", "I", "P"], "show": "yoy", "annual": true, "title": "성장률 전망", "n": 1, "key": "growth", "h": "a50c06e15057"} -->
-**표 1. 성장률 전망** (전년동기비, %)
+<!-- equion:report sim:2026-11_base #1 · 2026-11-09 · data:d2026-11b {"rows": ["Y", "CN", "I", "P"], "show": "yoy", "annual": true, "title": "성장률 전망", "n": 1, "key": "growth", "h": "1bfda15172d8"} -->
+**표 1. 성장률 전망** (연간 증가율, %)
 
 | 시리즈 | 2020 | 2021 |
 |---|---|---|
@@ -106,6 +106,8 @@ print(text.split("<!-- /equion:report -->")[0].strip())     # 머리와 첫 구�
 | CN | 2.2 | 2.1 |
 | I | 1.3 | 2.3 |
 | P | 3.1 | 2.7 |
+
+연간 값 — 2020년은 실측 1기 + 전망 3기
 
 자료: Equion sim:2026-11_base(자료 회차 d2026-11b)
 ```

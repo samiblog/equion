@@ -17,6 +17,7 @@
       FLOWS/monthly.eqs      스크립트 — 새 원자료로 회차·다시 추정·HS·전망·보고서까지(equion run FLOWS/monthly.eqs)
       notes/data_check.md    노트 — 자료 점검(스크립트가 실행)
       DATA/raw/inbox/        받은 원자료를 놓는 곳(data build --inbox)
+      CLAUDE.md              Claude Code에게 — 먼저 equion guide를 읽으라는 안내
       README.md · .gitignore
 자료 회차(work/data/<회차>/)는 Project.create가 만들고 지금 회차로 정한다.
 """
@@ -228,6 +229,22 @@ NOTE = """\
 ```equion
 an summary core
 ```
+
+항등식이 새 자료에서도 맞는지(개정이 한 시리즈에만 오면 어긋난다):
+
+```equion
+ident demand:Y --check --range last-7:last
+```
+"""
+
+CLAUDE_MD = """\
+# 이 폴더는 Equion 프로젝트입니다
+
+모형 작업을 하기 전에 안내를 읽으세요: `equion guide`(규칙·프로젝트 지도·명령·분석·판단 기준·보고 꼴).
+
+- 계산은 `equion` 명령으로(est·hs·sim·an·run) — 결론에는 근거 기록의 이름(`est:…`·`hs:…`·`sim:…`)을 붙입니다.
+- `work/`·`DATA/raw/`·노트와 보고서의 결과 구역은 고치지 않습니다. 정의 파일은 명령(`adopt`·`data use`·`propose`)으로 먼저.
+- 월간 작업: 새 원자료를 `DATA/raw/inbox/`에 → `equion data inbox` → `equion run FLOWS/monthly.eqs --dry-run` → `equion run FLOWS/monthly.eqs`.
 """
 
 README = """\
@@ -265,6 +282,7 @@ p.hs("demand")                # 블록 HS — 수요 블록만 풀고 나머지 
 | `FLOWS/` | 스크립트(`.eqs`) — 한 줄이 equion 명령 하나, 원자료에서 보고서까지의 순서 |
 | `DATA/raw/inbox/` | 받은 원자료를 놓는 곳 — `data build --inbox ask`가 출처와 짝지어 넣는다 |
 | `notes/` · `reports/` | 노트(명령 블록 + 결과) · 보고서(결과만) |
+| `CLAUDE.md` | Claude Code에게 — 먼저 `equion guide`(모형 작업 안내)를 읽는다 |
 | `work/data/` | 자료 회차 — '자료 만들기'로만 생긴다(git 제외) |
 """
 
@@ -295,6 +313,7 @@ def create_desk_project(path: str, force: bool = False) -> list:
         "SCENARIOS/oil20.toml": OIL20,
         "FLOWS/monthly.eqs": MONTHLY,
         "notes/data_check.md": NOTE,
+        "CLAUDE.md": CLAUDE_MD,
         "README.md": README.format(name=name),
         ".gitignore": GITIGNORE,
     }

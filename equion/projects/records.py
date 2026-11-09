@@ -568,9 +568,10 @@ class ReestResult:
         L = [f"[est --adopted] {self.model} · 정책 {self.policy}: 식 {n} — 새 계수 채택 {len(self.adopted)}"
              + (f" · 기준 미달 {len(self.flagged)}" if self.flagged else "")]
         for r in self.rows:
-            ch = f"계수 최대 변화 {r['max_change_pct']:.2f}%" if r.get("max_change_pct") is not None else "처음 채택"
+            ch = f"계수 최대 변화 {r['max_change_pct']:.2f}%" if r.get("max_change_pct") is not None else "옛 계수 없음"
             what = ("채택" if r["adopted"] else
-                    ("옛 계수 유지" if r["old"] else "채택 없음(지금 자료로 추정)") if r["passed"] is False else
+                    ("옛 계수 유지" if r["old"] else "채택 안 함 — 옛 계수가 없어 모형은 이 자료로 추정한 계수로 푼다")
+                    if r["passed"] is False else
                     ("기록만(정책 never)" if self.policy == "never" else "채택 안 함"))
             mark = "!" if r["passed"] is False else "✓"
             L.append(f"  {mark} {r['part']:<12} {r['old'] or '—'} → {r['new']} · {ch} · "

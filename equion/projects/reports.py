@@ -3,7 +3,7 @@
 """보고서 (D37) — `reports/*.md`. 명령 블록 없이 **결과만** 보낸다. 구역마다 보이지 않는 표시에 기록 이름·보낸 날·자료 회차·보낸 모양.
 
     <!-- equion:report sim:2026-11_base #1 · 2026-11-09 · d2026-11a {"record": …, "rows": […], "show": "yoy", "annual": true, …} -->
-    **표 1. 주요 지표 전망** (전년동기비, %)
+    **표 1. 주요 지표 전망** (연간 증가율, %)
 
     | 시리즈 | 2020 | 2021 |
     |---|---|---|
@@ -128,6 +128,8 @@ def _sim_table(rec, shape):
         t = pd.DataFrame({v: src.loc[fc, col(v)] for v in rows}).T
     t.index.name = "시리즈"
     unit = SHOW_KO["yoy" if (shape.get("annual") and show == "qoq") else show]
+    if shape.get("annual") and show in ("yoy", "qoq"):
+        unit = "연간 증가율, %"
     if shape.get("annual") and show == "level":
         unit = "연평균 수준"
     title = shape.get("title") or f"전망 — {m['scenario']} ({m['model']})"
@@ -202,8 +204,30 @@ def render(p, report_path: str, rid: str, shape: dict) -> Tuple[str, Optional[tu
         data, block = _chart(rec, shape, data_rel, n)
         if block:
             parts += ["", block]
+    mixed = _mixed_years(rec, t) if rec.kind == "sim" and shape.get("annual") and shape.get("show") != "diff" else ""
+    if mixed:
+        parts += ["", mixed]
     parts += ["", f"자료: Equion {rec.id}({vint.replace('data:', '자료 회차 ')})"]
     return "\n".join(parts), data
+
+
+def _mixed_years(rec, t) -> str:
+    """연간 표에서 실측과 전망이 섞인 해 — '2020년은 실측 1기 + 전망 3기'."""
+    try:
+        fl = rec.read_csv("flags.csv")
+    except OSError:
+        return ""
+    var = next((v for v in t.index if v in fl.columns), None)
+    if var is None:
+        return ""
+    out = []
+    for y in t.columns:
+        labs = [lab for lab in fl.index if str(lab).startswith(str(y))]
+        n_act = sum(1 for lab in labs if fl.loc[lab, var] == "실측")
+        n_sol = sum(1 for lab in labs if fl.loc[lab, var] == "해")
+        if n_act and n_sol:
+            out.append(f"{y}년은 실측 {n_act}기 + 전망 {n_sol}기")
+    return ("연간 값 — " + " · ".join(out)) if out else ""
 
 
 def _open_line(rid, shape, vint) -> str:

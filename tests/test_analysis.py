@@ -323,7 +323,7 @@ def _main(tmp, t0):
           under="## 본문", chart=True)
     t1 = read(rp)
     ann = b1.annual
-    check("add: 전망 연간 증가율(소수 1자리)·제목 번호·출처", "**표 1. 주요 지표 전망** (전년동기비, %)" in t1
+    check("add: 전망 연간 증가율(소수 1자리)·제목 번호·출처", "**표 1. 주요 지표 전망** (연간 증가율, %)" in t1
           and f"| Y | {ann.loc['2020', 'Y_증가율']:.1f} | {ann.loc['2021', 'Y_증가율']:.1f} |" in t1
           and f"자료: Equion sim:2026-10_base(자료 회차 {g.vintage})" in t1)
     check("add: 제목 아래(## 본문)·보이지 않는 표시", t1.index("## 본문") < t1.index("<!-- equion:report sim:2026-10_base #1")

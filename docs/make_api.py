@@ -304,21 +304,31 @@ def main(argv=None) -> int:
     ap.add_argument("--check", action="store_true", help="다시 만들지 않고, 코드와 어긋나면 1")
     a = ap.parse_args(argv)
     text = build()
+    import equion.help as guide            # Claude용 안내의 표(등록부·명령줄에서) — 같은 검사
     if a.check:
         try:
             with open(OUT, encoding="utf-8") as f:
                 cur = f.read()
         except OSError:
             cur = ""
+        bad = 0
         if cur != text:
             print("docs/reference/api.md가 코드와 다릅니다 — python docs/make_api.py 로 다시 만드세요", file=sys.stderr)
-            return 1
-        print("docs/reference/api.md 최신")
-        return 0
+            bad = 1
+        stale = guide.sync(check=True)
+        if stale:
+            print(f"Claude용 안내의 표가 코드와 다릅니다({', '.join(os.path.relpath(x, ROOT) for x in stale)}) — "
+                  "python docs/make_api.py 로 다시 만드세요", file=sys.stderr)
+            bad = 1
+        if not bad:
+            print("docs/reference/api.md · equion/help 최신")
+        return bad
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
     print(f"→ {OUT} ({len(text.splitlines())}줄)")
+    for x in guide.sync():
+        print(f"→ {os.path.relpath(x, ROOT)} (표를 코드로)")
     return 0
 
 

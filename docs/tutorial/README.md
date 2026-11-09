@@ -14,6 +14,7 @@
 | 6 | [전망](06-forecast.md) | [06-forecast.py](../../examples/tutorial/06-forecast.py) · [ipynb](../../examples/notebooks/06-forecast.ipynb) |
 | 7 | [시스템·VAR·VECM](07-systems.md) | [07-systems.py](../../examples/tutorial/07-systems.py) · [ipynb](../../examples/notebooks/07-systems.ipynb) |
 | 8 | [명령줄](08-cli.md) | [08-cli.py](../../examples/tutorial/08-cli.py) · [ipynb](../../examples/notebooks/08-cli.ipynb) |
+| 9 | [프로젝트와 스크립트](09-project.md) | [09-project.py](../../examples/tutorial/09-project.py) · [ipynb](../../examples/notebooks/09-project.ipynb) |
 
 처음이라면 [30분 첫 모델](../start/first-model.md)을 먼저 보세요. 특정 작업만 찾는다면 [레시피](../howto/README.md)가 빠릅니다.
 
@@ -29,3 +30,7 @@
 | 기준선 · 시나리오 · 별칭 | 가정을 바꾸지 않은 풀이(`_0`) · 가정을 바꾼 풀이(`_1` …) · 결과 시리즈 이름 끝의 `_0`·`_1` |
 | 과거 재현(HS) | 실제 과거 기간을 모델로 다시 풀어 보는 것(Historical Simulation) |
 | 동적 · 정적 풀이 | 시차에 지난 풀이 값을 쓴다 · 시차에 실측을 쓴다 |
+| 프로젝트 · 블록 · 부품 · 모형 | 폴더 하나(`equion.toml`) · 방정식 파일 하나 · 식 한 줄(`블록:목표` — `demand:CN`) · 블록과 다른 모형을 끼운 조립(9편) |
+| 자료 회차 | 원자료를 정의대로 읽어 만든 자료(`d2026-11a`) — 고치지 않고, 새 자료면 새 회차 |
+| 작업 기록 · 채택 | 계산할 때마다 남는 기록(`est:…`·`hs:…`·`sim:…`) · 모형이 쓸 계수를 추정 기록 하나로 정하기 |
+| 스크립트(`.eqs`) | 한 줄이 `equion` 명령 하나인 순서 — 원자료에서 보고서까지 한 번에, 그때 그대로 다시(`--replay`) |

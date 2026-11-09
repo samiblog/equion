@@ -76,7 +76,8 @@ def run_text(m: dict) -> str:
         L.append("  매개변수  " + " · ".join(f"{k} = {' '.join(x)}" for k, x in m["params"].items()))
     for s in m.get("steps") or []:
         L.append(f"  [{s['n']}] {MARK.get(s['status'], '?')} {s['line']}" + (f"  — {s['detail']}" if s.get("detail") else "")
-                 + (f"  → {' · '.join(s['records'][:3])}" if s.get("records") and s["kind"] != "expect" else ""))
+                 + (f"  → {' · '.join(s['records'][:3])}" + (f" 외 {len(s['records']) - 3}" if len(s["records"]) > 3 else "")
+                    if s.get("records") and s["kind"] != "expect" else ""))
     L += [f"  알아서 한 것  {x}" for x in m.get("implicit") or []]
     return "\n".join(L)
 

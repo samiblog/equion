@@ -29,6 +29,7 @@ from .scenario import Scenario
 from .worktable import WorkTable, Workspace, current
 from .workfile import Workfile, wfcreate, wfopen, show, params, secret, verbose, spool
 from . import datasets, log, registry, script, stats
+from . import help  # noqa: A004 — eqn.help(Claude용 안내) · `from equion import *`에는 넣지 않는다(내장 help를 가리지 않게)
 from .projects import Project
 from .projects import open_project as project   # eqn.project(폴더) — 하위 패키지는 equion.projects
 

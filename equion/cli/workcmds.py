@@ -160,8 +160,9 @@ def _flags(p, store, rec, adopted, marks):
     if marks.get(rec.id, {}).get("pinned"):
         f.append("고정")
     d = m.get("data") or {}
-    if d.get("kind") == "vintage" and p.vintage and d.get("id") != p.vintage:
-        f.append(f"회차 다름({d.get('id')})")
+    vid = (m.get("vintage") or {}).get("end") if rec.kind == "run" else (d.get("id") if d.get("kind") == "vintage" else None)
+    if vid and p.vintage and vid != p.vintage:          # 실행 기록은 끝났을 때의 회차로(시작 회차는 record.json에)
+        f.append(f"회차 다름({vid})")
     if marks.get(rec.id, {}).get("memo"):
         f.append(f"메모: {marks[rec.id]['memo']}")
     return f

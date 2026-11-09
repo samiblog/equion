@@ -4481,7 +4481,7 @@ p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
 _ = p.report_new("m")
 s = p.sim(as_name="b")
 p.report_add("m", "sim:b", rows=["Y", "CN"], show="yoy", annual=True).items[0]["detail"]
-# '**표 1. 전망 — base (main)** (전년동기비, %)'
+# '**표 1. 전망 — base (main)** (연간 증가율, %)'
 ```
 
 ### Project.report_check
@@ -5234,3 +5234,4 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `note` | --help | 노트 — ```equion 블록을 실행해 결과 구역을 채운다 · 검사 |
 | `report` | --help | 보고서 — 결과만 보내기(명령 블록 없이) · 검사 · 새 기록으로 바꾸기 |
 | `script` | --help | 스크립트(.eqs) — 작업 기록으로 초안 · 같은 일을 하는 Python으로 |
+| `guide` | --force --help --install --path --project | Claude(AI)용 모형 작업 안내 · Claude Code 스킬 초안 |

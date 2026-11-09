@@ -59,6 +59,12 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
   미리보기 `equion data inbox` · `Project.data_inbox`. 예제 프로젝트에 월간 스크립트 `FLOWS/monthly.eqs`·자료 점검 노트. 레시피 R56~R58.
   **종료 코드(D15 안에서)**: `.eqs`는 멈춘 단계의 종료 코드 · `expect --stop`에 걸리면 2 · `--fail-on`에 걸리면 2 · 실행 전 검사 문제·모르는
   `--set`은 3 · `--replay`에 다른 단계가 있으면 2.
+- **Claude용 안내와 스킬 초안(0.8 E6)**: 패키지에 모형 작업 안내 `equion/help/guide.md`(꼭 지킬 것 — 계산은 명령으로·결론에 근거 기록·
+  결과는 고치지 않음·정의는 명령으로 먼저·"제안만"이면 propose·거른 후보도 기록 / 프로젝트 지도·이름·명령·판단 기준·기록 읽기·분석·노트·
+  보고서·스크립트와 월간 작업·종료 코드와 흔한 문제·보고 꼴)와 Claude Code 스킬 초안 `equion/help/skill/SKILL.md`(`name: equion`).
+  안내의 명령·분석·허용 목록 표는 명령줄과 등록부에서 만들고 `docs/make_api.py --check`가 코드와 같은지 본다. `equion guide`·`--path`·
+  `guide skill`·`guide skill --install user|project`(사람이 시킬 때만, 다른 내용은 `--force` 없이 덮지 않음), `eqn.help`.
+  예제 프로젝트에 `CLAUDE.md`(먼저 `equion guide`). 튜토리얼 9편 "프로젝트와 스크립트", 파일 형식에 프로젝트 파일 지도.
 - **문서 체계(D27)**: 시작하기 · 튜토리얼 8편 · 레시피 · 해설 · 참조 · 사례 연구(Klein형) · EViews 사용자 안내 ·
   영문 시작 문서. 시작점은 [`docs/README.md`](docs/README.md)입니다. 문서의 예제는 실제로 돌고, 출력도 실행 결과입니다.
   `python docs/build_docs.py --check`가 CI에서 예제 실행·출력·링크·API 설명과 예제·doctest를 확인합니다.
@@ -77,6 +83,10 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
 - `report new --exist-ok`(있으면 그대로) · `report add --key 이름`(같은 이름의 구역을 그 자리에서 새 기록으로 — 손으로 고친 구역은 `--force`일 때만).
   `[source.이름] inbox` 키. 작업 기록에 `run`(그 기록을 만든 스크립트 실행)·바뀜 기록에 `run`. `FLOWS/*.eqs`도 바뀜 기록에 남는다.
 - 노트의 블록은 정의 파일을 바꾸는 줄(`est --adopt`·`an keep`·`an --note`)도 부를 수 없다(전에는 명령 이름만 봤다).
+- 보고서의 전망 연간 표 제목은 `(연간 증가율, %)`(전에는 `전년동기비`)이고, 실측과 전망이 섞인 해를 밝힌다(`2020년은 실측 1기 + 전망 3기`).
+- `est --adopted`의 글: 옛 채택 계수가 없는 식은 `옛 계수 없음 · … · 채택 안 함 — 옛 계수가 없어 모형은 이 자료로 추정한 계수로 푼다`
+  (전에는 `처음 채택`·`채택 없음`이 함께 나와 모순으로 읽혔다). `work list`의 '회차 다름'은 실행 기록이면 끝났을 때의 회차로 본다.
+  `work show run:…`은 잘린 기록 수를 `외 n`으로 보인다. 예제의 자료 점검 노트에 항등식 검사 블록.
 - `series.toml`의 시리즈에 `made_by`(그 정의를 만든 분석 기록)를 적을 수 있다. 노트·보고서도 바뀜 기록에 남는다(낡음 판정의 입력은 아니다).
 - 예제 프로젝트에 판단 기준 `[criteria]`·전망 `[forecast]`과 `ASSUMPTIONS/base.csv`·`ADDFACTORS/base.toml`·`SCENARIOS/oil20.toml`을 더했다.
   프로젝트의 모형은 채택 기록이 있으면 그 계수로 푼다(없으면 지금처럼 지금 자료로 추정하고 알린다).

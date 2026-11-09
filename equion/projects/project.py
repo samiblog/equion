@@ -975,7 +975,7 @@ class Project:
             >>> _ = p.report_new("m")
             >>> s = p.sim(as_name="b")
             >>> p.report_add("m", "sim:b", rows=["Y", "CN"], show="yoy", annual=True).items[0]["detail"]
-            '**표 1. 전망 — base (main)** (전년동기비, %)'
+            '**표 1. 전망 — base (main)** (연간 증가율, %)'
         """
         from .reports import add
         return add(self, report, record, rows=rows, show=show, annual=annual, digits=digits, title=title, chart=chart,

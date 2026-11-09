@@ -28,6 +28,27 @@ Y = CN + I + G
 @def RG = Y/Y(-1) - 1        # 매크로: 뒤 줄의 RG를 식으로 바꾼다
 ```
 
+## 프로젝트 파일 지도
+
+한 프로젝트 폴더의 파일과 그것을 만들거나 고치는 것입니다. 사람이 쓰는 **정의**(git에 넣는다)와 명령이 덧붙여 쓰는 **산출물**(`work/`·`exports/` —
+다시 만들 수 있어 git에서 뺀다)로 나뉩니다. 정의 파일이 바뀌면 바뀜 기록에 남습니다.
+
+| 위치 | 형식 · 판 | 만드는 것 · 고치는 것 |
+|---|---|---|
+| `equion.toml` | 프로젝트 — `format = "equion-project"` · `format_version` | 사람 · `data use`(`[data] vintage`) |
+| `EQUATIONS/<블록>.txt` | 방정식 파일(아래 '방정식 파일') | 사람 · `adopt`(그 줄) · `propose apply` |
+| `EQUATIONS/adopted.toml` | 채택표 | `adopt` · `est --adopted --adopt` · `propose apply` |
+| `DATA/raw/` · `DATA/raw/inbox/` | 원자료(받은 그대로) · 받은 상자 · 옆 파일 `*.source.toml` | `data add` · `data build --inbox` |
+| `DATA/series.toml` · `DATA/derived.txt` | 자료 정의 · 파생식 | 사람 · `data add --source` · `an keep` |
+| `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` | 가정 CSV · 보정항 TOML · 시나리오 TOML | 사람 |
+| `FLOWS/*.eqs` | 스크립트 — `equion-script` | 사람 · `script new` |
+| `notes/*.md` · `reports/*.md`(+ `<보고서>_data/`) | 노트·보고서 — 글과 결과 구역 | 글은 사람·Claude · 구역은 `note run` · `report add·update` |
+| `CLAUDE.md` | Claude Code에게 — 먼저 `equion guide` | 사람(예제가 만든다) |
+| `work/data/<회차>/` | 자료 회차 — `equion-data-vintage` | `data build` |
+| `work/<est·hs·sim·an·run>/<이름>/` · `work/log.jsonl` · `work/marks.json` | 작업 기록 — `equion-record` | 명령(덧붙이기만) · `work pin·memo` |
+| `work/history/` · `work/proposals/` | 바뀜 기록 — `equion-change` · 제안 — `equion-proposal` | 정의를 바꾸는 명령 · `propose` |
+| `exports/` | 엑셀 | `export` |
+
 ## 프로젝트(`equion.toml`)
 
 프로젝트는 폴더 하나입니다 — `equion.toml`이 자료와 블록(방정식 파일 하나 = 블록 하나)을 이름으로 묶고, 모형은 블록과 다른 모형을

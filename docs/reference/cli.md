@@ -46,6 +46,7 @@ Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·
     note      노트 — ```equion 블록을 실행해 결과 구역을 채운다 · 검사
     report    보고서 — 결과만 보내기(명령 블록 없이) · 검사 · 새 기록으로 바꾸기
     script    스크립트(.eqs) — 작업 기록으로 초안 · 같은 일을 하는 Python으로
+    guide     Claude(AI)용 모형 작업 안내 · Claude Code 스킬 초안
 
 옵션:
   -h, --help  도움말을 보이고 끝낸다
@@ -569,6 +570,41 @@ helptext("script", "export", "--help")
   --force           이미 있으면 덮는다
   --project, -p 폴더  프로젝트 폴더(기본: 지금 폴더에서 위로)
   --json            결과를 JSON으로
+```
+
+## Claude용 안내 — guide
+
+Equion 프로젝트에서 일하는 Claude가 먼저 읽는 **모형 작업 안내**(규칙·프로젝트 지도·명령·분석·판단 기준·기록 읽기·보고 꼴)와 Claude Code **스킬
+초안**이 패키지에 들어 있습니다(`equion/help/`). 안내의 명령·분석·허용 목록 표는 등록부와 명령줄에서 만들어 코드와 늘 같습니다
+(`python docs/make_api.py --check`가 CI에서 본다). 예제 프로젝트의 `CLAUDE.md`가 Claude Code에게 먼저 `equion guide`를 읽게 합니다.
+
+| 명령 | 하는 일 |
+|---|---|
+| `equion guide` | 모형 작업 안내를 보인다 |
+| `equion guide --path` | 안내 파일의 경로 — Claude에게 "이 파일을 읽어"라고 줄 때 |
+| `equion guide skill` | 스킬 초안(`SKILL.md` — `name: equion`)을 보인다 |
+| `equion guide skill --install user` · `--install project [-p 폴더]` | `~/.claude/skills/equion/SKILL.md` · `<프로젝트>/.claude/skills/equion/SKILL.md`에 쓴다(사람이 시킬 때만 — 다른 내용이 있으면 `--force` 없이는 덮지 않는다) |
+
+```python
+helptext("guide", "--help")
+```
+<!-- out -->
+```text
+사용법: equion guide [-h] [--path] [--install {user,project}] [--project 폴더] [--force] [{claude,skill}]
+
+Equion 프로젝트에서 일하는 Claude가 먼저 읽는 안내(규칙·프로젝트 지도·명령·분석·판단 기준·보고 꼴)와 Claude Code 스킬 초안. 스킬은 --install로 시킬 때만 쓴다.
+
+인자:
+  {claude,skill}        claude: 모형 작업 안내(기본) · skill: 스킬 초안(SKILL.md)
+
+옵션:
+  -h, --help            도움말을 보이고 끝낸다
+  --path                파일 경로만 — Claude에게 '이 파일을 읽어'
+  --install {user,project}
+                        (skill) 스킬 폴더에 쓴다 — user: ~/.claude/skills/equion/ · project:
+                        <프로젝트>/.claude/skills/equion/
+  --project, -p 폴더      (--install project) 프로젝트 폴더
+  --force               (--install) 다른 내용의 스킬이 있어도 덮는다
 ```
 
 ## 환경변수

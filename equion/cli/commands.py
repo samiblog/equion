@@ -11,6 +11,7 @@
     equion data list|add 파일|build [--use]|use 회차|diff [A B]|impact [A B]      (자료 회차 — D34)
     equion est · adopt · compare · hs · sim · propose · export · work · history   (작업 명령·기록 — D33)
     equion an · note · report  (분석·노트·보고서 — D37)  ·  equion script new·export  (스크립트 — D36)
+    equion guide [skill] [--path] [--install user|project]  (Claude용 모형 작업 안내·스킬 초안)
 
 종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(--fail-on) · 3 입력 오류 · 130 중단
 """
@@ -175,6 +176,17 @@ def build_parser() -> argparse.ArgumentParser:
     add_an_parsers(sub)
     from .scriptcmds import add_parsers as add_script_parsers
     add_script_parsers(sub)
+
+    gd = sub.add_parser("guide", help="Claude(AI)용 모형 작업 안내 · Claude Code 스킬 초안",
+                        description="Equion 프로젝트에서 일하는 Claude가 먼저 읽는 안내(규칙·프로젝트 지도·명령·분석·판단 기준·보고 꼴)와 "
+                                    "Claude Code 스킬 초안. 스킬은 --install로 시킬 때만 쓴다.")
+    gd.add_argument("topic", nargs="?", choices=("claude", "skill"), default="claude",
+                    help="claude: 모형 작업 안내(기본) · skill: 스킬 초안(SKILL.md)")
+    gd.add_argument("--path", action="store_true", help="파일 경로만 — Claude에게 '이 파일을 읽어'")
+    gd.add_argument("--install", choices=("user", "project"),
+                    help="(skill) 스킬 폴더에 쓴다 — user: ~/.claude/skills/equion/ · project: <프로젝트>/.claude/skills/equion/")
+    gd.add_argument("--project", "-p", default=".", metavar="폴더", help="(--install project) 프로젝트 폴더")
+    gd.add_argument("--force", action="store_true", help="(--install) 다른 내용의 스킬이 있어도 덮는다")
     return p
 
 
@@ -454,6 +466,26 @@ def cmd_convert(args) -> int:
     return EXIT_OK
 
 
+def cmd_guide(args) -> int:
+    from .. import help as guide
+    if args.install:
+        if args.topic != "skill":
+            print(f"{PROG}: 오류: --install은 스킬에만: equion guide skill --install user", file=sys.stderr)
+            return EXIT_INPUT
+        try:
+            dst = guide.install_skill(args.install, project=args.project, force=args.force)
+        except (FileExistsError, ValueError, OSError) as e:
+            print(f"{PROG}: 오류: {e}", file=sys.stderr)
+            return EXIT_INPUT
+        print(f"[guide skill] {dst} — Claude Code를 다시 열면 스킬 equion이 보입니다")
+        return EXIT_OK
+    if args.path:
+        print(guide.SKILL if args.topic == "skill" else guide.GUIDE)
+        return EXIT_OK
+    print(guide.skill_text() if args.topic == "skill" else guide.guide_text())
+    return EXIT_OK
+
+
 def cmd_new(args) -> int:
     from .new import create_project
     prj = None
@@ -596,7 +628,8 @@ def cmd_data(args) -> int:
             items = p.data_inbox()
             out = [x.to_dict() for x in items] if args.json else (
                 f"[data inbox] 받은 원자료 {len(items)} — DATA/raw/inbox/" + "".join(f"\n  {x.text()}" for x in items)
-                + ("\n  넣기   equion data build --inbox ask --use" if items else ""))
+                + ("\n  넣기   스크립트의 자료 단계(예: equion run FLOWS/monthly.eqs) — 따로 넣으려면 equion data build --inbox ask --use"
+                   if items else ""))
             code = EXIT_OK if all(x.ok for x in items) else EXIT_INPUT
         elif act == "use":
             old = p.data_use(args.vintage, who=who, command=cmdline)
@@ -689,6 +722,8 @@ def main(argv=None) -> int:
             return cmd_info(args)
         if args.command == "new":
             return cmd_new(args)
+        if args.command == "guide":
+            return cmd_guide(args)
         if args.command == "convert":
             return cmd_convert(args)
         if args.command == "assemble":
