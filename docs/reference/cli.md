@@ -67,6 +67,14 @@ Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·
 
 스크립트의 `sys.exit(n)`(정수)은 그대로 n입니다. 이 약속은 자동화가 기대므로 바꾸지 않습니다(DECISIONS D15).
 
+**`--json`의 오류**: `--json`을 주면 오류도 표준출력에 JSON 하나로 나옵니다(종료 코드는 같다). 사용법 오류에는 `usage`, 예상 못 한 내부 오류(종료 코드 1)에는
+`type`·`internal`·`traceback`(끝 몇 줄)이 더 붙습니다. `--json`이 없으면 표준오류에 `equion: 오류: …` 한 줄입니다.
+
+    {"error": {"message": "없는 부품: demand:ZZ (있는 부품: demand:CN, …)", "exit_code": 3, "kind": "input", "kind_ko": "입력 오류"}}
+
+`kind`는 `script`(1) · `check`(2) · `input`(3) · `interrupted`(130). 자동화는 종료 코드를 보고, 0이 아니면 `error`를 읽습니다. 결과가 있는 실패
+(조립 문제가 있는 `assemble --json`, 멈춘 `run x.eqs --json`)는 오류 대신 그 결과의 JSON이 나오고 종료 코드가 0이 아닙니다.
+
 ## equion run
 
 ```python

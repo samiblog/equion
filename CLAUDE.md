@@ -54,7 +54,7 @@ uv run python tests/test_stats.py             # 자체 통계 166/166 (OLS·WLS�
 uv run python tests/test_ast_formula.py       # 66/66 (레거시 formula 유틸)
 uv run python tests/test_100_equations.py     # 100/100
 uv run python tests/test_error_equations.py   # 에러 검증 시각화
-uv run python tests/test_journeys.py          # 사용자 관점 시나리오 34/34 (docs/TEST_SCENARIOS.md — 한 해 운영·협업·실패와 회복·적대적 입력·이식성·명령줄·규모)
+uv run python tests/test_journeys.py          # 사용자 관점 시나리오 36/36 (docs/TEST_SCENARIOS.md — 한 해 운영·협업·실패와 회복·적대적 입력·이식성·명령줄·규모)
 uv run python tests/test_guide.py             # Claude용 안내·스킬 21/21 (자동 표가 코드와 같음·예시 명령이 모두 읽힘·방정식 예·guide 명령·예제 CLAUDE.md)
 uv run python tests/test_script.py            # 스크립트·재연 72/72 (문법·값 바꿔 넣기·허용 목록·받은 원자료·실행 기록·expect·Python 단계·미리보기·검사·재연·초안·Python으로·명령줄·완료 기준)
 uv run python tests/test_analysis.py          # 분석·노트·보고서 97/97 (등록부·보는 분석 = 엔진·남기기(정의·후보)·노트·보고서·명령줄·분석 시나리오 A1~A5)
@@ -103,7 +103,7 @@ uv run pytest                                 # 위 묶음을 한 번에(파일�
 | `script/` | **Equion 스크립트(D36, E5)**: `language.py`(`.eqs` 문법 — 주석·`##`·`param`·`{이름}`·`expect`·`run` 포함·`py`, 허용 목록 검사) · `session.py`(`Session` — 단계를 같은 프로세스에서 명령줄 그대로, 단계 기록·`expect` 지표·`--fail-on`, 내보낸 Python도 이것) · `record.py`(실행 기록 `work/run/<이름>/` — `script.eqs`·`src/`·`defs/`·`steps/`·카드) · `runner.py`(실행·미리보기·검사·재연 — 프로젝트 사본에서 다시 돌려 숫자 비교) · `export.py`(작업 기록 → 초안, `.eqs` → Python). `eqn.script` |
 | `help/` | **Claude용 안내(E6)**: `guide.md`(모형 작업 안내 — `claude.md`라 하지 않는다: 대소문자를 가리지 않는 OS에서 CLAUDE.md로 읽힌다) · `skill/SKILL.md`(Claude Code 스킬 초안) · `__init__.py`(`guide_text`·`skill_text`·`install_skill`, `<!-- equion:auto … -->` 표를 명령줄·등록부에서 — `make_api.py`가 맞춘다). `equion guide`, `eqn.help` |
 | `registry.py` | **등록부(D37)** — 분석(이름·대상 종류·옵션·결과·만드는 것)과 노트·스크립트가 부를 수 있는 명령의 허용 목록. 명령줄 옵션·도움말이 여기서 나온다(`eqn.registry`) |
-| `cli/` | **명령줄(2단계)**: `commands.py`(argparse·`run`/`check`/`info`/`new`/`assemble`/`ident`/`data`·`--threads` 재실행·`--watch`) · `runner.py`(스크립트 실행기·로그·종료 코드·`--fail-on`) · `report.py`(보고서 폴더·`manifest.json`·`report.html`) · `workcmds.py`(`est`·`adopt`·`compare`·`hs`·`sim`·`propose`·`export`·`work`·`history`) · `ancmds.py`(`an`·`note`·`report` — 등록부에서 옵션) · `scriptcmds.py`(`run x.eqs`·`--replay`·`check x.eqs`·`script new·export`) · `check.py` · `info.py` · `new.py`. `python -m equion` = `equion/__main__.py`. 실행 기록은 `workfile/runtime.py`의 `RunRecord` |
+| `cli/` | **명령줄(2단계)**: `commands.py`(argparse·`run`/`check`/`info`/`new`/`assemble`/`ident`/`data`·`--threads` 재실행·`--watch`) · `runner.py`(스크립트 실행기·로그·종료 코드·`--fail-on`) · `report.py`(보고서 폴더·`manifest.json`·`report.html`) · `workcmds.py`(`est`·`adopt`·`compare`·`hs`·`sim`·`propose`·`export`·`work`·`history`) · `ancmds.py`(`an`·`note`·`report` — 등록부에서 옵션) · `scriptcmds.py`(`run x.eqs`·`--replay`·`check x.eqs`·`script new·export`) · `errors.py`(오류 알리기 — `--json`이면 `{"error": …}` JSON 하나) · `check.py` · `info.py` · `new.py`. `python -m equion` = `equion/__main__.py`. 실행 기록은 `workfile/runtime.py`의 `RunRecord` |
 | `worktable/worktable.py` | (엔진 수준) `WorkTable`/`Workspace` 세션: 주기·표본, `hs(start='auto')`, `forecast`·`extend`·`simulate`·`blocks`, 번들 v3 저장/복원(v2 읽기) |
 | `worktable/freq.py` · `_serial.py` | 주기 유틸·방정식 파일 파서(분류는 parser) / 번들 JSON 헬퍼 |
 | `datasets/` | **예제 자료(D27)**: `toy_q`·`toy_a`·`toy_m`·`klein_like`(참 모형을 아는 가상 자료, 만드는 코드 `_make.py`·고정 시드) · `load`·`describe`·`path`·`klein(path)`(사용자가 구한 실제 Klein 자료). 문서·docstring·시험 예제는 이것만 쓴다 |

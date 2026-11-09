@@ -80,6 +80,8 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
 - 예제 프로젝트(`--template desk`)는 자료 정의·회차를 씁니다 — 원자료 `DATA/raw/toy_q.csv`·`toy_m.csv`, 만들 때 첫 회차를 지금 회차로,
   `[hs] range = "2005Q1:last"`(새 회차로 바꾸면 따라 늘어난다). 자료 파일 하나(`[data] file`)를 쓰는 프로젝트도 그대로 됩니다.
 - 필수 의존성 `tomlkit`(정의 파일을 주석·순서를 지키며 고친다, D38).
+- **`--json`이면 오류도 JSON**: 표준출력에 `{"error": {"message", "exit_code", "kind", "kind_ko"}}` 하나 — 사용법 오류는 `usage`, 예상 못 한
+  내부 오류(종료 코드 1)는 `type`·`internal`·`traceback`도. 종료 코드는 그대로이고, `--json`이 없으면 전처럼 표준오류에 한 줄(`equion.cli.errors`).
 - `report new --exist-ok`(있으면 그대로) · `report add --key 이름`(같은 이름의 구역을 그 자리에서 새 기록으로 — 손으로 고친 구역은 `--force`일 때만).
   `[source.이름] inbox` 키. 작업 기록에 `run`(그 기록을 만든 스크립트 실행)·바뀜 기록에 `run`. `FLOWS/*.eqs`도 바뀜 기록에 남는다.
 - 노트의 블록은 정의 파일을 바꾸는 줄(`est --adopt`·`an keep`·`an --note`)도 부를 수 없다(전에는 명령 이름만 봤다).

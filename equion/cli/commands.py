@@ -27,6 +27,7 @@ from datetime import datetime
 
 from ..version import project_version
 from .runner import EXIT_INPUT, EXIT_INTERRUPT, EXIT_OK, EXIT_SCRIPT, STATUS_KO, RunOptions, normalize_smpl
+from .errors import fail
 
 PROG = "equion"
 _ARGV: list = []
@@ -52,6 +53,10 @@ class _Parser(argparse.ArgumentParser):
     """사용법 오류도 입력 오류(3)로 끝낸다(2는 풀이 실패에 쓴다)."""
 
     def error(self, message):
+        from . import errors
+        if errors.JSON:                         # --json이면 사용법 오류도 JSON 하나(표준출력)
+            errors.fail(f"{self.prog}: {message}", usage=self.format_usage().strip())
+            self.exit(EXIT_INPUT)
         self.print_usage(sys.stderr)
         self.exit(EXIT_INPUT, f"{self.prog}: 오류: {message}\n")
 
@@ -339,7 +344,7 @@ def cmd_run(args, argv, script_args) -> int:
 
     if args.threads is not None:
         if args.threads < 1:
-            print(f"{PROG}: 오류: --threads는 1 이상이어야 합니다", file=sys.stderr)
+            fail(f"--threads는 1 이상이어야 합니다")
             return EXIT_INPUT
         if os.environ.get("EQUION_THREADS") != str(args.threads):
             return _reexec_with_threads(args.threads, argv)
@@ -347,17 +352,17 @@ def cmd_run(args, argv, script_args) -> int:
         from .scriptcmds import cmd_run_eqs
         return cmd_run_eqs(args, argv, script_args)
     if not args.script:
-        print(f"{PROG}: 오류: 실행할 스크립트가 필요합니다(.py · .eqs) — 실행 기록을 다시 하려면 --replay run:이름", file=sys.stderr)
+        fail(f"실행할 스크립트가 필요합니다(.py · .eqs) — 실행 기록을 다시 하려면 --replay run:이름")
         return EXIT_INPUT
     eqs_only = [f for f, v in (("--from", args.from_step), ("-p", args.project), ("--json", args.json)) if v]
     if eqs_only:
-        print(f"{PROG}: 오류: {', '.join(eqs_only)}는 Equion 스크립트(.eqs)에서만 씁니다", file=sys.stderr)
+        fail(f"{', '.join(eqs_only)}는 Equion 스크립트(.eqs)에서만 씁니다")
         return EXIT_INPUT
     if not os.path.isfile(args.script):
-        print(f"{PROG}: 오류: 스크립트가 없습니다: {args.script}", file=sys.stderr)
+        fail(f"스크립트가 없습니다: {args.script}")
         return EXIT_INPUT
     if not args.script.lower().endswith(".py"):
-        print(f"{PROG}: 오류: 스크립트는 .py 또는 .eqs 파일이어야 합니다: {args.script}", file=sys.stderr)
+        fail(f"스크립트는 .py 또는 .eqs 파일이어야 합니다: {args.script}")
         return EXIT_INPUT
     try:
         params = _parse_sets(args.sets, args.params)
@@ -368,11 +373,11 @@ def cmd_run(args, argv, script_args) -> int:
         if args.interval is not None and not args.interval > 0:
             raise ValueError(f"--interval은 0보다 커야 합니다(받은 값 {args.interval})")
     except (OSError, ValueError) as e:
-        print(f"{PROG}: 오류: {e}", file=sys.stderr)
+        fail(f"{e}")
         return EXIT_INPUT
     if args.watch:
         if args.interactive:
-            print(f"{PROG}: 오류: --watch와 -i는 함께 쓸 수 없습니다", file=sys.stderr)
+            fail(f"--watch와 -i는 함께 쓸 수 없습니다")
             return EXIT_INPUT
         return watch(argv, args.script, args.interval)
 
@@ -437,7 +442,7 @@ def cmd_check(args) -> int:
     try:
         rep = check_path(args.path, data=args.data, freq=args.freq, smpl=args.smpl)
     except Exception as e:  # noqa: BLE001 — 파일 없음·데이터 읽기 실패
-        print(f"{PROG}: 오류: {e}", file=sys.stderr)
+        fail(f"{e}")
         return EXIT_INPUT
     print(json.dumps(rep.to_dict(), ensure_ascii=False, indent=2) if args.json else rep.text())
     failed = not rep.ok or (args.strict and rep.issues)
@@ -449,7 +454,7 @@ def cmd_info(args) -> int:
     try:
         info = describe(args.path, freq=args.freq, show_all=args.all)
     except Exception as e:  # noqa: BLE001
-        print(f"{PROG}: 오류: {e}", file=sys.stderr)
+        fail(f"{e}")
         return EXIT_INPUT
     print(json.dumps(info, ensure_ascii=False, indent=2, default=str) if args.json else to_text(info))
     return EXIT_OK
@@ -460,7 +465,7 @@ def cmd_convert(args) -> int:
     try:
         out = convert(args.src, args.dst, allow_pickle=args.allow_pickle, name=args.name)
     except Exception as e:  # noqa: BLE001 — 파일 없음·pickle 거부·형식 오류
-        print(f"{PROG}: 오류: {e}", file=sys.stderr)
+        fail(f"{e}")
         return EXIT_INPUT
     print(f"변환 완료: {args.src} → {out}")
     return EXIT_OK
@@ -470,12 +475,12 @@ def cmd_guide(args) -> int:
     from .. import help as guide
     if args.install:
         if args.topic != "skill":
-            print(f"{PROG}: 오류: --install은 스킬에만: equion guide skill --install user", file=sys.stderr)
+            fail(f"--install은 스킬에만: equion guide skill --install user")
             return EXIT_INPUT
         try:
             dst = guide.install_skill(args.install, project=args.project, force=args.force)
         except (FileExistsError, ValueError, OSError) as e:
-            print(f"{PROG}: 오류: {e}", file=sys.stderr)
+            fail(f"{e}")
             return EXIT_INPUT
         print(f"[guide skill] {dst} — Claude Code를 다시 열면 스킬 equion이 보입니다")
         return EXIT_OK
@@ -507,7 +512,7 @@ def cmd_new(args) -> int:
         else:
             files = create_project(args.path, bare=args.bare, force=args.force)
     except (OSError, FileExistsError, ValueError) as e:
-        print(f"{PROG}: 오류: {e}", file=sys.stderr)
+        fail(f"{e}")
         return EXIT_INPUT
     print(f"새 프로젝트 {args.path}:")
     for f in files:
@@ -548,7 +553,7 @@ def cmd_assemble(args) -> int:
         p = _open_project(args.project)
         rep = p.assemble(args.model)
     except (ProjectError, KeyError) as e:
-        print(f"{PROG}: 오류: {e.args[0] if isinstance(e, KeyError) else e}", file=sys.stderr)
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
         return EXIT_INPUT
     print(json.dumps(rep.to_dict(), ensure_ascii=False, indent=2) if args.json else rep.text())
     return EXIT_OK if rep.ok else EXIT_INPUT
@@ -580,7 +585,7 @@ def cmd_ident(args) -> int:
             start, end = [t.strip() or None for t in args.range.split(":", 1)]
         res = p.ident(part.id, start=start, end=end, tol=args.tol)
     except (ProjectError, KeyError, ValueError) as e:
-        print(f"{PROG}: 오류: {e.args[0] if isinstance(e, KeyError) else e}", file=sys.stderr)
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
         return EXIT_INPUT
     print(json.dumps(res.to_dict(), ensure_ascii=False, indent=2) if args.json else res.text())
     return EXIT_INPUT if (args.strict and not res.ok) else EXIT_OK
@@ -642,7 +647,7 @@ def cmd_data(args) -> int:
             res = p.data_impact(args.a, args.b)
             out = res.to_dict() if args.json else res.text()
     except (ProjectError, KeyError, ValueError) as e:
-        print(f"{PROG}: 오류: {e.args[0] if isinstance(e, KeyError) else e}", file=sys.stderr)
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
         return EXIT_INPUT
     print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else out)
     return code
@@ -694,8 +699,25 @@ def _safe_streams():
 
 
 def main(argv=None) -> int:
-    _safe_streams()
+    """명령줄 진입점 — 종료 코드를 돌려준다. `--json`이면 오류도 JSON 하나(equion.cli.errors)."""
+    from . import errors
     argv = list(sys.argv[1:] if argv is None else argv)
+    old = errors.JSON
+    errors.JSON = "--json" in (argv[:argv.index("--")] if "--" in argv else argv)
+    try:
+        return _main(argv)
+    except KeyboardInterrupt:
+        return errors.fail("중단했습니다(Ctrl+C)", EXIT_INTERRUPT) if errors.JSON else EXIT_INTERRUPT
+    except Exception as e:  # noqa: BLE001 — 예상 못 한 오류: --json이면 JSON으로, 아니면 트레이스백 그대로
+        if not errors.JSON:
+            raise
+        return errors.internal(e)
+    finally:
+        errors.JSON = old
+
+
+def _main(argv) -> int:
+    _safe_streams()
     script_args = []
     if "--" in argv:
         k = argv.index("--")
@@ -713,7 +735,7 @@ def main(argv=None) -> int:
     if args.command == "run":
         return cmd_run(args, argv + (["--", *script_args] if script_args else []), script_args)
     if script_args:
-        print(f"{PROG}: 오류: '--' 뒤 인자는 run에서만 쓸 수 있습니다", file=sys.stderr)
+        fail(f"'--' 뒤 인자는 run에서만 쓸 수 있습니다")
         return EXIT_INPUT
     try:
         if args.command == "check":

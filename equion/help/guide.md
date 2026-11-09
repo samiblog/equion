@@ -17,6 +17,7 @@
 6. **거른 후보도 기록으로 남긴다.** 후보 식은 `equion est "식" --for 부품`으로 기록하고 `compare`로 견준다. 말로만 버리지 않는다.
 7. **돌리기 전에 미리 본다.** 스크립트는 `equion check x.eqs` → `equion run x.eqs --dry-run` → `equion run x.eqs`. 원자료를 넣기 전엔 `equion data inbox`.
 8. **짧은 글을 읽는다.** 명령의 출력은 짧은 글이 기본이다. 필요한 것만 `--json`·`work show 기록 --json`·기록 폴더의 CSV로 더 본다(문맥을 아낀다).
+   `--json`이면 오류도 JSON 하나 — `{"error": {"message", "exit_code", "kind"}}`(표준출력).
 9. **'알아서 한 것'을 전한다.** 출력과 카드의 '알아서 한 것'(채움·결측 제외·실패 대체·건너뛴 단계 등)은 사람에게 그대로 알린다.
 
 ## 2. 프로젝트 지도

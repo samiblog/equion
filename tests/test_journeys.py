@@ -421,7 +421,7 @@ def j6(tmp):
             ["work", "show", "run:monthly_0001"], ["history", "list"], ["an", "list"], ["report", "check", "memo"],
             ["note", "check", "notes/data_check.md"], ["check", "FLOWS/monthly.eqs"], ["run", "FLOWS/monthly.eqs", "--dry-run"],
             ["compare", "--part", "demand:CN"], ["est", "demand:CN"], ["hs", "main"], ["sim", "base"], ["ident", "demand:Y", "--check"],
-            ["propose", "list"], ["an", "summary", "core"]]
+            ["propose", "list"], ["an", "summary", "core"], ["data", "diff"]]       # data diff — 회차가 하나라 오류도 JSON
     bad = []
     for c in cmds:
         code, out, err = run([*c, "--json"], d)
@@ -451,6 +451,39 @@ def j6(tmp):
         if code != 3 or hint not in err:
             bad.append(f"{' '.join(args)} → {code} {err.strip()[-90:]}")
     check(f"J6.5 흔한 오류 {len(cases)}가지 — 3과 다음 할 일", not bad, "; ".join(bad[:3]))
+    bad = []
+    for args, hint in cases + [(["hs", "--range"], "값이 하나"), (["run", "FLOWS/nope.eqs"], "스크립트가 없습니다"),
+                               (["data", "diff"], "견줄 회차")]:
+        code, out, err = run([*args, "--json"], d)
+        try:
+            e = json.loads(out)["error"]
+            ok = code == 3 and e["exit_code"] == 3 and e["kind"] == "input" and hint in e["message"] and not err.strip()
+        except (ValueError, KeyError, TypeError):
+            ok = False
+        if not ok:
+            bad.append(f"{' '.join(args)} → {code} {(out + err).strip()[:90]}")
+    from equion.cli import workcmds
+    orig = workcmds.dispatch
+    workcmds.dispatch = lambda *a, **k: 1 / 0
+    try:
+        c1, o1, e1 = run(["work", "list", "--json"], d)
+        try:
+            err1 = json.loads(o1)["error"]
+        except (ValueError, KeyError):
+            err1 = {}
+        raised = False
+        try:
+            run(["work", "list"], d)
+        except ZeroDivisionError:
+            raised = True
+    finally:
+        workcmds.dispatch = orig
+    check("J6.6 --json이면 오류도 JSON 하나(표준출력) — 입력 오류·사용법 오류·내부 오류(1, 트레이스백 끝)", not bad and c1 == 1
+          and err1.get("internal") is True and err1.get("type") == "ZeroDivisionError" and "Traceback" in err1.get("traceback", "")
+          and raised, "; ".join(bad[:3]) or o1[-200:])
+    code, out, err = run(["est", "demand:ZZ"], d)
+    check("J6.7 --json이 없으면 지금처럼 — 표준오류 한 줄 · 표준출력은 비어 있음", code == 3 and not out.strip()
+          and err.startswith("equion: 오류: 없는 부품"))
 
 
 # ---------------------------------------------------------------------------

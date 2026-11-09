@@ -14,6 +14,7 @@ import sys
 
 from .. import registry as reg
 from .runner import EXIT_INPUT, EXIT_OK, EXIT_SCRIPT
+from .errors import fail
 
 PROG = "equion"
 COMMANDS = ("an", "note", "report")
@@ -136,7 +137,7 @@ def dispatch(args, cmdline: str) -> int:
         else:
             out = _report(p, args, who, cmdline)
     except (ProjectError, RecordError, KeyError, ValueError) as e:
-        print(f"{PROG}: 오류: {e.args[0] if isinstance(e, KeyError) else e}", file=sys.stderr)
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
         return EXIT_INPUT
     finally:
         verbose(old)

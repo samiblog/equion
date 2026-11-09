@@ -22,8 +22,8 @@ _PY_ONLY = (("smpl", None, "--smpl"), ("watch", False, "--watch"), ("interactive
 
 
 def _err(msg) -> int:
-    print(f"{PROG}: 오류: {msg}", file=sys.stderr)
-    return EXIT_INPUT
+    from .errors import fail
+    return fail(msg)
 
 
 def _project(args, script=None):

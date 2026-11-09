@@ -18,6 +18,7 @@
 import json
 import os
 import sys
+from .errors import fail
 
 from .runner import EXIT_INPUT, EXIT_OK
 
@@ -301,7 +302,7 @@ def dispatch(args, cmdline: str) -> int:
         else:
             out = _history(p, args, who, cmdline)
     except (ProjectError, RecordError, KeyError, ValueError) as e:
-        print(f"{PROG}: 오류: {e.args[0] if isinstance(e, KeyError) else e}", file=sys.stderr)
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
         return EXIT_INPUT
     finally:
         verbose(old)
