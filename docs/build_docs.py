@@ -564,6 +564,8 @@ def main(argv=None) -> int:
     # 예제가 띄우는 하위 프로세스(equion run·check)에는 CI의 인코딩 경고 설정을 넘기지 않는다 — 문서 출력은 사용자가 보는
     # 기본 환경의 출력이다(다른 패키지의 경고가 섞이지 않게).
     os.environ.pop("PYTHONWARNDEFAULTENCODING", None)
+    # 작업 기록의 '누가'는 실행 환경(Claude Code 안이면 claude)에 따라 다르다 — 문서 출력은 어디서 만들어도 같게
+    os.environ["EQUION_WHO"] = "python"
     base = tempfile.mkdtemp(prefix="eqn-docs-")
     expected_exports = set()
     try:

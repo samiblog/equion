@@ -67,3 +67,22 @@ r = p.hs("main")                          # [hs]의 구간·방식으로 과거 
 print(r.statistics()["RMSPE"].round(3))
 print(p.hs("demand").counts())            # 블록 HS — 수요 블록만 풀고 나머지 변수는 실측
 print(p.ident("demand:Y").text())         # 항등식을 실측으로 검사 — 명령줄 equion ident demand:Y --check
+
+# %% R50. 후보 식 고르기 — 추정 기록·비교·바꿔 끼운 HS·채택
+c1 = p.est("demand:CN", as_name="cons_c1", sim=True)          # 블록 파일의 그 줄 — equion est demand:CN --as cons_c1 --sim
+c3 = p.est("CN c Y(-1) CN(-1)", as_name="cons_c3", sim=True)  # 식 글자 — 목표가 CN이라 demand:CN의 후보
+print(c3.text())
+print(p.compare(part="demand:CN").table[["식", "R²adj", "LM(2) p", "기준", "단독 RMSPE%"]].round(4))
+before = p.hs("main", record=True, as_name="before")
+after = p.hs("main", record=True, swap={"demand:CN": "est:cons_c3"}, vs="hs:before")   # 파일은 그대로, 그 기록의 계수로
+print(after.text())
+print(p.adopt("est:cons_c1").text())        # c3는 기준은 통과했지만 HS가 나빠졌다 — 지금 식(c1)을 채택(계수 고정)
+
+# %% R52. 제안·바뀜 기록·그때 그대로 다시
+pr = p.propose(title="소비에 시차 하나 더", why="est:cons_c1의 LM 검정이 경계선(p=0.046)",
+               parts={"demand:CN": "CN c Y CN(-1) CN(-2)"})   # 파일은 그대로 — equion propose new --part …
+print(pr.diff())
+p.apply_proposal(pr.name)                                     # equion propose apply p1
+for c in p.history.list():
+    print(c.text())
+print(p.replay("hs:before").meta["replay"])                   # 파일이 바뀐 뒤에도 그때 그대로 — equion hs --replay hs:before

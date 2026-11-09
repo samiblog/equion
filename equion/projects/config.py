@@ -9,6 +9,7 @@
     [group] 이름 = [시리즈…] 또는 { series = […], transform, desc }
     [hs]    model · range("S:E") · mode                         HS 기본값
     [criteria] alpha · tests · t_min · [criteria.signs]          판단 기준 — 추정 기록의 '기준'·est --adopt if_pass (D35)
+    [forecast] model · range · assume · addfactors · fill · mode  전망 기본값 — equion sim (K4)
 
 읽기는 표준 라이브러리 `tomllib`. 이름은 영문·숫자·`_`(첫 글자는 영문). 문제는 모아서 한꺼번에 알린다(ProjectError).
 """
@@ -29,7 +30,8 @@ VID_RE = re.compile(r"^d\d{4}-\d{2}[a-z]+$")      # 자료 회차 이름(d2026-1
 MODES = ("dynamic", "static", "fit")
 
 # 나중 단계에서 쓰는 표(지금은 읽기만 하고 그대로 둔다 — 경고하지 않는다)
-RESERVED_TABLES = ("forecast", "estimate", "addfactors", "assume")
+RESERVED_TABLES = ("estimate", "addfactors", "assume")
+FILLS = ("last", "growth", "trend", "none")
 TESTS = ("lm", "white", "bp", "lb", "arch", "jb", "reset")      # 기준에 넣을 수 있는 진단
 
 
@@ -84,6 +86,7 @@ class ProjectConfig:
     freq: Optional[str] = None
     vintage: Optional[str] = None          # 지금 자료 회차
     criteria: dict = field(default_factory=dict)   # 판단 기준 {alpha, tests, t_min, signs: {부품: {항: '+'|'-'}}}
+    forecast: dict = field(default_factory=dict)   # 전망 기본값 {model, range, assume, addfactors, fill, mode}
 
     @property
     def uses_vintages(self) -> bool:
@@ -139,7 +142,7 @@ def load_config(path: str = ".") -> ProjectConfig:
     problems: List[str] = []
     warnings: List[str] = []
 
-    known = {"project", "data", "block", "model", "group", "hs", "criteria", *RESERVED_TABLES}
+    known = {"project", "data", "block", "model", "group", "hs", "criteria", "forecast", *RESERVED_TABLES}
     for k in raw:
         if k not in known:
             warnings.append(f"{CONFIG_NAME}: 알 수 없는 표 [{k}] — 쓰지 않습니다")
@@ -292,13 +295,31 @@ def load_config(path: str = ".") -> ProjectConfig:
         problems.append(f"[hs] range = {hs.get('range')!r} — \"시작:끝\" 꼴(예: \"2005Q1:2019Q4\" · \"2005Q1:last\" · \"last-39:last\")")
 
     criteria = _criteria(raw.get("criteria"), problems)
+    fc = raw.get("forecast") or {}
+    if not isinstance(fc, dict):
+        problems.append("[forecast]는 표여야 합니다")
+        fc = {}
+    for k in fc:
+        if k not in ("model", "range", "assume", "addfactors", "fill", "mode"):
+            problems.append(f"[forecast] {k}: 알 수 없는 키 — model · range · assume · addfactors · fill · mode")
+    if fc.get("model") and fc["model"] not in models and fc["model"] not in blocks:
+        problems.append(f"[forecast] model = {fc['model']!r}: 없는 모형·블록")
+    if fc.get("mode") and fc["mode"] not in MODES:
+        problems.append(f"[forecast] mode = {fc['mode']!r} — {' · '.join(MODES)}")
+    if fc.get("fill") and fc["fill"] not in FILLS:
+        problems.append(f"[forecast] fill = {fc['fill']!r} — {' · '.join(FILLS)}")
+    if fc.get("range") and (not isinstance(fc["range"], str) or ":" not in fc["range"]):
+        problems.append(f"[forecast] range = {fc.get('range')!r} — \"시작:끝\" 또는 \"next:N\"(예: \"next:8\")")
+    for k in ("assume", "addfactors"):
+        if fc.get(k) and not NAME_RE.match(str(fc[k])):
+            problems.append(f"[forecast] {k} = {fc[k]!r} — 이름(ASSUMPTIONS/이름.csv · ADDFACTORS/이름.toml)")
 
     if problems:
         raise ProjectError([f"{CONFIG_NAME}: {p}" if not p.startswith(CONFIG_NAME) else p for p in problems])
     return ProjectConfig(root=root, path=cfg_path, name=name, data_file=data_file, data_path=data_path,
                          blocks=blocks, models=models, groups=groups, hs=dict(hs), raw=raw, warnings=warnings,
                          series_file=series_file, derived_file=derived_file, freq=freq, vintage=vintage,
-                         criteria=criteria)
+                         criteria=criteria, forecast=dict(fc))
 
 
 def _criteria(raw, problems: List[str]) -> dict:

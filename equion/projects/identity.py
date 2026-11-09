@@ -3,7 +3,7 @@
 """항등식 단독 검사 — 실측으로 좌변과 우변을 계산해 견준다(계수가 없어 추정이 필요 없다)."""
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 import pandas as pd

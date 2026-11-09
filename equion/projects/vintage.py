@@ -15,7 +15,6 @@
 import hashlib
 import json
 import os
-import re
 import shutil
 import tomllib
 from dataclasses import dataclass, field

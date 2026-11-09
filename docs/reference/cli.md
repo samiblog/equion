@@ -37,6 +37,9 @@ Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·
     adopt     추정 기록을 부품의 채택 계수로(블록 파일의 줄·채택표를 고치고 바뀜 기록에)
     compare   기록 비교 — 추정 후보(적합·진단·기준·단독 모의) 또는 HS(변수별 RMSPE)
     hs        과거 재현을 풀고 기록을 남긴다(바꿔 끼우기·전후 비교·그때 그대로 다시)
+    sim       전망·시나리오를 풀고 기록을 남긴다(가정 세트·보정항·시나리오 파일)
+    propose   제안 — 파일을 바꾸기 전에 보여 주기(만들기·목록·보기·적용·버림)
+    export    기록의 값·값의 종류·출처를 엑셀로
     work      작업 기록 — 목록·보기·고정·메모·정리
     history   바뀜 기록 — 정의 파일이 누가·언제·어떻게 바뀌었나, 되돌리기
 
@@ -268,12 +271,159 @@ helptext("data", "add", "--help")
 
 자료 파일 하나(`[data] file`)를 쓰는 프로젝트에서는 3입니다. 흐름은 [R49](../howto/data.md#r49-원자료에서-자료-회차로--넣기만들기차이바꾸기).
 
+## 작업 명령 — est · adopt · compare · hs · sim
+
+프로젝트 폴더에서 씁니다. 계산은 할 때마다 작업 기록(`work/<종류>/<이름>/` — [파일 형식](formats.md#작업-기록work))을 남기고, 출력은 짧은 글
+(기본 — 끝 줄에 기록 이름) 또는 `--json`입니다. 없는 부품·기록, 이름 겹침, 조립 문제는 종료 코드 3입니다.
+
+```python
+helptext("est", "--help")
+helptext("hs", "--help")
+helptext("sim", "--help")
+```
+<!-- out -->
+```text
+사용법: equion est [-h] [--project 폴더] [--json] [--as 이름] [--for 부품] [--method {auto,ls,tsls}] [--smpl S:E]
+                [--sim] [--cov COV] [--adopted] [--adopt {never,if_pass,all}]
+                [부품|식]
+
+인자:
+  부품|식                  부품 블록:목표(블록 파일의 그 줄) 또는 식 글자(예: "CN c Y CN(-1)") — --adopted면 모형·블록
+
+옵션:
+  -h, --help            도움말을 보이고 끝낸다
+  --project, -p 폴더      프로젝트 폴더(기본: 지금 폴더)
+  --json                결과를 JSON으로
+  --as 이름               기록 이름(기본: 목표변수_0001 …)
+  --for 부품              어느 부품의 후보인지(목표가 같은 식이 여럿일 때)
+  --method {auto,ls,tsls}
+                        추정법(기본 auto — @inst가 있으면 tsls)
+  --smpl S:E            표본(상대 기간 가능 — 1990Q1:last)
+  --sim                 식 하나의 동태 모의([hs] range, 다른 변수는 실측)와 RMSPE
+  --cov COV             계수 공분산(white · hac …)
+  --adopted             모형(기본 [hs] model)의 추정식을 모두 지금 자료로 다시 추정
+  --adopt {never,if_pass,all}
+                        --adopted의 채택 정책(기본 never — 기록만, if_pass — 판단 기준을 통과한 식만)
+사용법: equion hs [-h] [--project 폴더] [--json] [--range S:E] [--mode {dynamic,static,fit}] [--swap 부품=값]
+               [--vs hs:이름] [--as 이름] [--replay hs:이름]
+               [모형|블록]
+
+인자:
+  모형|블록                 모형 또는 블록(기본: [hs] model)
+
+옵션:
+  -h, --help            도움말을 보이고 끝낸다
+  --project, -p 폴더      프로젝트 폴더(기본: 지금 폴더)
+  --json                결과를 JSON으로
+  --range S:E           구간(기본: [hs] range — 상대 기간 가능)
+  --mode {dynamic,static,fit}
+                        풀이 방식(기본: [hs] mode)
+  --swap 부품=값           파일을 바꾸지 않고 바꿔 끼우기 — 값은 est:기록(그 계수) 또는 식 글자(여러 번)
+  --vs hs:이름            견줄 HS 기록 — 변수별 RMSPE 전후
+  --as 이름               기록 이름(기본 hs_0001 …)
+  --replay hs:이름        그 기록의 조립 명세로 그대로 다시(지금 파일과 무관)
+사용법: equion sim [-h] [--project 폴더] [--json] [--model 모형] [--range S:E] [--vintage 회차] [--vs sim:이름]
+                [--as 이름] [--mode {dynamic,static}]
+                [시나리오 ...]
+
+인자:
+  시나리오                  base(기준선) 또는 SCENARIOS/의 이름(여럿이면 하나씩, 기본 base)
+
+옵션:
+  -h, --help            도움말을 보이고 끝낸다
+  --project, -p 폴더      프로젝트 폴더(기본: 지금 폴더)
+  --json                결과를 JSON으로
+  --model 모형            모형(기본: 시나리오 → [forecast] → [hs] model)
+  --range S:E           전망 구간(기본 [forecast] range, 없으면 next:8)
+  --vintage 회차          다른 자료 회차로(지금 회차는 그대로)
+  --vs sim:이름           견줄 전망 기록 — 연간 증가율 전후
+  --as 이름               기록 이름(시나리오가 하나일 때, 기본 연-월_시나리오)
+  --mode {dynamic,static}
+                        풀이 방식(기본 [forecast] mode, 없으면 dynamic)
+```
+
+| 명령 | 하는 일 |
+|---|---|
+| `est 부품` · `est "식" [--as 이름] [--for 부품]` | 식 하나 추정 → 계수·적합 통계·진단·판단 기준(`[criteria]`)·알아서 한 것. 식 글자는 목표가 같은 부품의 후보가 된다. `--sim`이면 식 하나의 동태 모의(다른 변수는 실측)와 RMSPE |
+| `est --adopted [모형] --adopt never·if_pass·all` | 모형의 추정식을 블록 파일 글자 그대로 지금 자료로 다시 추정(새 기록) — `if_pass`는 기준을 통과한 식만 새 계수로 채택하고 걸린 식은 옛 계수(표시) |
+| `adopt est:이름 [--part 부품]` | 채택 — 채택표와 블록 파일의 그 줄을 고치고 바뀜 기록에. 그 뒤 모형은 이 계수로 푼다 |
+| `compare 기록… · --target 변수 · --part 부품` | 추정 후보 표(종속변수·표본이 다르면 경고) 또는 HS 기록의 변수별 RMSPE |
+| `hs [모형·블록] [--swap 부품=est:이름·"식"] [--vs hs:이름]` | 과거 재현 기록 — 바꿔 끼우기(파일은 그대로, 기록이면 그 계수)·전후 비교 |
+| `hs --replay hs:이름` | 그 기록의 조립 명세로 그때 그대로 다시(지금 파일·회차와 무관) — 원래 해와 견준 결과를 새 기록에 |
+| `sim [시나리오…] [--range next:8] [--vintage 회차] [--vs sim:이름]` | 전망·시나리오 기록 — 가정 세트·보정항·시나리오 파일로, 시나리오면 기준선과의 차이도 |
+
+## 제안·내보내기·기록 — propose · export · work · history
+
+```python
+helptext("propose", "new", "--help")
+helptext("export", "--help")
+helptext("work", "--help")
+helptext("history", "--help")
+```
+<!-- out -->
+```text
+사용법: equion propose new [-h] [--project 폴더] [--json] [--title TITLE] [--why WHY] [--part 부품=값]
+                        [--file 경로=새파일] [--preview 기록]
+                        [이름]
+
+인자:
+  이름                제안 이름(기본 p1, p2 …)
+
+옵션:
+  -h, --help        도움말을 보이고 끝낸다
+  --project, -p 폴더  프로젝트 폴더(기본: 지금 폴더)
+  --json            결과를 JSON으로
+  --title TITLE     제목
+  --why WHY         까닭(근거 기록 이름을 넣는다)
+  --part 부품=값       식 바꾸기 — 값은 est:기록(그 식으로 바꾸고 채택) 또는 식 글자
+  --file 경로=새파일     파일 통째로 — 프로젝트 안 경로=새 내용 파일
+  --preview 기록      미리 계산한 기록(hs:… · sim:… · est:…)
+사용법: equion export [-h] [--project 폴더] [--json] --xlsx 파일 기록 [기록 ...]
+
+인자:
+  기록                est:… · hs:… · sim:… · data:회차
+
+옵션:
+  -h, --help        도움말을 보이고 끝낸다
+  --project, -p 폴더  프로젝트 폴더(기본: 지금 폴더)
+  --json            결과를 JSON으로
+  --xlsx 파일         만들 엑셀 파일(.xlsx — 프로젝트 기준 경로)
+사용법: equion work [-h] 동작 ...
+
+인자:
+  동작
+    list      기록 목록(새것이 아래)
+    show      기록 하나 — 짧은 글(--md면 카드 summary.md)
+    pin       고정(정리에서 빠진다)
+    unpin     고정 풀기
+    memo      메모(기록은 그대로, marks.json에)
+    clean     정리 — 고정·채택·참조되지 않은 기록(기본은 목록만, --yes면 지움)
+
+옵션:
+  -h, --help  도움말을 보이고 끝낸다
+사용법: equion history [-h] 동작 ...
+
+인자:
+  동작
+    list      바뀜 목록(새것이 아래)
+    show      바뀜 하나 — 파일과 차이
+    revert    그 바뀜 앞의 내용으로 되돌린다(이것도 바뀜 기록에 남는다)
+
+옵션:
+  -h, --help  도움말을 보이고 끝낸다
+```
+
+`propose new`는 파일을 바꾸지 않고 바꿀 내용·까닭·미리 계산한 기록을 `work/proposals/<이름>/`에 남기고, `propose apply`가 바꿉니다(만든 뒤 그 파일이
+바뀌었으면 낡음 — `--force`). `propose drop`은 버리되 기록은 남깁니다. `work clean`은 고정·채택·다른 기록이나 제안이 가리키는 기록을 빼고 지울
+목록만 보이고, `--yes`일 때 지웁니다. `history`는 정의 파일의 바뀜(누가·명령·전후·차이 — 명령 밖의 고침은 '바깥')을 보이고 되돌립니다.
+
 ## 환경변수
 
 | 이름 | 뜻 |
 |---|---|
 | `EQUION_PARAMS` | 스크립트 매개변수 JSON(`--set`이 그 위에 덮는다). 옛 이름 `MACROMODEL_PARAMS`도 읽는다 |
 | `EQUION_THREADS` | `--threads`가 다시 실행할 때 쓴다(직접 둘 필요 없음) |
+| `EQUION_WHO` | 작업 기록·바뀜 기록의 '누가'(`desk`·`script` …) — 없으면 Claude Code 안(`CLAUDECODE`)은 `claude`, 명령줄은 `terminal` |
 | `PYTHONIOENCODING` | 화면 출력 인코딩. 한글을 못 쓰는 출력(영문 Windows 파이프)에서도 Equion은 멈추지 않고 `\uXXXX`로 바꿔 쓴다 |
 
 관련: [파일 형식 — 보고서 폴더·manifest](formats.md) · [명령줄 레시피](../howto/cli.md)

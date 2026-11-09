@@ -19,7 +19,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import pandas as pd
 
@@ -28,7 +28,7 @@ FORMAT_VERSION = 1
 WORK_DIR = "work"
 KINDS = ("est", "hs", "sim")
 KIND_KO = {"est": "추정", "hs": "과거 재현", "sim": "전망", "data": "자료 회차"}
-NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_\-]*$")
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]*$")     # 기록 이름(sim:2026-11_base처럼 숫자로 시작해도 된다)
 WHO_KO = {"terminal": "터미널", "claude": "Claude", "desk": "Desk", "python": "Python", "script": "스크립트"}
 
 
@@ -152,7 +152,7 @@ class WorkStore:
     def check_new(self, kind: str, name: str):
         """새 기록 이름을 검사한다 — 글자가 틀리거나 이미 있으면 RecordError(기록은 고치지 않는다)."""
         if not NAME_RE.match(name or ""):
-            raise RecordError(f"기록 이름은 영문으로 시작하고 영문·숫자·_·-만: {name!r}")
+            raise RecordError(f"기록 이름은 영문·숫자로 시작하고 영문·숫자·_·-만: {name!r}")
         if self.exists(kind, name):
             raise RecordError(f"이미 있는 기록 {kind}:{name} — 기록은 고치지 않습니다(다른 이름으로 --as)")
 

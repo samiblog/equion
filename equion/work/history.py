@@ -16,7 +16,7 @@ import hashlib
 import json
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from .store import WORK_DIR, dumps, now_iso

@@ -15,6 +15,13 @@ test_work.py — 작업 명령·기록(D33·D35 — 개발 계획 E3) 테스트.
      바꾼 뒤에도 같다)·자료가 바뀌면 다시 돌리지 않는다
   H. 명령줄: est · adopt · compare · hs(--swap·--vs·--replay) · work · history — 종료 코드·--json
   I. 장면 2(소비함수 고르기 — 후보 비교와 채택)를 명령만으로
+  J. 전망(sim): 가정 세트·채우기·보정항 규칙(last·decay·mean)·판단 값·시나리오(충격·보정)·기준선 대비·값의 종류·연간·
+     --vs·--vintage·워크파일 API로 직접 푼 전망과 같은 해·문제(없는 시나리오·가정 기간·채우지 않음)
+  K. 다시 추정(est --adopted): 정책 never · if_pass(걸린 식은 옛 계수) · all · 계수 변화
+  L. 제안(propose): 만들기(파일은 그대로)·카드·낡음·적용(바뀜 기록)·버림(기록은 남는다)
+  M. 내보내기(export --xlsx): 출처 시트·기록별 시트·자료 회차
+  N. 장면 4(HS가 나빠졌다 — 원인 따라가기와 제안)를 명령만으로
+  O. 장면 5(분기 전망 — 새 자료 회차로 기준선 다시)를 명령만으로
 자료는 예제 프로젝트(예제 자료 toy_q·toy_m)와 코드로 만든 합성 표만 쓴다.
 """
 
@@ -249,9 +256,9 @@ def _main(tmp, t0):
     before_line = read(os.path.join(d, "EQUATIONS", "demand.txt"))
     ad = quiet(p.adopt, "est:cn_alt")
     after_line = read(os.path.join(d, "EQUATIONS", "demand.txt"))
-    check("블록 파일: 그 줄만 바꾸고 설명은 그대로", ad.line_changed and "CN c Y(-1) CN(-1)   # 소비" in after_line
-          and after_line.replace("CN c Y(-1) CN(-1)   # 소비", "") == before_line.replace("CN c Y CN(-1)            # 소비", ""),
-          after_line.splitlines()[1])
+    la, lb = after_line.split("\n"), before_line.split("\n")
+    check("블록 파일: 그 줄만 바꾸고 설명은 그 자리 그대로", ad.line_changed and la[1] == "CN c Y(-1) CN(-1)        # 소비"
+          and la[:1] + la[2:] == lb[:1] + lb[2:] and la[1].index("#") == lb[1].index("#"), la[1])
     check("채택표", p.adopted == {"demand:CN": "est:cn_alt"} and read(os.path.join(d, "EQUATIONS", "adopted.toml")).startswith("# 채택표"))
     ch = p.history.get(ad.change)
     check("바뀜 기록(두 파일·명령)", set(ch.files) == {"EQUATIONS/demand.txt", "EQUATIONS/adopted.toml"} and ch.how == "adopt est:cn_alt")
@@ -260,11 +267,11 @@ def _main(tmp, t0):
     check("모형: 채택 계수를 그대로(다시 추정 없음)", np.array_equal(eqo.coefs.to_numpy(), r2.coefs.to_numpy())
           and any("채택 계수: demand:CN(est:cn_alt)" in n for n in p.notes))
     ad2 = quiet(p.adopt, "est:cn_file")
-    check("다시 채택: 전 기록·줄 되돌림", ad2.previous == "est:cn_alt" and "CN c Y CN(-1)   # 소비" in read(os.path.join(d, "EQUATIONS", "demand.txt")))
+    check("다시 채택: 전 기록·줄이 처음 그대로", ad2.previous == "est:cn_alt" and read(os.path.join(d, "EQUATIONS", "demand.txt")) == before_line)
     check("채택: 다른 목표·항등식·부품 모름", raises(lambda: p.adopt("est:inv_a", part="demand:CN"), ProjectError, "목표")
           and raises(lambda: p.adopt("est:cn_file", part="demand:Y"), ProjectError, "항등식"))
     write(os.path.join(d, "EQUATIONS", "demand.txt"),
-          read(os.path.join(d, "EQUATIONS", "demand.txt")).replace("CN c Y CN(-1)   # 소비", "CN c Y   # 소비"))
+          read(os.path.join(d, "EQUATIONS", "demand.txt")).replace("CN c Y CN(-1)            # 소비", "CN c Y   # 소비"))
     p._reset()
     quiet(p.model, "core")
     check("블록 파일과 채택 기록의 글자가 다르면 알리고 지금 자료로 추정",
@@ -450,11 +457,294 @@ def _main(tmp, t0):
     check("남는 것: 후보 기록 7·HS 기록 3·바뀜 기록", sum(r["id"].startswith("est:") for r in recs) == 7
           and sum(r["id"].startswith("hs:") for r in recs) == 3 and len(pr.history.list()) >= 2)
 
+    _sim_tests(tmp)
+    _scene_tests(tmp)
+
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:
         print("실패:", ", ".join(FAIL))
     return len(FAIL)
+
+
+def _sim_tests(tmp):
+    print("=" * 80)
+    print("J. 전망(sim)")
+    print("=" * 80)
+    p, d = new_project(tmp, "simp")
+    r = quiet(p.sim, as_name="b1")
+    m = r.meta
+    lv, fl = r.levels, r.flags
+    check("구간: [forecast] range(next:8)", m["range"] == ["2020Q1", "2021Q4"] and r.counts()["ok"] == 8)
+    a = pd.read_csv(os.path.join(d, "ASSUMPTIONS", "base.csv"), index_col=0)
+    check("가정 세트: 값·값의 종류 '가정'", np.allclose(lv.loc["2020Q1":"2021Q4", "POIL"], a.loc["2020Q1":"2021Q4", "POIL"])
+          and (fl.loc["2020Q1":"2021Q4", "G"] == "가정").all() and m["assume"]["cells"] == 16)
+    check("채우기 규칙(last): 정책금리 '채움'", (fl.loc["2020Q1":"2021Q4", "R"] == "채움").all()
+          and np.allclose(lv.loc["2020Q1":"2021Q4", "R"], lv.loc["2019Q4", "R"]) and m["assume"]["filled"] == {"R": 8})
+    check("실측은 그대로 · 해는 '해'", (fl.loc["2019Q4"] == "실측").all() and (fl.loc["2020Q1", ["Y", "CN", "P"]] == "해").all())
+    mo = quiet(p.model, "main")
+    cn_eq = next(o for o in mo.equations if o.target == "CN")
+    last = float(cn_eq.eq.residual_series().loc[pd.Timestamp("2019-10-01")])
+    afc = r.record.read_csv("addfactors.csv")
+    check("보정항 last = 전망 앞 마지막 잔차", abs(m["addfactors"]["eqs"]["demand:CN"]["value"] - last) < 1e-9
+          and np.allclose(afc["demand:CN"], last), f"{last:.4f}")
+    i_eq = next(o for o in mo.equations if o.target == "I")
+    li = float(i_eq.eq.residual_series().loc[pd.Timestamp("2019-10-01")])
+    check("보정항 decay(반감기 4)", np.allclose(afc["demand:I"].to_numpy(), [li * 0.5 ** ((k + 1) / 4) for k in range(8)]))
+    check("보정항 없는 식은 0", (afc["price:P"] == 0).all() and m["addfactors"]["eqs"]["price:P"]["rule"] == "zero")
+    ann = r.annual
+    yv = lv["Y"].astype(float)
+    g20 = 100 * (yv.loc["2020Q1":"2020Q4"].mean() / yv.loc["2019Q1":"2019Q4"].mean() - 1)
+    check("연간 평균·증가율", list(ann.index) == ["2020", "2021"] and abs(ann.loc["2020", "Y_증가율"] - g20) < 1e-9)
+    check("기록 파일·카드", all(os.path.isfile(r.record.file(f)) for f in ("assembly.json", "levels.csv", "flags.csv", "growth.csv",
+                                                                     "annual.csv", "addfactors.csv", "summary.md"))
+          and r.diff is None and "## 연간 평균과 증가율" in r.record.summary_md())
+    check("전망 뒤 자료의 끝(last)은 그대로", p.span("last:last") == ("2019Q4", "2019Q4"))
+    o = quiet(p.sim, "oil20", as_name="o1")
+    dfo = o.diff
+    check("시나리오: 기준선도 풀어 차이(P 높다·실물 그대로)", o.meta["vs_base"]["P"] > 0 and abs(o.meta["vs_base"]["Y"]) < 1e-9
+          and (dfo["P_%"] > 0).all() and o.meta["scenario_def"]["shocks"][0]["var"] == "POIL")
+    b_lv = o.levels
+    check("시나리오의 기준선 = 기준선 기록", np.allclose(b_lv["P"].loc["2020Q1":] / (1 + dfo["P_%"] / 100), lv["P"].loc["2020Q1":]))
+    write(os.path.join(d, "SCENARIOS", "cnaf.toml"),
+          'desc = "소비 보정"\n[[addfactor]]\neq = "demand:CN"\nfrom = "start"\nto = "start+1"\nvalue = -2\n')
+    c2 = quiet(p.sim, "cnaf", as_name="c1")
+    dcn = c2.diff["CN_차이"]
+    check("시나리오 보정항(start~start+1)", dcn.iloc[0] < -1 and dcn.iloc[1] < -1 and abs(dcn.iloc[2]) < abs(dcn.iloc[1]))
+    vs = quiet(p.sim, as_name="b2", vs="sim:b1")
+    check("--vs: 연간 증가율 전후(그대로)", vs.meta["vs"]["id"] == "sim:b1" and "연간 증가율 그대로" in vs.text())
+    # 판단 값 · mean 규칙
+    write(os.path.join(d, "ADDFACTORS", "base.toml"), read(os.path.join(d, "ADDFACTORS", "base.toml"))
+          + '\n[eq."price:P"]\nrule = "mean"\nn = 4\n')
+    txt = read(os.path.join(d, "ADDFACTORS", "base.toml")).replace('default = "zero"', 'default = "zero"\nvalues = "ADDFACTORS/base.csv"')
+    write(os.path.join(d, "ADDFACTORS", "base.toml"), txt)
+    write(os.path.join(d, "ADDFACTORS", "base.csv"), "period,demand:CN\n2020Q1,-0.2\n")
+    j = quiet(p.sim, as_name="j1")
+    afj = j.record.read_csv("addfactors.csv")
+    p_eq = next(o_ for o_ in quiet(p.model, "main").equations if o_.target == "P")
+    rs = p_eq.eq.residual_series()
+    mean4 = float(rs.loc[:pd.Timestamp("2019-10-01")].dropna().iloc[-4:].mean())
+    check("보정항 판단 값이 규칙 값을 덮는다 · mean(n=4)", afj.loc["2020Q1", "demand:CN"] == -0.2 and afj.loc["2020Q2", "demand:CN"] == last
+          and np.allclose(afj["price:P"], mean4) and j.meta["addfactors"]["judgment"] == 1
+          and "보정항 판단 값 1칸" in j.meta["implicit"])
+    # 워크파일 API와 같은 해(가정·보정항 없이, 채우기 last)
+    q, dq = new_project(tmp, "simq")
+    os.remove(os.path.join(dq, "ASSUMPTIONS", "base.csv"))
+    os.remove(os.path.join(dq, "ADDFACTORS", "base.toml"))
+    rq = quiet(q.sim, as_name="plain")
+    wfd = quiet(eqn.wfopen, os.path.join(dq, "work", "data", q.vintage, "series.csv"), freq="Q")
+    mm = quiet(lambda: wfd.model("chk").merge("CN c Y CN(-1)", "I c Y(-1) R", "dlog(P) c dlog(Y) dlog(POIL)",
+                                              "RL c R RL(-1)", "log(M2) c log(P) log(Y) RL log(M2(-1))")
+               .append("Y = CN + I + G"))
+    fr = quiet(mm.forecast, "2020Q1", "2021Q4", exog_fill="last").values
+    dm = max(float(np.max(np.abs(rq.levels.loc["2020Q1":, v].to_numpy(dtype=float) - fr[v].to_numpy()))) for v in ("Y", "P", "M2"))
+    check("전망 = 워크파일 API로 직접 푼 전망(가정·보정항 없음, last)", dm < 1e-9 and rq.meta["assume"]["file"] is None, f"{dm:.2e}")
+    write(os.path.join(dq, "ASSUMPTIONS", "base.csv"), "period,POIL,ZZ\n2019Q4,1\n2020Q1,70\n")
+    rw = quiet(q.sim, as_name="warn")
+    check("가정: 모형에 없는 변수·전망 앞 기간은 쓰지 않고 알린다", any("ZZ" in x and "쓰지 않음" in x for x in rw.meta["implicit"])
+          and any("전망 앞 기간" in x for x in rw.meta["implicit"]) and rw.levels.loc["2019Q4", "POIL"] != 1)
+    write(os.path.join(dq, "ASSUMPTIONS", "base.csv"), "period,POIL\n2020Q9,70\n")
+    check("가정: 기간으로 읽을 수 없으면 위치와 함께", raises(lambda: q.sim(), ProjectError, "ASSUMPTIONS/base.csv:2"))
+    os.remove(os.path.join(dq, "ASSUMPTIONS", "base.csv"))
+    write(q.config.path, read(q.config.path).replace('fill = "last"', 'fill = "none"'))
+    q._reset()
+    check("채우지 않으면(fill none) 빈 외생을 알린다", raises(lambda: q.sim(), ProjectError, "외생변수 값이 없습니다"))
+    check("없는 시나리오", raises(lambda: q.sim("nope"), ProjectError, "시나리오가 없습니다"))
+    check("이름 겹침", raises(lambda: p.sim(as_name="b1"), RecordError, "이미 있는 기록"))
+    # --vintage
+    new = pd.read_csv(os.path.join(d, "DATA", "raw", "toy_q.csv"), index_col=0)
+    new.loc["2020Q1"] = new.iloc[-1] * 1.004
+    new.to_csv(os.path.join(tmp, "simp_new.csv"))
+    quiet(p.data_add, os.path.join(tmp, "simp_new.csv"), source="na")
+    v_old = p.vintage
+    quiet(p.data_build, use=True)
+    rn = quiet(p.sim, as_name="n1")
+    ro = quiet(p.sim, as_name="old1", vintage=v_old)
+    check("새 회차: 구간이 따라 움직인다(next:8)", rn.meta["range"] == ["2020Q2", "2022Q1"])
+    check("--vintage: 옛 회차로(지금 회차는 그대로)", ro.meta["range"] == ["2020Q1", "2021Q4"] and ro.meta["data"]["id"] == v_old
+          and quiet(Project.open, d).vintage != v_old)
+    code, out, _ = run(["sim", "base", "oil20", "--json"], d)
+    js = json.loads(out)
+    check("명령줄 sim 여럿(0)", code == 0 and [x["scenario"] for x in js] == ["base", "oil20"])
+    code, _, err = run(["sim", "base", "oil20", "--as", "x"], d)
+    check("명령줄 sim --as는 하나만(3)", code == 3 and "--as" in err)
+    code, _, err = run(["sim", "nope"], d)
+    check("명령줄 없는 시나리오(3)", code == 3 and "시나리오가 없습니다" in err)
+
+    print("=" * 80)
+    print("K. 다시 추정(est --adopted)")
+    print("=" * 80)
+    k, dk = new_project(tmp, "reest")
+    r0 = quiet(k.reestimate, "main", adopt="never")
+    check("never: 기록만(채택표 그대로)", len(r0.rows) == 5 and k.adopted == {} and r0.change is None
+          and all(x["new"].startswith("est:") for x in r0.rows))
+    r1 = quiet(k.reestimate, "main", adopt="if_pass")
+    ok_parts = [x["part"] for x in r1.rows if x["passed"]]
+    check("if_pass: 통과한 식만 채택·걸린 식은 표시", sorted(k.adopted) == sorted(ok_parts) and r1.flagged
+          and set(r1.flagged).isdisjoint(k.adopted) and r1.change is not None)
+    hist = k.history.get(r1.change)
+    check("정책 채택은 바뀜 기록 하나(정책 이름)", list(hist.files) == ["EQUATIONS/adopted.toml"] and "정책 if_pass가 채택" in hist.note)
+    new = pd.read_csv(os.path.join(dk, "DATA", "raw", "toy_q.csv"), index_col=0)
+    new.loc[new.index[-8:], "I"] *= 1.03
+    new.to_csv(os.path.join(tmp, "reest_new.csv"))
+    quiet(k.data_add, os.path.join(tmp, "reest_new.csv"), source="na")
+    quiet(k.data_build, use=True)
+    r2 = quiet(k.reestimate, "demand", adopt="all")
+    ri = next(x for x in r2.rows if x["part"] == "demand:I")
+    check("all: 새 자료로 다시 추정·계수 변화", ri["adopted"] and ri["old"] == k.adopted.get("demand:I") is not None or
+          (ri["max_change_pct"] is not None and ri["max_change_pct"] > 0), str(ri))
+    check("all: 채택표가 새 기록으로", k.adopted["demand:I"] == ri["new"] and k.adopted["demand:CN"] == r2.rows[0]["new"])
+    code, out, _ = run(["est", "--adopted", "--adopt", "if_pass"], dk)
+    check("명령줄 est --adopted(0)", code == 0 and out.startswith("[est --adopted] main · 정책 if_pass: 식 5"))
+    code, _, err = run(["est", "--adopted", "--as", "x"], dk)
+    check("est --adopted에 --as는 거부(3)", code == 3 and "--adopted" in err)
+    code, _, err = run(["est", "demand:CN", "--adopt", "all"], dk)
+    check("--adopt는 --adopted와 함께(3)", code == 3 and "--adopted" in err)
+    check("없는 정책", raises(lambda: k.reestimate(adopt="sometimes"), ProjectError, "never"))
+
+    print("=" * 80)
+    print("L. 제안(propose)")
+    print("=" * 80)
+    g, dg = new_project(tmp, "prop")
+    before = read(os.path.join(dg, "EQUATIONS", "price.txt"))
+    ec = quiet(g.est, "dlog(P) c dlog(Y) dlog(POIL) dlog(P(-1))", as_name="p_lag")
+    hp = quiet(g.hs, "main", record=True, swap={"price:P": "est:p_lag"}, as_name="prev")
+    pr = quiet(g.propose, title="물가에 시차", why="hs:prev", parts={"price:P": "est:p_lag"}, previews=["hs:prev"])
+    check("만들기: 파일은 그대로·이름 p1·바꿀 파일", pr.id == "prop:p1" and read(os.path.join(dg, "EQUATIONS", "price.txt")) == before
+          and set(pr.meta["files"]) == {"EQUATIONS/price.txt", "EQUATIONS/adopted.toml"} and pr.status == "open")
+    check("카드·차이", os.path.isfile(os.path.join(pr.path, "proposal.md")) and "+dlog(P) c dlog(Y) dlog(POIL) dlog(P(-1))" in pr.diff()
+          and "```diff" in read(os.path.join(pr.path, "proposal.md")))
+    check("없는 미리 계산 기록·바꿀 것 없음", raises(lambda: g.propose(parts={"price:P": "est:p_lag"}, previews=["hs:none"]), RecordError)
+          and raises(lambda: g.propose(), ProjectError, "바꿀 것이 없습니다"))
+    p2 = quiet(g.propose, "p_stale", parts={"price:P": "dlog(P) c dlog(Y)"})
+    write(os.path.join(dg, "EQUATIONS", "price.txt"), before + "# 주석 한 줄\n")
+    check("낡음: 만든 뒤 바뀐 파일", p2.stale == ["EQUATIONS/price.txt"])
+    check("낡은 제안은 적용하지 않는다", raises(lambda: g.apply_proposal("p_stale"), ProjectError, "낡았습니다"))
+    write(os.path.join(dg, "EQUATIONS", "price.txt"), before)
+    ap = quiet(g.apply_proposal, "p1")
+    g2 = quiet(Project.open, dg)
+    check("적용: 블록 파일·채택표·바뀜 기록", ap.status == "applied" and g2.part("price:P").text == "dlog(P) c dlog(Y) dlog(POIL) dlog(P(-1))"
+          and g2.adopted == {"price:P": "est:p_lag"} and g2.history.get(ap.meta["decided"]["change"]).how == "propose apply p1")
+    dp = quiet(g.drop_proposal, "p_stale", why="설명할 수 없다")
+    check("버림: 상태·기록은 남는다", dp.status == "dropped" and os.path.isdir(dp.path) and len(g.proposals()) == 2)
+    check("이미 정한 제안", raises(lambda: g.apply_proposal("p1"), ProjectError, "열린 제안만"))
+    p3 = quiet(g.propose, parts={"price:P": "dlog(P) c dlog(Y)"})
+    write(os.path.join(dg, "EQUATIONS", "price.txt"), "dlog(P) c dlog(Y) dlog(POIL)\n")
+    ap3 = quiet(g.apply_proposal, p3.name, force=True)
+    check("--force: 낡은 채로 적용(표시)", ap3.status == "applied" and "낡은 채로" in ap3.meta["decided"]["note"]
+          and "price:P" not in quiet(Project.open, dg).adopted)
+    code, out, _ = run(["propose", "list"], dg)
+    check("명령줄 propose list", code == 0 and "prop:p1" in out and "적용" in out and "버림" in out)
+    code, out, _ = run(["propose", "new", "--part", "demand:CN=CN c Y", "--title", "t"], dg)
+    check("명령줄 propose new(0)", code == 0 and "[prop:p3]" in out and "카드" in out)
+    code, out, _ = run(["propose", "show", "p3"], dg)
+    check("명령줄 propose show: 차이", code == 0 and "+CN c Y                   # 소비" in out)
+    code, _, err = run(["propose", "apply", "p99"], dg)
+    check("명령줄 없는 제안(3)", code == 3 and "없는 제안" in err)
+    code, _, err = run(["propose", "new", "--file", "../x.txt=" + os.path.join(dg, "equion.toml")], dg)
+    check("--file은 프로젝트 안", code == 3 and "상대 경로" in err)
+
+    print("=" * 80)
+    print("M. 내보내기(export --xlsx)")
+    print("=" * 80)
+    out = g.export([hp.id, ec.id, "data:" + g.vintage], "exports/x.xlsx")
+    import openpyxl
+    wb = openpyxl.load_workbook(out["path"], read_only=True)
+    names = wb.sheetnames
+    prov = list(wb["출처"].iter_rows(values_only=True))
+    check("시트: 출처·기록별·자료 회차", names[0] == "출처" and "prev_적합도" in names and "p_lag_계수" in names
+          and f"{g.vintage}_값의종류" in names and [r_[0] for r_ in prov[1:]] == [hp.id, ec.id, "data:" + g.vintage])
+    wb.close()
+    check("엑셀 이름·없는 기록", raises(lambda: g.export([hp.id], "x.csv"), ProjectError, ".xlsx")
+          and raises(lambda: g.export(["hs:none"], "y.xlsx"), RecordError))
+    code, out_, _ = run(["export", hp.id, "--xlsx", "exports/y.xlsx"], dg)
+    check("명령줄 export(0)", code == 0 and out_.startswith("[export] exports/y.xlsx") and os.path.isfile(os.path.join(dg, "exports", "y.xlsx")))
+
+
+def _scene_tests(tmp):
+    print("=" * 80)
+    print("N. 장면 4 — HS가 나빠졌다(원인 따라가기와 제안)")
+    print("=" * 80)
+    _, d = new_project(tmp, "scene4")
+    run(["hs", "--as", "ok"], d)
+    write(os.path.join(d, "EQUATIONS", "price.txt"), "# 물가 블록\ndlog(P) c dlog(POIL)      # 물가 — 수요를 뺐다\n")
+    code, out, _ = run(["hs", "--vs", "hs:ok", "--as", "bad", "--json"], d)
+    j = json.loads(out)
+    p_ok, p_bad = j["vs"]["rmspe"]["P"]
+    check("HS가 나빠졌다(P RMSPE)·풀이 상태는 정상", code == 0 and p_bad > p_ok and j["counts"]["ok"] == 60, f"{p_ok:.2f} → {p_bad:.2f}")
+    code, out, _ = run(["hs", "price", "--as", "price_only", "--json"], d)
+    jb = json.loads(out)
+    check("블록 HS: 물가 블록만 풀어도 어긋난다(블록 안의 문제)", code == 0 and jb["rmspe"]["P"] > p_ok * 0.9, f"{jb['rmspe']['P']:.2f}")
+    run(["est", "dlog(P) c dlog(POIL) @step(2008Q3)", "--as", "pa"], d)
+    run(["est", "dlog(P) c dlog(Y) dlog(POIL)", "--as", "pb"], d)
+    code_a, out_a, _ = run(["hs", "--swap", "price:P=est:pa", "--vs", "hs:bad", "--as", "prev_a", "--json"], d)
+    code_b, out_b, _ = run(["hs", "--swap", "price:P=est:pb", "--vs", "hs:bad", "--as", "prev_b", "--json"], d)
+    ja, jb2 = json.loads(out_a), json.loads(out_b)
+    check("두 후보를 바꿔 끼워 미리 HS", code_a == 0 and code_b == 0 and ja["vs"]["id"] == "hs:bad"
+          and jb2["rmspe"]["P"] < p_bad and jb2["swaps"] == {"price:P": "est:pb"})
+    run(["propose", "new", "p2", "--title", "2008년 더미", "--why", f"hs:prev_a — P RMSPE {p_bad:.2f}% → {ja['rmspe']['P']:.2f}%",
+         "--part", "price:P=est:pa", "--preview", "hs:prev_a"], d)
+    run(["propose", "new", "p3", "--title", "유가를 다시 넣기", "--why", f"hs:prev_b — P RMSPE {p_bad:.2f}% → {jb2['rmspe']['P']:.2f}%",
+         "--part", "price:P=est:pb", "--preview", "hs:prev_b"], d)
+    before = read(os.path.join(d, "EQUATIONS", "price.txt"))
+    check("제안 둘 — 파일은 그대로", before.count("dlog(P) c dlog(POIL)      # 물가") == 1)
+    code, out, _ = run(["propose", "apply", "p3"], d)
+    code2, out2, _ = run(["propose", "drop", "p2", "--why", "2008년 더미의 경제적 뜻을 설명할 수 없다"], d)
+    pr = quiet(Project.open, d)
+    hist = pr.history.list()
+    check("적용 1·버림 1 — 블록 파일 변경과 바뀜 기록", code == 0 and code2 == 0 and pr.part("price:P").text == "dlog(P) c dlog(Y) dlog(POIL)"
+          and pr.adopted == {"price:P": "est:pb"} and any(h.who == "바깥" and "EQUATIONS/price.txt" in h.files for h in hist)
+          and hist[-1].how == "equion propose apply p3" and "버림" in out2)
+    code, out, _ = run(["hs", "--vs", "hs:prev_b"], d)
+    check("적용 뒤 HS = 미리 계산한 HS", code == 0 and "RMSPE 그대로" in out)
+    code, out, _ = run(["work", "clean"], d)
+    check("정리: 제안이 미리 계산한 기록은 남김", code == 0 and "hs:prev_a" not in out and "hs:prev_b" not in out and "est:pa" not in out)
+
+    print("=" * 80)
+    print("O. 장면 5 — 분기 전망(새 자료 회차로 기준선 다시)")
+    print("=" * 80)
+    _, d = new_project(tmp, "scene5")
+    code, out, _ = run(["sim", "--as", "2026-10_base"], d)
+    check("지난달 기준선", code == 0 and "[sim:2026-10_base]" in out)
+    raw = pd.read_csv(os.path.join(d, "DATA", "raw", "toy_q.csv"), index_col=0)
+    raw.loc[raw.index[-4:], "CN"] *= 1.006
+    raw.loc["2020Q1"] = raw.iloc[-1] * 1.005
+    new = os.path.join(tmp, "na_2026-11.csv")
+    raw.to_csv(new)
+    c1, _, _ = run(["data", "add", new, "--source", "na"], d)
+    c2, out2, _ = run(["data", "build", "--use", "--json"], d)
+    c3, out3, _ = run(["data", "diff", "--json"], d)
+    dj = json.loads(out3)
+    cn = next(x for x in dj["changes"] if x["시리즈"] == "CN")
+    check("새 원자료 → 새 회차·개정 4분기와 새 기간", c1 == c2 == c3 == 0 and cn["개정"] == 4 and cn["새 값"] == 1)
+    code, out, _ = run(["work", "list"], d)
+    check("지난달 기록에 '회차 다름'(다시 계산은 저절로 하지 않는다)", code == 0 and "회차 다름" in out)
+    a = pd.read_csv(os.path.join(d, "ASSUMPTIONS", "base.csv"), index_col=0)
+    a["POIL"] = a["POIL"] * 1.05
+    a.to_csv(os.path.join(d, "ASSUMPTIONS", "base.csv"), lineterminator="\n")
+    write(os.path.join(d, "ADDFACTORS", "base.toml"),
+          read(os.path.join(d, "ADDFACTORS", "base.toml")).replace('default = "zero"', 'default = "zero"\nvalues = "ADDFACTORS/judge.csv"'))
+    write(os.path.join(d, "ADDFACTORS", "judge.csv"), "period,demand:CN\n2020Q2,-0.2\n")
+    code, out, _ = run(["sim", "--as", "2026-11_base", "--vs", "sim:2026-10_base", "--json"], d)
+    s5 = json.loads(out)
+    check("새 기준선: 구간·가정·채움·보정항 규칙 값·판단 값", code == 0 and s5["range"] == ["2020Q2", "2022Q1"]
+          and s5["assume"]["filled"] == {"R": 8} and s5["addfactors"]["judgment"] == 1
+          and any(x.startswith("보정항 규칙 값") for x in s5["implicit"]))
+    check("회차 비교: 지난달과 연간 증가율", s5["vs"]["id"] == "sim:2026-10_base" and "2021" in s5["vs"]["growth"]
+          and s5["vs"]["growth"]["2021"]["Y"][0] is not None)
+    code, out, _ = run(["sim", "--vintage", s5["vs"] and json.loads(run(["data", "list", "--json"], d)[1])[0]["id"],
+                        "--as", "split_data", "--json"], d)
+    sd = json.loads(out)
+    check("나눠 보기: 옛 회차로 같은 가정(지금 회차는 그대로)", code == 0 and sd["range"] == ["2020Q1", "2021Q4"]
+          and quiet(Project.open, d).vintage == s5["data"]["id"])
+    hs_ = quiet(Project.open, d).history.list()
+    check("가정 CSV·보정항 변경은 바뀜 기록에('바깥')", any(h.who == "바깥" and "ASSUMPTIONS/base.csv" in h.files for h in hs_)
+          and any("ADDFACTORS/base.toml" in h.files for h in hs_))
+    code, out, _ = run(["export", "sim:2026-11_base", "sim:2026-10_base", "--xlsx", "exports/전망.xlsx"], d)
+    check("엑셀로", code == 0 and os.path.isfile(os.path.join(d, "exports", "전망.xlsx")))
+    code, out, _ = run(["work", "list", "--kind", "sim", "--json"], d)
+    check("남는 것: 전망 기록 3", code == 0 and [x["id"] for x in json.loads(out)] == ["sim:2026-10_base", "sim:2026-11_base",
+                                                                                   "sim:split_data"])
 
 
 def test_suite():

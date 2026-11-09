@@ -422,6 +422,17 @@ def _est_md(m, ctab, has_sim) -> str:
 # ---------------------------------------------------------------------------
 # 채택
 # ---------------------------------------------------------------------------
+def replace_line(old: str, text: str) -> str:
+    """블록 파일의 한 줄을 새 식으로 — 들여쓰기와 줄 끝 설명(`# …`)은 그대로, 설명의 자리도 맞출 수 있으면 그대로."""
+    body, hash_, comment = old.partition("#")
+    indent = old[:len(old) - len(old.lstrip())]
+    new = indent + text
+    if not hash_:
+        return new
+    gap = len(body) - len(new)
+    return new + (" " * gap if gap >= 1 else "   ") + "#" + comment
+
+
 def read_adopted(root: str) -> Dict[str, str]:
     """채택표 EQUATIONS/adopted.toml — {부품: est:기록}."""
     import tomllib
@@ -479,10 +490,7 @@ def adopt(p, rid: str, part: str = None, who: str = None, command: str = None) -
     if changed:
         with open(os.path.join(p.root, pt.file), encoding="utf-8-sig") as f:
             lines = f.read().split("\n")
-        old = lines[pt.line - 1]
-        body, hash_, comment = old.partition("#")
-        indent = old[:len(old) - len(old.lstrip())]
-        lines[pt.line - 1] = indent + text + (("   #" + comment) if hash_ else "")
+        lines[pt.line - 1] = replace_line(lines[pt.line - 1], text)
         new[pt.file] = "\n".join(lines)
     apath = os.path.join(p.root, ADOPTED)
     if os.path.isfile(apath):
@@ -499,6 +507,106 @@ def adopt(p, rid: str, part: str = None, who: str = None, command: str = None) -
                                    note=f"{pt.id} ← {rid}" + (f" (전: {prev})" if prev else ""))
     p._reset()
     return AdoptResult(pt.id, rid, prev, changed, ch.id if ch else None, sorted(ch.files) if ch else [])
+
+
+# ---------------------------------------------------------------------------
+# 다시 추정 — 채택한 식을 지금 자료로, 정책에 따라 새 계수 채택(D35)
+# ---------------------------------------------------------------------------
+POLICIES = ("never", "if_pass", "all")
+
+
+@dataclass
+class ReestResult:
+    """`est --adopted` 결과 — 식마다 옛 기록·새 기록·기준·채택 여부와 계수 변화(`.rows`), 바뀜 기록(`.change`)."""
+
+    model: str
+    policy: str
+    rows: List[dict]
+    change: Optional[str]
+
+    @property
+    def adopted(self) -> List[str]:
+        """새 계수를 채택한 부품."""
+        return [r["part"] for r in self.rows if r["adopted"]]
+
+    @property
+    def flagged(self) -> List[str]:
+        """기준을 통과하지 못해 사람이 볼 부품."""
+        return [r["part"] for r in self.rows if r["passed"] is False]
+
+    def text(self) -> str:
+        """명령줄에 보이는 짧은 글."""
+        n = len(self.rows)
+        L = [f"[est --adopted] {self.model} · 정책 {self.policy}: 식 {n} — 새 계수 채택 {len(self.adopted)}"
+             + (f" · 기준 미달 {len(self.flagged)}" if self.flagged else "")]
+        for r in self.rows:
+            ch = f"계수 최대 변화 {r['max_change_pct']:.2f}%" if r.get("max_change_pct") is not None else "처음 채택"
+            what = ("채택" if r["adopted"] else
+                    ("옛 계수 유지" if r["old"] else "채택 없음(지금 자료로 추정)") if r["passed"] is False else
+                    ("기록만(정책 never)" if self.policy == "never" else "채택 안 함"))
+            mark = "!" if r["passed"] is False else "✓"
+            L.append(f"  {mark} {r['part']:<12} {r['old'] or '—'} → {r['new']} · {ch} · "
+                     + ("기준 통과" if r["passed"] else ("기준 없음" if r["passed"] is None else "기준 미달: " + " · ".join(r["reasons"])))
+                     + f" · {what}")
+        if self.change:
+            L.append(f"  바뀜 기록  {self.change} (EQUATIONS/adopted.toml)")
+        return "\n".join(L)
+
+    def to_dict(self) -> dict:
+        """명령줄 --json과 같은 사전."""
+        return {"model": self.model, "policy": self.policy, "rows": self.rows, "change": self.change,
+                "adopted": self.adopted, "flagged": self.flagged}
+
+
+def reestimate(p, name: str = None, policy: str = "never", who: str = None, command: str = None) -> ReestResult:
+    """모형(또는 블록)의 추정식을 블록 파일의 글자 그대로 지금 자료로 다시 추정해 기록을 남기고, 정책에 따라 새 계수를 채택한다.
+
+    정책: never(기록만) · if_pass(판단 기준을 통과한 식만 — 기준이 없으면 통과로 본다) · all. 채택은 채택표 한 번의 바뀜 기록으로."""
+    import tomlkit
+    if policy not in POLICIES:
+        raise ProjectError(f"--adopt {policy!r} — {' · '.join(POLICIES)}")
+    history_of(p).scan()
+    name = p._default(name)
+    store = store_of(p)
+    parts = [x for x in p.parts(name) if x.kind == "equation"]
+    adopted = p.adopted
+    rows = []
+    for x in parts:
+        old = adopted.get(x.id)
+        rec = run_est(p, x.id, who=who, command=command or f"est --adopted {name} --adopt {policy}")
+        mc = None
+        if old:
+            try:
+                oc = pd.Series({c["name"]: c["coef"] for c in store.get(old, "est").meta["coefs"]}, dtype=float)
+                nc = rec.coefs
+                both = [k for k in nc.index if k in oc.index]
+                if both:
+                    mc = float(np.max(np.abs((nc[both] - oc[both]) / np.where(oc[both] == 0, 1, np.abs(oc[both])))) * 100)
+            except RecordError:
+                old = None
+        passed = rec.passed
+        cr = rec.meta.get("criteria")
+        take = policy == "all" or (policy == "if_pass" and passed is not False)
+        rows.append({"part": x.id, "old": old, "new": rec.id, "passed": passed,
+                     "reasons": (cr or {}).get("reasons", []), "adopted": bool(take), "max_change_pct": mc})
+    change = None
+    chosen = [r for r in rows if r["adopted"]]
+    if chosen:
+        apath = os.path.join(p.root, ADOPTED)
+        if os.path.isfile(apath):
+            with open(apath, encoding="utf-8") as f:
+                doc = tomlkit.parse(f.read())
+        else:
+            doc = tomlkit.document()
+            doc.add(tomlkit.comment("채택표 — 식(부품)마다 채택한 추정 기록. 모형은 이 계수로 푼다(equion adopt가 고친다)"))
+        for r in chosen:
+            doc[r["part"]] = r["new"]
+        by = command or f"est --adopted {name} --adopt {policy}"
+        ch = history_of(p).write_files({ADOPTED: tomlkit.dumps(doc)}, _who(who), by,
+                                       note=f"정책 {policy}가 채택: " + ", ".join(f"{r['part']} ← {r['new']}" for r in chosen))
+        change = ch.id if ch else None
+        p._reset()
+    return ReestResult(name, policy, rows, change)
 
 
 # ---------------------------------------------------------------------------

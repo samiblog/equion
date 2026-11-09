@@ -37,11 +37,14 @@ Equion 0.7.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstri
 - [29. HS 기록 p.hs(…, record=True)](#29-hs-기록-phs-recordtrue)
 - [30. 채택 결과 p.adopt(…)](#30-채택-결과-padopt)
 - [31. 기록 비교 p.compare(…)](#31-기록-비교-pcompare)
-- [32. 작업 기록 저장소 p.work](#32-작업-기록-저장소-pwork)
-- [33. 작업 기록 하나 p.work.get(…)](#33-작업-기록-하나-pworkget)
-- [34. 바뀜 기록 p.history](#34-바뀜-기록-phistory)
-- [35. 바뀜 하나 p.history.get(…)](#35-바뀜-하나-phistoryget)
-- [36. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#36-고급엔진-수준--드라이버확장용-바뀔-수-있다)
+- [32. 전망 기록 p.sim(…)](#32-전망-기록-psim)
+- [33. 다시 추정 결과 p.reestimate(…)](#33-다시-추정-결과-preestimate)
+- [34. 제안 p.propose(…)](#34-제안-ppropose)
+- [35. 작업 기록 저장소 p.work](#35-작업-기록-저장소-pwork)
+- [36. 작업 기록 하나 p.work.get(…)](#36-작업-기록-하나-pworkget)
+- [37. 바뀜 기록 p.history](#37-바뀜-기록-phistory)
+- [38. 바뀜 하나 p.history.get(…)](#38-바뀜-하나-phistoryget)
+- [39. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다](#39-고급엔진-수준--드라이버확장용-바뀔-수-있다)
 - [22. 명령줄 `equion`](#22-명령줄-equion)
 
 ## 1. `import equion as eqn`
@@ -3773,6 +3776,13 @@ s[:4].round(6).tolist()
 | [`adopt`](#projectadopt) | `(record, part=None, who=None, command=None)` | 추정 기록을 그 부품의 채택 계수로 — 블록 파일의 그 줄을 기록의 식으로 바꾸고(다르면) 채택표 `EQUATIONS/adopted.toml`을 고친다(주석·순서 그대로). 바뀜 기록에 남고, 그 뒤 모형은 이 계수로 푼다(다시 추정하지 않음). |
 | [`compare`](#projectcompare) | `(*records, target=None, part=None)` | 기록 비교 — 추정 기록이면 식·표본·적합 통계·진단·기준·단독 모의 표(종속변수·표본이 다르면 경고), HS 기록이면 변수별 RMSPE. |
 | [`replay`](#projectreplay) | `(record, as_name=None, who=None, command=None)` | HS 기록을 그때 그대로 다시 — 기록의 조립 명세(식 글자·계수·자료 회차·구간·방식)로 푼다. 지금 파일과 무관하고, 원래 기록의 풀린 값과 견주어(`.meta['replay']` — same · max_abs_diff) 새 기록을 남긴다. |
+| [`sim`](#projectsim) | `(scenario='base', model=None, range=None, vintage=None, vs=None, as_name=None, mode=None, who=None, command=None)` | 전망·시나리오 — 가정 세트(`ASSUMPTIONS/이름.csv`, 빈 외생은 `[forecast] fill`)·보정항(`ADDFACTORS/이름.toml`)·시나리오 (`SCENARIOS/이름.toml`)로 풀고 작업 기록(`work/sim/<이름>/`)을 남긴다. 시나리오면 같은 가정·보정항의 기준선도 풀어 차이를 적는다. |
+| [`reestimate`](#projectreestimate) | `(name=None, adopt='never', who=None, command=None)` | 모형(또는 블록)의 추정식을 블록 파일의 글자 그대로 지금 자료로 다시 추정해 기록을 남기고, 정책에 따라 새 계수를 채택한다 (명령줄 `equion est --adopted [모형] --adopt 정책`, D35). |
+| [`propose`](#projectpropose) | `(name=None, title='', why='', parts=None, files=None, previews=(), who=None, command=None)` | 제안을 만든다 — 파일은 바꾸지 않고 "이렇게 바꾸면"을 `work/proposals/<이름>/`에 남긴다(바뀔 내용·까닭·미리 계산한 기록). |
+| [`proposals`](#projectproposals) | `()` | 제안 목록(만든 순) — 열림·적용·버림 모두. |
+| [`apply_proposal`](#projectapply_proposal) | `(name, force=False, who=None, command=None)` | 제안을 적용한다 — 바꿀 파일을 새 내용으로 쓰고 바뀜 기록에 "제안 … 적용". 만든 뒤 파일이 바뀌었으면(낡음) force일 때만. |
+| [`drop_proposal`](#projectdrop_proposal) | `(name, why='', who=None)` | 제안을 버린다 — 파일은 그대로, 제안 기록은 남는다(상태 '버림'). |
+| [`export`](#projectexport) | `(records, xlsx)` | 기록(est:· hs:· sim:· data:회차)을 엑셀 한 권으로 — 값·값의 종류·출처 시트. 기록은 남기지 않는다. |
 | `work` | `속성` | 작업 기록 저장소(`work/`) — .records(종류) · .get(이름) · .log() · .mark(…). |
 | `history` | `속성` | 바뀜 기록(`work/history/`) — .list() · .get(h0001) · .revert(h0001, who) · .scan(). |
 | [`ident`](#projectident) | `(pid, start=None, end=None, tol=1e-06)` | 항등식 단독 검사 — 실측으로 좌변과 우변을 계산해 견준다(추정 없이). |
@@ -4257,6 +4267,171 @@ p.replay(h.id).meta["replay"]["same"]
 # True
 ```
 
+### Project.sim
+
+`sim(scenario='base', model=None, range=None, vintage=None, vs=None, as_name=None, mode=None, who=None, command=None)`
+
+전망·시나리오 — 가정 세트(`ASSUMPTIONS/이름.csv`, 빈 외생은 `[forecast] fill`)·보정항(`ADDFACTORS/이름.toml`)·시나리오 (`SCENARIOS/이름.toml`)로 풀고 작업 기록(`work/sim/<이름>/`)을 남긴다. 시나리오면 같은 가정·보정항의 기준선도 풀어 차이를 적는다.
+
+**매개변수**
+
+- `scenario`: 'base'(기준선 — 파일이 없어도 된다) 또는 SCENARIOS/의 이름
+- `model`: 모형(기본: 시나리오의 model → [forecast] model → [hs] model)
+- `range`: 전망 구간(기본 [forecast] range, 없으면 'next:8')
+- `vintage`: 다른 자료 회차로(지금 회차는 그대로)
+- `vs`: 견줄 전망 기록(sim:…) — 연간 증가율 전후
+- `as_name`: 기록 이름(기본: 연-월_시나리오)
+- `mode`: 'dynamic'(기본) · 'static'
+
+**돌려주는 것**
+
+SimRecord — .id · .levels · .flags(값의 종류) · .annual · .diff · .text()  
+
+**오류**
+
+- `ProjectError`: 없는 시나리오·가정·보정항 파일, 파일 문법, 전망 구간의 외생이 비어 채우지 못함
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.sim(as_name="base_a")
+r.meta["range"], r.counts()["ok"]
+# (['2020Q1', '2021Q4'], 8)
+p.sim("oil20", as_name="oil_a").meta["vs_base"]["P"] > 0
+# True
+```
+
+### Project.reestimate
+
+`reestimate(name=None, adopt='never', who=None, command=None)`
+
+모형(또는 블록)의 추정식을 블록 파일의 글자 그대로 지금 자료로 다시 추정해 기록을 남기고, 정책에 따라 새 계수를 채택한다 (명령줄 `equion est --adopted [모형] --adopt 정책`, D35).
+
+**매개변수**
+
+- `name`: 모형 또는 블록(기본: [hs] model)
+- `adopt`: 'never'(기록만 — 기본) · 'if_pass'(판단 기준을 통과한 식만, 기준이 없으면 통과) · 'all'
+
+**돌려주는 것**
+
+ReestResult — .rows(식마다 옛·새 기록·기준·채택·계수 변화) · .adopted · .flagged · .change · .text()  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.reestimate("demand", adopt="all")
+r.adopted, sorted(p.adopted)
+# (['demand:CN', 'demand:I'], ['demand:CN', 'demand:I'])
+```
+
+### Project.propose
+
+`propose(name=None, title='', why='', parts=None, files=None, previews=(), who=None, command=None)`
+
+제안을 만든다 — 파일은 바꾸지 않고 "이렇게 바꾸면"을 `work/proposals/<이름>/`에 남긴다(바뀔 내용·까닭·미리 계산한 기록).
+
+**매개변수**
+
+- `name`: 제안 이름(기본 p1, p2 …)
+- `title, why`: 제목·까닭(사람이 읽는 글 — 근거 기록 이름을 넣는다)
+- `parts`: {부품: est:기록(그 식으로 바꾸고 채택) 또는 식 글자}
+- `files`: {프로젝트 안 경로: 새 내용 파일}
+- `previews`: 미리 계산한 기록(hs:… · sim:… · est:…)
+
+**돌려주는 것**
+
+Proposal — .id · .status · .stale · .diff() · .text()  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+pr = p.propose(title="소비에 시차 하나 더", parts={"demand:CN": "CN c Y CN(-1) CN(-2)"})
+pr.id, pr.status, p.part("demand:CN").text
+# ('prop:p1', 'open', 'CN c Y CN(-1)')
+```
+
+### Project.proposals
+
+`proposals()`
+
+제안 목록(만든 순) — 열림·적용·버림 모두.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = p.propose(parts={"demand:CN": "CN c Y"})
+[(x.id, x.status) for x in p.proposals()]
+# [('prop:p1', 'open')]
+```
+
+### Project.apply_proposal
+
+`apply_proposal(name, force=False, who=None, command=None)`
+
+제안을 적용한다 — 바꿀 파일을 새 내용으로 쓰고 바뀜 기록에 "제안 … 적용". 만든 뒤 파일이 바뀌었으면(낡음) force일 때만.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = p.propose(parts={"demand:CN": "CN c Y CN(-1) CN(-2)"})
+p.apply_proposal("p1").status, p.part("demand:CN").text
+# ('applied', 'CN c Y CN(-1) CN(-2)')
+```
+
+### Project.drop_proposal
+
+`drop_proposal(name, why='', who=None)`
+
+제안을 버린다 — 파일은 그대로, 제안 기록은 남는다(상태 '버림').
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = p.propose(parts={"demand:CN": "CN c Y"})
+p.drop_proposal("p1", why="설명할 수 없다").status
+# 'dropped'
+```
+
+### Project.export
+
+`export(records, xlsx)`
+
+기록(est:· hs:· sim:· data:회차)을 엑셀 한 권으로 — 값·값의 종류·출처 시트. 기록은 남기지 않는다.
+
+**돌려주는 것**
+
+{path, sheets, records}  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+h = p.hs("main", record=True)
+out = p.export([h.id, "data:" + p.vintage], "exports/hs.xlsx")
+out["sheets"][:3]
+# ['출처', 'hs_0001_적합도', 'hs_0001_해']
+```
+
 ### Project.ident
 
 `ident(pid, start=None, end=None, tol=1e-06)`
@@ -4384,7 +4559,43 @@ c.ok, c.n
 | `to_dict` | `()` | 명령줄 --json과 같은 사전. |
 | `md` | `()` | md 표. |
 
-## 32. 작업 기록 저장소 `p.work`
+## 32. 전망 기록 `p.sim(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `id` | `속성` | 기록 이름 sim:… |
+| `meta` | `속성` | record.json 내용. |
+| `levels` | `속성` | 수준(levels.csv — 전망 앞 2년의 실측과 전망 구간). |
+| `flags` | `속성` | 값의 종류(flags.csv — 실측·해·가정·채움·결측). |
+| `annual` | `속성` | 연간 평균 수준과 증가율(annual.csv). |
+| `diff` | `속성` | 시나리오 − 기준선(diff.csv — 수준 차이·%) — 기준선 기록이면 None. |
+| `counts` | `()` | 기간 상태 수 {'ok', 'partial', 'fallback', 'failed'}. |
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 33. 다시 추정 결과 `p.reestimate(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `adopted` | `속성` | 새 계수를 채택한 부품. |
+| `flagged` | `속성` | 기준을 통과하지 못해 사람이 볼 부품. |
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 34. 제안 `p.propose(…)`
+
+| 이름 | 서명 | 설명 |
+|---|---|---|
+| `id` | `속성` | 제안 이름 prop:… |
+| `path` | `속성` | 제안 폴더. |
+| `status` | `속성` | open · applied · dropped. |
+| `new_content` | `(rel)` | 바뀔 파일의 새 내용(지우는 파일이면 None). |
+| `stale` | `속성` | 만든 뒤 지금 내용이 바뀐 파일(적용하면 그 바뀜을 덮는다). |
+| `diff` | `()` | 지금 파일 대비 바뀔 내용의 차이(unified diff). |
+| `text` | `()` | 명령줄에 보이는 짧은 글. |
+| `to_dict` | `()` | 명령줄 --json과 같은 사전. |
+
+## 35. 작업 기록 저장소 `p.work`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4402,7 +4613,7 @@ c.ok, c.n
 | `mark` | `(rid, pinned=None, memo=None)` | 고정(pinned)·메모 — 기록 자체는 그대로, marks.json에만. |
 | `remove` | `(rid)` | 기록 폴더를 지운다(정리 — 사람이 고를 때만). log.jsonl의 줄은 남고 목록에서 빠진다. |
 
-## 33. 작업 기록 하나 `p.work.get(…)`
+## 36. 작업 기록 하나 `p.work.get(…)`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4412,7 +4623,7 @@ c.ok, c.n
 | `read_csv` | `(fname, index_col=0)` | 기록 폴더의 CSV(첫 열이 기간 라벨). |
 | `summary_md` | `()` | 사람이 읽는 카드(summary.md). |
 
-## 34. 바뀜 기록 `p.history`
+## 37. 바뀜 기록 `p.history`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4422,14 +4633,14 @@ c.ok, c.n
 | `get` | `(cid)` | 바뀜 하나. |
 | `revert` | `(cid, who, how=None)` | 그 바뀜 앞의 내용으로 되돌린다(그 뒤에 같은 파일이 또 바뀌었어도 — 지금 내용과의 차이가 새 바뀜으로 남는다). |
 
-## 35. 바뀜 하나 `p.history.get(…)`
+## 38. 바뀜 하나 `p.history.get(…)`
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
 | `text` | `()` | 명령줄에 보이는 짧은 글. |
 | `to_dict` | `()` | 명령줄 --json과 같은 사전. |
 
-## 36. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
+## 39. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
@@ -4519,9 +4730,12 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `assemble` | --help --json --project | 프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수) |
 | `ident` | --check --help --json --project --range --strict --tol | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |
 | `data` | --help | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 |
-| `est` | --as --cov --for --help --json --method --project --sim --smpl | 식 하나를 추정해 기록을 남긴다(부품 또는 식 글자 — 후보) |
+| `est` | --adopt --adopted --as --cov --for --help --json --method --project --sim --smpl | 식 하나를 추정해 기록을 남긴다(부품 또는 식 글자 — 후보) |
 | `adopt` | --help --json --part --project | 추정 기록을 부품의 채택 계수로(블록 파일의 줄·채택표를 고치고 바뀜 기록에) |
 | `compare` | --help --json --part --project --target | 기록 비교 — 추정 후보(적합·진단·기준·단독 모의) 또는 HS(변수별 RMSPE) |
 | `hs` | --as --help --json --mode --project --range --replay --swap --vs | 과거 재현을 풀고 기록을 남긴다(바꿔 끼우기·전후 비교·그때 그대로 다시) |
+| `sim` | --as --help --json --mode --model --project --range --vintage --vs | 전망·시나리오를 풀고 기록을 남긴다(가정 세트·보정항·시나리오 파일) |
+| `propose` | --help | 제안 — 파일을 바꾸기 전에 보여 주기(만들기·목록·보기·적용·버림) |
+| `export` | --help --json --project --xlsx | 기록의 값·값의 종류·출처를 엑셀로 |
 | `work` | --help | 작업 기록 — 목록·보기·고정·메모·정리 |
 | `history` | --help | 바뀜 기록 — 정의 파일이 누가·언제·어떻게 바뀌었나, 되돌리기 |

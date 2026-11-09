@@ -102,3 +102,55 @@ print(rows)
 ```
 
 관련: [튜토리얼 6](../tutorial/06-forecast.md)
+
+## R51. 전망 기록 — 가정 세트·보정항·시나리오
+
+프로젝트의 전망은 가정 세트(`ASSUMPTIONS/이름.csv`)·보정항(`ADDFACTORS/이름.toml`)·시나리오(`SCENARIOS/이름.toml`)로 풀고 기록을 남깁니다
+([파일 형식](../reference/formats.md#가정보정항시나리오assumptionsaddfactorsscenarios)). 계산한 값은 실측 자리에 쓰지 않고, 칸마다 값의 종류
+(실측·해·가정·채움)가 따라갑니다. 명령줄은 `equion sim [시나리오…]`.
+
+```python
+p = eqn.Project.create("fc_prj", force=True)   # 예제 프로젝트 — 가정 base · 보정항 base · 시나리오 oil20
+b = p.sim(as_name="base_1")                    # 기준선 — [forecast] range = next:8
+print(b.text())
+print(b.flags.loc["2019Q4":"2020Q2", ["Y", "G", "POIL", "R"]])
+o = p.sim("oil20", as_name="oil_1", vs="sim:base_1")
+print(o.text())
+```
+<!-- out -->
+```text
+[fc_prj] 자료 회차 d2026-11a를 만들었습니다
+[fc_prj] 지금 자료 회차: d2026-11a
+[fc_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[main] 채택 기록 없이 지금 자료로 추정: demand:CN, demand:I, price:P, finance:RL, finance:M2
+[fc_prj] 기간 확장 → 2021Q4 (+8)
+[main] baseline(_0) dynamic 2020Q1~2021Q4: 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
+[sim:base_1] main · base · 2020Q1~2021Q4 dynamic · 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
+  연간 증가율  2020: Y 0.89% · CN 0.87% · I -0.25% · P 2.52% │ 2021: Y 1.74% · CN 1.65% · I 1.97% · P 2.58%
+  가정   base: G·POIL 16칸 · 채움(last) R 8칸
+  보정항  base: demand:CN last(+0.654) · demand:I decay
+  알아서 한 것  구간 next:8 → 2020Q1~2021Q4 · 채택 기록 없이 지금 자료로 추정: demand:CN, demand:I, price:P, finance:RL, finance:M2 · 보정항 규칙 값 16칸 · 가정 16칸(G, POIL) · 외생 R 8칸을 채움(last)
+  기록   sim:base_1 (work/sim/base_1/)
+         Y   G POIL   R
+period
+2019Q4  실측  실측   실측  실측
+2020Q1   해  가정   가정  채움
+2020Q2   해  가정   가정  채움
+[fc_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[main] 채택 기록 없이 지금 자료로 추정: demand:CN, demand:I, price:P, finance:RL, finance:M2
+[fc_prj] 기간 확장 → 2021Q4 (+8)
+[main] baseline(_0) dynamic 2020Q1~2021Q4: 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
+[main] oil20(_1) dynamic 2020Q1~2021Q4: 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
+[sim:oil_1] main · oil20 · 2020Q1~2021Q4 dynamic · 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
+  연간 증가율  2020: Y 0.89% · CN 0.87% · I -0.25% · P 2.78% │ 2021: Y 1.74% · CN 1.65% · I 1.97% · P 2.58%
+  가정   base: G·POIL 16칸 · 채움(last) R 8칸
+  보정항  base: demand:CN last(+0.654) · demand:I decay
+  시나리오  oil20 (유가 20% 상승): POIL +20% start~end
+  기준선 대비(끝 기 수준)  Y +0.00% · CN +0.00% · I +0.00% · P +0.25% · RL +0.00% · M2 +0.26%
+  비교   vs sim:base_1 — 2020 P 2.52% → 2.78% (+0.26%p) · 2020 M2 3.35% → 3.59% (+0.24%p) · 2021 M2 4.28% → 4.31% (+0.03%p)
+  알아서 한 것  구간 next:8 → 2020Q1~2021Q4 · 채택 기록 없이 지금 자료로 추정: demand:CN, demand:I, price:P, finance:RL, finance:M2 · 보정항 규칙 값 16칸 · 가정 16칸(G, POIL) · 외생 R 8칸을 채움(last)
+  기록   sim:oil_1 (work/sim/oil_1/)
+```
+
+새 자료 회차로 바꾼 뒤 `p.sim(vs="sim:base_1")`이면 지난 전망과 연간 증가율을 견주고, `p.sim(vintage="d…")`는 옛 회차로 같은 가정을 풀어
+자료 개정의 몫만 따로 봅니다.

@@ -122,7 +122,8 @@ def _main(tmp, t0):
     print("=" * 80)
     p, d = new_project(tmp)
     files = ["equion.toml", "DATA/series.toml", "DATA/derived.txt", "DATA/raw/toy_q.csv", "DATA/raw/toy_m.csv",
-             "EQUATIONS/demand.txt", "EQUATIONS/price.txt", "EQUATIONS/finance.txt", "README.md", ".gitignore"]
+             "EQUATIONS/demand.txt", "EQUATIONS/price.txt", "EQUATIONS/finance.txt", "ADDFACTORS/base.toml",
+             "SCENARIOS/oil20.toml", "ASSUMPTIONS/base.csv", "README.md", ".gitignore"]
     check("만들기: 예제 프로젝트 파일", all(os.path.isfile(os.path.join(d, f)) for f in files)
           and sorted(p.created_files) == sorted(files))
     check("만들기: 첫 자료 회차를 지금 회차로", p.vintage is not None and len(p.data_list()) == 1

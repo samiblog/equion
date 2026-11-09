@@ -4,10 +4,12 @@ from .config import FORMAT, FORMAT_VERSION, ProjectConfig, ProjectError, load_co
 from .identity import IdentityCheck
 from .parts import Part
 from .project import ImpactReport, Project, open_project
-from .records import AdoptResult, CompareResult, EstRecord, HSRecord
+from .proposals import Proposal
+from .records import AdoptResult, CompareResult, EstRecord, HSRecord, ReestResult
+from .sim import SimRecord
 from .vintage import AddResult, BuildResult, VintageDiff
 
 __all__ = ["Project", "open_project", "ProjectError", "AssemblyReport", "IdentityCheck", "Part",
            "BuildResult", "VintageDiff", "ImpactReport", "AddResult", "EstRecord", "HSRecord", "AdoptResult",
-           "CompareResult",
+           "CompareResult", "SimRecord", "ReestResult", "Proposal",
            "ProjectConfig", "load_config", "FORMAT", "FORMAT_VERSION"]

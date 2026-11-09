@@ -51,3 +51,11 @@ for end in range(2010, 2019):
     rows[end + 1] = round(float(err.abs().mean()), 3)
 eqn.verbose(1)
 print(rows)
+
+# %% R51. 전망 기록 — 가정 세트·보정항·시나리오
+p = eqn.Project.create("fc_prj", force=True)   # 예제 프로젝트 — 가정 base · 보정항 base · 시나리오 oil20
+b = p.sim(as_name="base_1")                    # 기준선 — [forecast] range = next:8
+print(b.text())
+print(b.flags.loc["2019Q4":"2020Q2", ["Y", "G", "POIL", "R"]])
+o = p.sim("oil20", as_name="oil_1", vs="sim:base_1")
+print(o.text())

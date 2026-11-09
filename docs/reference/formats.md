@@ -64,10 +64,25 @@ exclude = ["finance:RL"]          # 뺀 식의 목표는 외생(실측)
 [group]                           # 묶음 — 여러 시리즈를 이름 하나로
 core = { series = ["Y", "CN", "I"], desc = "핵심 수요" }
 
+[criteria]                        # 판단 기준 — 추정 기록의 '기준'(통과·걸러짐과 까닭) · est --adopted --adopt if_pass
+alpha = 0.05                      # 진단 유의수준
+tests = ["lm", "reset"]           # 기준에 넣는 진단: lm · white · bp · lb · arch · jb · reset (p < alpha면 걸러짐)
+t_min = 1.0                       # (선택) 상수항 밖 계수의 |t| 하한
+
+[criteria.signs]                  # 기대 부호 — 부품마다 { 항 = "+" · "-" }
+"demand:CN" = { Y = "+" }
+
 [hs]                              # 과거 재현 기본값
 model = "main"
 range = "2005Q1:last"             # last = 자료의 마지막 기(새 회차로 바꾸면 따라 늘어난다)
 mode = "dynamic"                  # dynamic · static · fit
+
+[forecast]                        # 전망 기본값 — equion sim
+model = "main"
+range = "next:8"                  # 자료 끝 다음 기부터 8기
+assume = "base"                   # 가정 세트 ASSUMPTIONS/base.csv
+addfactors = "base"               # 보정항 ADDFACTORS/base.toml
+fill = "last"                     # 가정이 없는 외생: last · growth · trend · none
 ```
 
 | 규칙 | 내용 |
@@ -164,6 +179,94 @@ period
 | `summary.md` | 사람이 읽는 요약 — 시리즈마다 출처·구간·값 수·설명, 알아서 한 것 |
 
 회차 이름은 `d연도-월` 뒤에 글자(`d2026-11a`, 같은 달 둘째는 `b`)입니다. `work/`는 다시 만들 수 있는 산출물이라 git에서 뺍니다(예제의 `.gitignore`).
+
+## 작업 기록(`work/`)
+
+계산(`est`·`hs`·`sim`)은 할 때마다 `work/<종류>/<이름>/`에 기록을 하나 남기고 `work/log.jsonl`에 한 줄을 더합니다(D33). 기록은 고치지
+않습니다 — 다시 계산하면 새 기록이고, 같은 이름은 거부합니다. 고정·메모는 `work/marks.json`에만 적습니다. 기록 이름은 `종류:이름`
+(`est:cons_c5` · `hs:hs_0003` · `sim:2026-11_base`)이고 명령줄·Python·Desk가 같은 이름을 씁니다.
+
+```python
+p = eqn.Project.create("rec_prj", force=True)
+e = p.est("CN c Y(-1) CN(-1)", as_name="cons_c3", sim=True)
+h = p.hs("main", record=True, swap={"demand:CN": "est:cons_c3"})
+print(sorted(os.listdir(e.record.path)))
+print(sorted(os.listdir(h.record.path)))
+asm = json.loads(Path(h.record.path, "assembly.json").read_text(encoding="utf-8"))
+print(sorted(asm))
+print([(x["id"], x.get("source")) for x in asm["parts"]])
+print(sorted(json.loads(Path(p.root, "work", "log.jsonl").read_text(encoding="utf-8").splitlines()[-1])))
+```
+<!-- out -->
+```text
+[rec_prj] 자료 회차 d2026-11a를 만들었습니다
+[rec_prj] 지금 자료 회차: d2026-11a
+[rec_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[main] 채택 기록 없이 지금 자료로 추정: demand:I, price:P, finance:RL, finance:M2
+[main] baseline(_0) dynamic 2005Q1~2019Q4: 정상 60 · 일부식 제외 0 · 실패대체 0 · 실패 0
+['coefs.csv', 'record.json', 'series.csv', 'summary.md']
+['assembly.json', 'record.json', 'series.csv', 'solved.csv', 'stats.csv', 'status.csv', 'summary.md']
+['data', 'equion', 'files', 'format', 'format_version', 'mode', 'model', 'options', 'parts', 'range', 'swaps']
+[('demand:CN', 'swap:est:cons_c3'), ('demand:I', 'estimated'), ('demand:Y', None), ('price:P', 'estimated'), ('finance:RL', 'estimated'), ('finance:M2', 'estimated')]
+['command', 'counts', 'created', 'id', 'kind', 'metric', 'path', 'target', 'who']
+```
+
+| 종류 | 파일 |
+|---|---|
+| 공통 | `record.json`(`format: equion-record` · `format_version` · 이름 · 만든 때 · 누가 · 명령 그대로 · 대상 · 자료(회차 이름·내용 해시) · equion 판 · 알아서 한 것) · `summary.md`(카드 — 표와 같은 폴더 CSV의 vega-lite 차트) |
+| `est` | `coefs.csv`(계수·표준오차·t·p) · `series.csv`(실측·적합·잔차, `--sim`이면 목표변수의 단독 모의). `record.json`에 식 글자·펼친 식·표본·통계·진단·판단 기준·식 직렬화(계수 그대로 — 채택·바꿔 끼우기에 쓴다) |
+| `hs` | `assembly.json`(조립 명세) · `stats.csv`(변수별 RMSPE·MAE…) · `solved.csv`(해) · `status.csv`(기간 상태) · `series.csv`(해와 실측) |
+| `sim` | `assembly.json` · `levels.csv`(전망 앞 2년의 실측 + 전망) · `flags.csv`(값의 종류: 실측·해·가정·채움·결측) · `growth.csv`(전기비·전년동기비) · `annual.csv`(연간 평균·증가율) · `addfactors.csv`(식마다 보정항) · `diff.csv`(시나리오 − 기준선) |
+| 조립 명세 | `format: equion-assembly` — 모형·구간·방식·선택지, 자료(회차와 내용 해시 또는 자료 파일 해시), 식마다 글자·출처(`adopted:est:…` · `estimated` · `swap:est:…`)·계수, 정의 파일 해시, equion 판. `hs --replay`는 이것만으로 그때 그대로 푼다(자료 해시가 다르면 거부) |
+| `log.jsonl` | 한 줄에 기록 하나 — id · created · who(`terminal`·`claude`·`desk`·`python`·`script`) · command · kind · target · path · 핵심 수치 |
+
+'누가'는 환경 변수 `EQUION_WHO`(Desk·스크립트가 정한다), Claude Code 안(`CLAUDECODE`)이면 `claude`, 그 밖은 명령줄 `terminal`·라이브러리 `python`입니다.
+
+## 채택표(`EQUATIONS/adopted.toml`)
+
+식(부품)마다 채택한 추정 기록입니다. 모형을 만들 때 채택 기록이 있고 그 식 글자(펼친 식)가 블록 파일과 같으면 **그 기록의 계수**를 쓰고
+다시 추정하지 않습니다(D35). 글자가 다르거나 기록이 없으면 알리고 지금 자료로 추정합니다. `equion adopt est:…`(블록 파일의 그 줄도 그 식으로 —
+줄 끝 설명은 그대로)·`est --adopted --adopt if_pass`·`propose apply`가 고칩니다(주석·순서는 그대로).
+
+```toml
+# 채택표 — 식(부품)마다 채택한 추정 기록. 모형은 이 계수로 푼다(equion adopt가 고친다)
+"demand:CN" = "est:cons_c5"
+"price:P" = "est:p_0003"
+```
+
+## 가정·보정항·시나리오(`ASSUMPTIONS/`·`ADDFACTORS/`·`SCENARIOS/`)
+
+`equion sim`이 읽습니다(K4). 전망 구간은 `[forecast] range`(없으면 `next:8`)이고, 계산한 값은 실측 자리에 쓰지 않고 기록에만 남깁니다.
+
+| 파일 | 내용 |
+|---|---|
+| `ASSUMPTIONS/이름.csv` | 외생 가정 경로 — 첫 열 기간, 열마다 시리즈. 전망 구간 안의 값만 쓴다(값의 종류 '가정'). 모형에 없는 변수·전망 앞 기간은 쓰지 않고 알린다. 비는 칸은 `[forecast] fill`(`last`·`growth`·`trend`, 값의 종류 '채움') — `none`이면 비어 있다고 멈춘다 |
+| `ADDFACTORS/이름.toml` | `default = "zero"`(적지 않은 식) · `[eq."블록:목표"] rule = "last"`(전망 앞 마지막 잔차) · `"decay"`(+ `half_life`) · `"mean"`(+ `n`, 마지막 n기 평균) · `"zero"`, `values = "ADDFACTORS/이름.csv"`(판단 값 — 열이 부품, 그 칸은 규칙 값을 덮는다) |
+| `SCENARIOS/이름.toml` | `desc` · `base`(가정 세트) · `addfactors` · `model`, `[[shock]] var · from · to · pct 또는 value`(외생 경로를 % 또는 수준만큼), `[[addfactor]] eq · from · to · value`(식 보정). 기간은 라벨 또는 `start` · `end` · `start+N` · `end-N`(전망 구간 기준) |
+
+```toml
+# SCENARIOS/oil20.toml
+desc = "유가 20% 상승"
+base = "base"
+
+[[shock]]
+var = "POIL"
+from = "start"                    # to를 쓰지 않으면 end(전망 끝)까지
+pct = 20
+```
+
+시나리오는 같은 가정·보정항의 기준선도 함께 풀어 차이(`diff.csv` — 수준 차이와 %)를 적습니다. 시나리오 이름 `base`는 파일이 없어도 됩니다(기준선).
+
+## 제안(`work/proposals/`)·바뀜 기록(`work/history/`)
+
+| 위치 | 내용 |
+|---|---|
+| `work/proposals/<이름>/` | `proposal.json`(`format: equion-proposal` · 제목 · 까닭 · 만든 때 · 누가 · 명령 · 바꿀 파일과 그때의 해시 · 식 · 미리 계산한 기록 · 상태 open·applied·dropped) · `proposal.md`(카드 — 차이 포함) · `changes/<경로>`(바뀔 파일의 새 내용). 만든 뒤 그 파일이 바뀌면 '낡음' — `apply`는 `--force`일 때만 |
+| `work/history/<h번호>/` | `change.json`(`format: equion-change` · 때 · 누가 · 어떻게(명령 그대로 또는 '명령 밖에서 고침') · 메모 · 파일마다 전후 해시 · 되돌린 바뀜) · `before/`·`after/`(전후 사본) · `diff.txt` |
+| `work/history/state/` | 지난번에 본 정의 파일의 사본 — 명령 밖의 고침(편집기·Claude의 직접 편집)을 다음 명령 때 '바깥'으로 적는 기준 |
+
+바뀜 기록에 남는 파일은 `equion.toml` · 블록 파일 · `EQUATIONS/adopted.toml` · `DATA/series.toml`·`derived.txt` · `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` · `VIEWS/`입니다.
+되돌리기(`history revert`)는 이전 내용으로 다시 쓰는 것이고 그것도 기록에 남습니다.
 
 ## 워크파일(`.eqw/` 폴더)
 

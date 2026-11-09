@@ -29,6 +29,14 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
   — 조립 명세(`assembly.json`: 식 글자·계수·자료 회차·정의 파일 해시)를 남기고, `--replay`는 지금 파일과 무관하게 그때 그대로 다시 푼다.
   바뀜 기록 `work/history/`(누가·명령·전후·차이 — 명령 밖의 고침은 '바깥'으로) · `history list·show·revert`, `work list·show·pin·memo·clean`.
   출력 객체에 `.md()`(md 렌더러 `equion.reporting.markdown`).
+- **전망 기록과 제안(0.8 E3, K4·K6)**: `Project.sim`·`equion sim [시나리오…]` — 가정 세트 `ASSUMPTIONS/이름.csv`(전망 구간의 외생 경로,
+  빈 칸은 `[forecast] fill`), 보정항 `ADDFACTORS/이름.toml`(식마다 `last`·`decay`·`mean`·`zero`, 판단 값 CSV), 시나리오 `SCENARIOS/이름.toml`
+  (`[[shock]]`·`[[addfactor]]`, 기간은 `start`·`end±N`도). 시나리오면 기준선과의 차이, 칸마다 값의 종류(실측·해·가정·채움), 연간 증가율,
+  `--vs`(지난 전망과)·`--vintage`(옛 회차로). 계산한 값은 실측 자리에 쓰지 않는다. `Project.reestimate`·`equion est --adopted --adopt
+  never|if_pass|all` — 채택한 식을 지금 자료로 다시 추정하고 기준을 통과한 식만 새 계수(걸린 식은 옛 계수·표시). `Project.propose`·
+  `equion propose new|list|show|apply|drop` — 바꿀 내용·까닭·미리 계산한 기록을 먼저 보이고(낡으면 적용하지 않음), 적용은 바뀜 기록에.
+  `Project.export`·`equion export 기록… --xlsx` — 값·값의 종류·출처 시트. `[forecast]`·`[criteria]`가 `equion.toml`의 표가 됐다.
+  레시피 R50~R52.
 - **문서 체계(D27)**: 시작하기 · 튜토리얼 8편 · 레시피 · 해설 · 참조 · 사례 연구(Klein형) · EViews 사용자 안내 ·
   영문 시작 문서. 시작점은 [`docs/README.md`](docs/README.md)입니다. 문서의 예제는 실제로 돌고, 출력도 실행 결과입니다.
   `python docs/build_docs.py --check`가 CI에서 예제 실행·출력·링크·API 설명과 예제·doctest를 확인합니다.
@@ -44,6 +52,8 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
 - 예제 프로젝트(`--template desk`)는 자료 정의·회차를 씁니다 — 원자료 `DATA/raw/toy_q.csv`·`toy_m.csv`, 만들 때 첫 회차를 지금 회차로,
   `[hs] range = "2005Q1:last"`(새 회차로 바꾸면 따라 늘어난다). 자료 파일 하나(`[data] file`)를 쓰는 프로젝트도 그대로 됩니다.
 - 필수 의존성 `tomlkit`(정의 파일을 주석·순서를 지키며 고친다, D38).
+- 예제 프로젝트에 판단 기준 `[criteria]`·전망 `[forecast]`과 `ASSUMPTIONS/base.csv`·`ADDFACTORS/base.toml`·`SCENARIOS/oil20.toml`을 더했다.
+  프로젝트의 모형은 채택 기록이 있으면 그 계수로 푼다(없으면 지금처럼 지금 자료로 추정하고 알린다).
 - `docs/EQUATION_GUIDE.md` → `docs/explain/equations.md`, `docs/API.md` → `docs/reference/api.md`(옛 위치에는 안내만 남김).
 - 모델에 같은 항등식을 다시 `append`해도 한 번만 들어갑니다(공백·대소문자 무시).
 - `forecast(start, end)`는 `end`가 워크파일 끝보다 뒤일 때만 기간을 늘립니다.

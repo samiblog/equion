@@ -11,6 +11,9 @@
       EQUATIONS/demand.txt   수요 블록 — 소비·투자·국민소득 항등식
       EQUATIONS/price.txt    물가 블록
       EQUATIONS/finance.txt  금융 블록 — 장기금리(1980Q1부터)·통화
+      ASSUMPTIONS/base.csv   가정 세트 — 전망 구간의 정부지출·유가 경로(정책금리는 채우기 규칙)
+      ADDFACTORS/base.toml   보정항 — 소비 last · 투자 decay
+      SCENARIOS/oil20.toml   시나리오 — 유가 20% 상승
       README.md · .gitignore
 자료 회차(work/data/<회차>/)는 Project.create가 만들고 지금 회차로 정한다.
 """
@@ -64,6 +67,36 @@ tests = ["lm", "reset"]           # 기준에 넣는 진단(p < alpha면 걸러�
 model = "main"
 range = "2005Q1:last"             # last = 자료의 마지막 기 — 새 자료 회차로 바꾸면 따라 늘어난다
 mode = "dynamic"
+
+[forecast]                        # 전망 기본값 — equion sim
+model = "main"
+range = "next:8"                  # 자료 끝 다음 기부터 8기
+assume = "base"                   # 가정 세트 ASSUMPTIONS/base.csv
+addfactors = "base"               # 보정항 ADDFACTORS/base.toml
+fill = "last"                     # 가정이 없는 외생의 채우기: last · growth · trend · none
+"""
+
+ADDFACTORS = """\
+# 보정항 — 식마다 전망 구간의 초깃값 규칙(전망 앞 마지막 잔차 기준). 형식: docs/reference/formats.md "가정·보정항·시나리오"
+default = "zero"                  # 적지 않은 식: zero · last · decay · mean
+
+[eq."demand:CN"]
+rule = "last"                     # 마지막 잔차를 그대로
+
+[eq."demand:I"]
+rule = "decay"                    # 마지막 잔차를 반감기로 줄이기
+half_life = 4
+"""
+
+OIL20 = """\
+# 시나리오 — 유가 20% 상승(전망 구간 내내). 기간은 라벨 또는 start · end · start+N · end-N
+desc = "유가 20% 상승"
+base = "base"                     # 가정 세트
+
+[[shock]]
+var = "POIL"
+from = "start"
+pct = 20
 """
 
 SERIES = """\
@@ -209,10 +242,12 @@ def create_desk_project(path: str, force: bool = False) -> list:
         "EQUATIONS/demand.txt": DEMAND,
         "EQUATIONS/price.txt": PRICE,
         "EQUATIONS/finance.txt": FINANCE,
+        "ADDFACTORS/base.toml": ADDFACTORS,
+        "SCENARIOS/oil20.toml": OIL20,
         "README.md": README.format(name=name),
         ".gitignore": GITIGNORE,
     }
-    for d in ("DATA/raw", "EQUATIONS"):
+    for d in ("DATA/raw", "EQUATIONS", "ASSUMPTIONS", "ADDFACTORS", "SCENARIOS"):
         os.makedirs(os.path.join(path, d), exist_ok=True)
     created = []
     for rel, text in files.items():
@@ -222,4 +257,20 @@ def create_desk_project(path: str, force: bool = False) -> list:
     for ds in ("toy_q", "toy_m"):
         shutil.copyfile(dataset_path(ds), os.path.join(path, "DATA", "raw", f"{ds}.csv"))
         created.append(f"DATA/raw/{ds}.csv")
+    with open(os.path.join(path, "ASSUMPTIONS", "base.csv"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(_assumptions(dataset_path("toy_q")))
+    created.append("ASSUMPTIONS/base.csv")
     return created
+
+
+def _assumptions(src: str) -> str:
+    """가정 세트 예 — 자료 끝 다음 12분기의 정부지출(분기 0.5% 증가)·유가(분기 1% 증가). 정책금리 R은 적지 않아 채우기 규칙(last)."""
+    import pandas as pd
+    from ..data.periods import format_period, parse_period
+    df = pd.read_csv(src, index_col=0)
+    last = parse_period(str(df.index[-1]), "Q")
+    g, oil = float(df["G"].iloc[-1]), float(df["POIL"].iloc[-1])
+    lines = ["period,G,POIL"]
+    for k in range(1, 13):
+        lines.append(f"{format_period(last + k, 'Q')},{g * 1.005 ** k:.3f},{oil * 1.01 ** k:.3f}")
+    return "\n".join(lines) + "\n"

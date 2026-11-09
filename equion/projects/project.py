@@ -25,7 +25,7 @@ from .config import ProjectConfig, ProjectError, load_config
 from .identity import IdentityCheck, check_identity
 from .parts import Part, parse_line, read_block
 from .vintage import (AddResult, BuildResult, VintageDiff, add_raw, build_vintage, diff_vintages, list_vintages,
-                      load_defs, set_toml_value, vintage_path)
+                      load_defs, vintage_path)
 from ..data.source import read_source
 from ..workfile.output import TextOutput
 from ..work.store import detect_who
@@ -802,6 +802,141 @@ class Project:
         """
         from .records import replay_hs
         return replay_hs(self, record, as_name=as_name, who=who, command=command)
+
+    def sim(self, scenario: str = "base", model: str = None, range: str = None, vintage: str = None, vs: str = None,
+            as_name: str = None, mode: str = None, who: str = None, command: str = None):
+        """전망·시나리오 — 가정 세트(`ASSUMPTIONS/이름.csv`, 빈 외생은 `[forecast] fill`)·보정항(`ADDFACTORS/이름.toml`)·시나리오
+        (`SCENARIOS/이름.toml`)로 풀고 작업 기록(`work/sim/<이름>/`)을 남긴다. 시나리오면 같은 가정·보정항의 기준선도 풀어 차이를 적는다.
+
+        매개변수
+            scenario: 'base'(기준선 — 파일이 없어도 된다) 또는 SCENARIOS/의 이름
+            model: 모형(기본: 시나리오의 model → [forecast] model → [hs] model)
+            range: 전망 구간(기본 [forecast] range, 없으면 'next:8')
+            vintage: 다른 자료 회차로(지금 회차는 그대로)
+            vs: 견줄 전망 기록(sim:…) — 연간 증가율 전후
+            as_name: 기록 이름(기본: 연-월_시나리오)
+            mode: 'dynamic'(기본) · 'static'
+
+        돌려주는 것
+            SimRecord — .id · .levels · .flags(값의 종류) · .annual · .diff · .text()
+
+        오류
+            ProjectError: 없는 시나리오·가정·보정항 파일, 파일 문법, 전망 구간의 외생이 비어 채우지 못함
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.sim(as_name="base_a")
+            >>> r.meta["range"], r.counts()["ok"]
+            (['2020Q1', '2021Q4'], 8)
+            >>> p.sim("oil20", as_name="oil_a").meta["vs_base"]["P"] > 0
+            True
+        """
+        from .sim import run_sim
+        return run_sim(self, scenario, model=model, rng=range, vintage=vintage, vs=vs, as_name=as_name, mode=mode,
+                       who=who, command=command)
+
+    def reestimate(self, name: str = None, adopt: str = "never", who: str = None, command: str = None):
+        """모형(또는 블록)의 추정식을 블록 파일의 글자 그대로 지금 자료로 다시 추정해 기록을 남기고, 정책에 따라 새 계수를 채택한다
+        (명령줄 `equion est --adopted [모형] --adopt 정책`, D35).
+
+        매개변수
+            name: 모형 또는 블록(기본: [hs] model)
+            adopt: 'never'(기록만 — 기본) · 'if_pass'(판단 기준을 통과한 식만, 기준이 없으면 통과) · 'all'
+
+        돌려주는 것
+            ReestResult — .rows(식마다 옛·새 기록·기준·채택·계수 변화) · .adopted · .flagged · .change · .text()
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.reestimate("demand", adopt="all")
+            >>> r.adopted, sorted(p.adopted)
+            (['demand:CN', 'demand:I'], ['demand:CN', 'demand:I'])
+        """
+        from .records import reestimate
+        return reestimate(self, name, adopt, who=who, command=command)
+
+    def propose(self, name: str = None, title: str = "", why: str = "", parts: dict = None, files: dict = None,
+                previews=(), who: str = None, command: str = None):
+        """제안을 만든다 — 파일은 바꾸지 않고 "이렇게 바꾸면"을 `work/proposals/<이름>/`에 남긴다(바뀔 내용·까닭·미리 계산한 기록).
+
+        매개변수
+            name: 제안 이름(기본 p1, p2 …)
+            title, why: 제목·까닭(사람이 읽는 글 — 근거 기록 이름을 넣는다)
+            parts: {부품: est:기록(그 식으로 바꾸고 채택) 또는 식 글자}
+            files: {프로젝트 안 경로: 새 내용 파일}
+            previews: 미리 계산한 기록(hs:… · sim:… · est:…)
+
+        돌려주는 것
+            Proposal — .id · .status · .stale · .diff() · .text()
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> pr = p.propose(title="소비에 시차 하나 더", parts={"demand:CN": "CN c Y CN(-1) CN(-2)"})
+            >>> pr.id, pr.status, p.part("demand:CN").text
+            ('prop:p1', 'open', 'CN c Y CN(-1)')
+        """
+        from . import proposals
+        return proposals.new(self, name, title=title, why=why, parts=parts, files=files, previews=list(previews),
+                             who=who, command=command)
+
+    def proposals(self):
+        """제안 목록(만든 순) — 열림·적용·버림 모두.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = p.propose(parts={"demand:CN": "CN c Y"})
+            >>> [(x.id, x.status) for x in p.proposals()]
+            [('prop:p1', 'open')]
+        """
+        from . import proposals
+        return proposals.proposals(self)
+
+    def apply_proposal(self, name: str, force: bool = False, who: str = None, command: str = None):
+        """제안을 적용한다 — 바꿀 파일을 새 내용으로 쓰고 바뀜 기록에 "제안 … 적용". 만든 뒤 파일이 바뀌었으면(낡음) force일 때만.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = p.propose(parts={"demand:CN": "CN c Y CN(-1) CN(-2)"})
+            >>> p.apply_proposal("p1").status, p.part("demand:CN").text
+            ('applied', 'CN c Y CN(-1) CN(-2)')
+        """
+        from . import proposals
+        return proposals.apply(self, name, force=force, who=who, command=command)
+
+    def drop_proposal(self, name: str, why: str = "", who: str = None):
+        """제안을 버린다 — 파일은 그대로, 제안 기록은 남는다(상태 '버림').
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = p.propose(parts={"demand:CN": "CN c Y"})
+            >>> p.drop_proposal("p1", why="설명할 수 없다").status
+            'dropped'
+        """
+        from . import proposals
+        return proposals.drop(self, name, why=why, who=who)
+
+    def export(self, records, xlsx: str) -> dict:
+        """기록(est:· hs:· sim:· data:회차)을 엑셀 한 권으로 — 값·값의 종류·출처 시트. 기록은 남기지 않는다.
+
+        돌려주는 것
+            {path, sheets, records}
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> h = p.hs("main", record=True)
+            >>> out = p.export([h.id, "data:" + p.vintage], "exports/hs.xlsx")
+            >>> out["sheets"][:3]
+            ['출처', 'hs_0001_적합도', 'hs_0001_해']
+        """
+        from .export import export_xlsx
+        return export_xlsx(self, list(records), xlsx)
 
     @property
     def work(self):

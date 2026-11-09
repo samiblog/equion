@@ -191,3 +191,102 @@ Name: RMSPE, dtype: float64
 ```
 
 모형을 고치기 전에 영향 범위는 `p.used_by("demand")`, 파일을 바꾸지 않고 식 하나만 바꿔 보려면 `p.hs("main", swap={"demand:CN": "CN c Y"})`.
+
+## R50. 후보 식 고르기 — 추정 기록·비교·바꿔 끼운 HS·채택
+
+식을 고를 때마다 작업 기록을 남기면 무엇을 해 봤고 왜 골랐는지가 기록 이름으로 남습니다(D33). 식 글자의 목표변수가 한 부품의 목표면 그 부품의
+후보가 되고, `[criteria]`(기대 부호·진단·|t|)로 통과·걸러짐과 까닭이 붙습니다. 명령줄은 `equion est · compare · hs --swap · adopt`.
+
+```python
+c1 = p.est("demand:CN", as_name="cons_c1", sim=True)          # 블록 파일의 그 줄 — equion est demand:CN --as cons_c1 --sim
+c3 = p.est("CN c Y(-1) CN(-1)", as_name="cons_c3", sim=True)  # 식 글자 — 목표가 CN이라 demand:CN의 후보
+print(c3.text())
+print(p.compare(part="demand:CN").table[["식", "R²adj", "LM(2) p", "기준", "단독 RMSPE%"]].round(4))
+```
+<!-- out -->
+```text
+[est:cons_c3] OLS CN · 1970Q2~2019Q4 · n=199   R²adj 0.9993 · SE 1.850 · DW 2.223 · AIC 812.5 · BIC 822.4
+  계수   c 13.446(t 4.552) · Y(-1) 0.6259(t 4.255) · CN(-1) 0.1235(t 0.5993)
+  진단   LM(2) p=0.237 ✓ · White p=0.736 ✓ · JB p=0.048 ! · RESET p=0.997 ✓ · LB(4) p=0.107 ✓
+  기준   통과 · 부호 Y + (항 없음)
+  단독 모의  2005Q1~2019Q4 CN RMSPE 0.39%
+  알아서 한 것  시차·결측으로 표본 시작 1970Q1 → 1970Q2
+  기록   est:cons_c3 (work/est/cons_c3/) · demand:CN 후보
+                             식   R²adj  LM(2) p                  기준  단독 RMSPE%
+기록
+est:cons_c1      CN c Y CN(-1)  0.9999   0.0465  걸러짐: LM(2) p=0.046     0.1214
+est:cons_c3  CN c Y(-1) CN(-1)  0.9993   0.2368                  통과     0.3937
+```
+
+```python
+before = p.hs("main", record=True, as_name="before")
+after = p.hs("main", record=True, swap={"demand:CN": "est:cons_c3"}, vs="hs:before")   # 파일은 그대로, 그 기록의 계수로
+print(after.text())
+print(p.adopt("est:cons_c1").text())        # c3는 기준은 통과했지만 HS가 나빠졌다 — 지금 식(c1)을 채택(계수 고정)
+```
+<!-- out -->
+```text
+[main] baseline(_0) dynamic 2005Q1~2019Q4: 정상 60 · 일부식 제외 0 · 실패대체 0 · 실패 0
+[main] baseline(_0) dynamic 2005Q1~2019Q4: 정상 60 · 일부식 제외 0 · 실패대체 0 · 실패 0
+[hs:hs_0001] main dynamic 2005Q1~2019Q4 · 정상 60 · 일부식 제외 0 · 실패대체 0 · 실패 0
+  RMSPE  Y 0.67% · CN 0.77% · I 0.86% · P 1.51% · M2 2.38% · RL 9.68%
+  비교   vs hs:before — Y 0.47% → 0.67% · CN 0.51% → 0.77% · I 0.86% → 0.86% · P 1.43% → 1.51% · M2 2.24% → 2.38% (나머지 그대로)
+  바꿔 끼움  demand:CN ← est:cons_c3 (파일은 그대로)
+  알아서 한 것  구간 [hs] range = 2005Q1:last → 2005Q1~2019Q4 · 바꿔 끼움: demand:CN ← est:cons_c3
+  기록   hs:hs_0001 (work/hs/hs_0001/)
+[adopt] demand:CN ← est:cons_c1
+  블록 파일  그대로(같은 식)
+  채택표   EQUATIONS/adopted.toml
+  바뀜 기록  h0002 (EQUATIONS/adopted.toml)
+  다음   모형을 풀면 이 기록의 계수를 쓴다(다시 추정하지 않음)
+```
+
+판단 기준은 거르는 표시일 뿐 고르는 것은 사람입니다 — 걸러진 c1이라도 HS로 견주어 고를 수 있고, 다른 후보를 채택하면 블록 파일의 그 줄도
+그 식으로 바뀝니다. 채택한 식은 자료 회차를 바꿔도 다시 추정하지 않습니다. 새 자료로 다시 추정하려면 `p.reestimate("main", adopt="if_pass")`(명령줄
+`equion est --adopted --adopt if_pass`) — 기준을 통과한 식만 새 계수로, 걸린 식은 옛 계수를 쓰고 표시합니다.
+
+## R52. 제안·바뀜 기록·그때 그대로 다시
+
+파일을 바로 고치는 대신 제안으로 남기면 바꿀 내용·까닭·미리 계산한 기록을 먼저 봅니다(K6). 정의 파일이 바뀔 때마다 바뀜 기록에 전후가 남고
+(명령 밖의 고침은 '바깥'), HS 기록은 그때의 조립 명세로 언제든 그대로 다시 풉니다.
+
+```python
+pr = p.propose(title="소비에 시차 하나 더", why="est:cons_c1의 LM 검정이 경계선(p=0.046)",
+               parts={"demand:CN": "CN c Y CN(-1) CN(-2)"})   # 파일은 그대로 — equion propose new --part …
+print(pr.diff())
+p.apply_proposal(pr.name)                                     # equion propose apply p1
+for c in p.history.list():
+    print(c.text())
+print(p.replay("hs:before").meta["replay"])                   # 파일이 바뀐 뒤에도 그때 그대로 — equion hs --replay hs:before
+```
+<!-- out -->
+```text
+[demo_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+--- a/EQUATIONS/demand.txt
++++ b/EQUATIONS/demand.txt
+@@ -1,4 +1,4 @@
+ # 수요 블록 — 한 줄에 한 식, '#' 뒤는 설명(문법: docs/explain/equations.md)
+-CN c Y CN(-1)            # 소비
++CN c Y CN(-1) CN(-2)   # 소비
+ I c Y(-1) R              # 투자
+ Y = CN + I + G           # 국민소득(항등식)
+
+--- a/EQUATIONS/adopted.toml
++++ b/EQUATIONS/adopted.toml
+@@ -1,2 +1 @@
+ # 채택표 — 식(부품)마다 채택한 추정 기록. 모형은 이 계수로 푼다(equion adopt가 고친다)
+-"demand:CN" = "est:cons_c1"
+
+[h0001] 2026-11-09T09:37:23 · Python · data use d2026-11a
+  파일   equion.toml(고침)
+  메모   자료 회차 d2026-11a
+[h0002] 2026-11-09T09:37:23 · Python · adopt est:cons_c1
+  파일   EQUATIONS/adopted.toml(새로)
+  메모   demand:CN ← est:cons_c1
+[h0003] 2026-11-09T09:37:23 · Python · propose apply p1
+  파일   EQUATIONS/adopted.toml(고침) · EQUATIONS/demand.txt(고침)
+  메모   제안 prop:p1 적용: 소비에 시차 하나 더
+[demo_prj_replay] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[replay] baseline(_0) dynamic 2005Q1~2019Q4: 정상 60 · 일부식 제외 0 · 실패대체 0 · 실패 0
+{'of': 'hs:before', 'same': True, 'max_abs_diff': 4.547473508864641e-13}
+```

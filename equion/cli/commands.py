@@ -8,7 +8,7 @@
     equion new 폴더 [--bare | --template desk]  ·  equion convert 옛파일 새이름 [--allow-pickle]
     equion assemble [모형] [-p 프로젝트]  ·  equion ident 블록:목표 [--check]     (프로젝트 — equion.toml, D32)
     equion data list|add 파일|build [--use]|use 회차|diff [A B]|impact [A B]      (자료 회차 — D34)
-    equion est · adopt · compare · hs · work · history                          (작업 명령·기록 — D33)
+    equion est · adopt · compare · hs · sim · propose · export · work · history   (작업 명령·기록 — D33)
 
 종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(--fail-on) · 3 입력 오류 · 130 중단
 """

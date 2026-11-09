@@ -130,11 +130,14 @@ def _groups():
         ("29. HS 기록 `p.hs(…, record=True)`", "HSRecord", members(project.HSRecord), False),
         ("30. 채택 결과 `p.adopt(…)`", "AdoptResult", members(project.AdoptResult), False),
         ("31. 기록 비교 `p.compare(…)`", "CompareResult", members(project.CompareResult), False),
-        ("32. 작업 기록 저장소 `p.work`", "WorkStore", members(work.WorkStore), False),
-        ("33. 작업 기록 하나 `p.work.get(…)`", "Record", members(work.Record), False),
-        ("34. 바뀜 기록 `p.history`", "History", members(work.History), False),
-        ("35. 바뀜 하나 `p.history.get(…)`", "Change", members(work.Change), False),
-        ("36. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다", "eqn", [(n, getattr(eqn, n)) for n in ADVANCED], False),
+        ("32. 전망 기록 `p.sim(…)`", "SimRecord", members(project.SimRecord), False),
+        ("33. 다시 추정 결과 `p.reestimate(…)`", "ReestResult", members(project.ReestResult), False),
+        ("34. 제안 `p.propose(…)`", "Proposal", members(project.Proposal), False),
+        ("35. 작업 기록 저장소 `p.work`", "WorkStore", members(work.WorkStore), False),
+        ("36. 작업 기록 하나 `p.work.get(…)`", "Record", members(work.Record), False),
+        ("37. 바뀜 기록 `p.history`", "History", members(work.History), False),
+        ("38. 바뀜 하나 `p.history.get(…)`", "Change", members(work.Change), False),
+        ("39. 고급(엔진 수준) — 드라이버·확장용, 바뀔 수 있다", "eqn", [(n, getattr(eqn, n)) for n in ADVANCED], False),
     ]
     return groups
 
