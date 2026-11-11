@@ -131,7 +131,7 @@ jobs:
         run: uv run --locked --package equion-desk --group ui python desk/tests/ui_check.py --shots ui-shots
       - name: 화면 그림 남기기
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desk-ui-shots
           path: ui-shots/
@@ -179,7 +179,7 @@ jobs:
           Start-Sleep -Seconds 3
           if (Test-Path (Join-Path $env:EQUION_DESK_DIR "runtime")) { throw "제거한 뒤에도 런타임이 남았습니다" }
       - name: 설치 파일 남기기(다른 PC 점검용 — 저장소에는 넣지 않는다)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EquionDesk-setup
           path: desk/dist/EquionDesk-*-setup.exe
