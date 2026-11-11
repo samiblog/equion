@@ -190,6 +190,13 @@ def section_worker(tmp: str, folder: str) -> None:
         check("D16 블록 파일을 고친 뒤의 추정은 새 식으로 한다", r.status_code == 200 and len(r.json["result"]["coefs"]) == 4, str(r.json)[:200])
         with open(eq_file, "w", encoding="utf-8", newline="\n") as f:
             f.write(original)
+        # 방금 고친 정의 파일을 감시가 알아채 '바깥 고침 적기'(scan)를 뒤에서 시킨다 — 그것이 끝나 조용해진 뒤에 본다
+        session = state.session(pid)
+        quiet_since, deadline = time.time(), time.time() + 20
+        while time.time() < deadline and time.time() - quiet_since < 2.5:
+            if session._scan_pending or w.busy_op is not None:
+                quiet_since = time.time()
+            time.sleep(0.05)
         proc_id = w._proc.pid
         check("D10 취소 — 하던 일이 없으면 False, 프로세스는 끝난다",
               c.post(f"{api}/cancel", json={}).json["cancelled"] is False and not w.alive)
