@@ -391,6 +391,91 @@ class Project:
                 note=f"[source.{source}] {sp.file} → {res.file}")
         return res
 
+    def data_preview(self, file: str, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None,
+                     thousands=None, freq=None, rows: int = 30, series: dict = None) -> "SourcePreview":
+        """원자료 파일을 미리 본다 — 읽은 그대로의 앞쪽 줄과, 준 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위)로 읽어 본 결과.
+        아무것도 쓰지 않고 기록도 남기지 않는다. 틀이 맞지 않으면 예외가 아니라 `.ok`가 거짓이고 `.error`에 까닭(칸 위치와 함께).
+
+        매개변수
+            file: 원자료 파일(csv·xlsx·xls — 프로젝트 기준 경로 또는 절대 경로)
+            sheet · header_row · unit_row · time_col · missing · thousands · freq: 불러오기 틀(docs/reference/formats.md)
+            rows: 읽은 그대로 보일 줄 수
+            series: {column, convert, denton, seas, scale, fill} — 그 열을 변환대로 만들어 본 값을 `.series`에(자료 만들기와 같은 계산)
+
+        돌려주는 것
+            SourcePreview — .grid · .ok · .error · .freq · .span · .note · .columns · .missing_cells · .bad_cells · .series
+
+        오류
+            ProjectError: 없는 파일·읽을 수 없는 형식, series를 주었는데 열이 없거나 변환할 수 없음
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> v = p.data_preview("DATA/raw/toy_q.csv")
+            >>> v.ok, v.freq, v.span, v.columns[0]["name"]
+            (True, 'Q', ['1970Q1', '2019Q4'], 'CN')
+
+        관련
+            data_define · data_add · data_build
+        """
+        from .vintage import _frame_spec, preview_series, preview_source
+        out = preview_source(self.root, file, sheet, header_row, unit_row, time_col, missing, thousands, freq, rows)
+        if series and out.ok:
+            given = dict(series)
+            column = given.pop("column", None)
+            if not column:
+                raise ProjectError("series에는 column(열 이름)이 있어야 합니다")
+            spec = _frame_spec(self.root, file, "preview", sheet, header_row, unit_row, time_col, missing, thousands, freq)
+            out.series = preview_series(self.config.freq or out.freq, spec, column, **given)
+        return out
+
+    def data_define(self, source: str, file: str = None, sheet=None, header_row=None, unit_row=None, time_col=None,
+                    missing=None, thousands=None, freq=None, desc: str = None, series: dict = None, replace: bool = False,
+                    who: str = None, command: str = None) -> "DefineResult":
+        """자료 정의 쓰기 — `series.toml`에 출처(`[source.이름]` = 불러오기 틀)와 시리즈(`[series.이름]`)를 더하거나 고친다.
+        쓰기 전에 새 내용 전체와, 그 틀로 원자료를 읽어 시리즈가 쓰는 열이 다 있고 변환이 되는지 검사한다 — 문제가 있으면
+        아무것도 쓰지 않는다. 사람이 쓴 주석·순서는 그대로 두고(tomlkit) 바뀜 기록에 남긴다. 자료는 만들지 않는다 —
+        이어서 `data_build`, `data_use`.
+
+        매개변수
+            source: 출처 이름(없으면 새로 — 그때 file이 있어야 한다)
+            file: 원자료 파일(프로젝트 안 — 보통 DATA/raw/)
+            sheet · header_row · unit_row · time_col · missing · thousands · freq: 틀. 준 것만 바꾼다(None은 그대로, ""·0은 그 키를 지움)
+            desc: 출처 설명
+            series: {시리즈 이름: 열 이름 또는 {column, unit, desc, convert, denton, seas, scale, fill}}
+            replace: 이미 있는 시리즈를 다른 열로 바꿔도 된다
+
+        돌려주는 것
+            DefineResult — .source · .file · .new_source · .added · .changed · .change(바뀜 기록)
+
+        오류
+            ProjectError: 자료 정의를 쓰지 않는 프로젝트, 이름·키 문제, 원자료에 없는 열, 변환할 수 없음(문제 모두 — 아무것도 쓰지 않음)
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.data_define("na", series={"CONS": {"column": "CN", "desc": "소비(다른 이름으로)"}})
+            >>> r.added, r.new_source, r.change is not None
+            (['CONS'], False, True)
+
+        관련
+            data_preview · data_add · data_build · data_use
+        """
+        self._need_defs()
+        from .records import history_of
+        from .vintage import define_text
+        c = self.config
+        frame = {k: v for k, v in (("sheet", sheet), ("header_row", header_row), ("unit_row", unit_row), ("time_col", time_col),
+                                   ("missing", missing), ("thousands", thousands), ("freq", freq)) if v is not None}
+        text, res = define_text(c.root, c.series_file, c.derived_file, c.freq, source, file=file, frame=frame, desc=desc,
+                                series=series, replace=replace)
+        names = ", ".join(res.added + res.changed)
+        ch = history_of(self).write_files({c.series_file: text}, who or detect_who("python"), command or f"data define {source}",
+                                          note=f"[source.{source}]" + (f" · 시리즈 {names}" if names else ""))
+        res.change = ch.id if ch else None
+        self._reset()
+        return res
+
     def _source_problems(self, defs, source: str, path: str) -> List[str]:
         """틀 검사 — 받은 파일을 그 출처의 불러오기 틀로 읽어 본다: 시리즈가 쓰는 열이 다 있고 주기가 같은가."""
         from dataclasses import replace

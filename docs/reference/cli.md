@@ -264,6 +264,8 @@ helptext("data", "add", "--help")
     add       원자료 파일을 DATA/raw/에 넣는다(받은 그대로 — --source로 출처를 그 파일로)
     build     원자료를 정의대로 읽어 새 자료 회차를 만든다(같은 내용이면 만들지 않음)
     inbox     받은 원자료(DATA/raw/inbox/) — 파일마다 짝지을 출처와 틀 검사(미리보기)
+    preview   원자료 파일을 미리 본다 — 읽은 그대로의 줄과 그 틀로 읽어 본 결과(쓰지 않는다)
+    define    자료 정의 쓰기 — series.toml에 출처(불러오기 틀)와 시리즈를 더하거나 고친다
     use       지금 자료 회차를 바꾼다(equion.toml [data] vintage)
     diff      두 회차의 차이 — 새·없어진 시리즈, 새 기간·개정
     impact    회차를 바꾸면 영향받는 식·모형(다시 계산하지 않음)

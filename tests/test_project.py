@@ -364,6 +364,7 @@ def _main(tmp, t0):
 
     newf, badf = _data_tests(tmp, p, d, q)
     _span_cli_tests(tmp, p, d, newf, badf)
+    _define_tests(tmp)
 
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
@@ -687,6 +688,114 @@ def _span_cli_tests(tmp, p, d, newf, badf):
     check("data: 동작 없음(3)", code == 3)
     code, _, err = run(["data", "build", "-p", os.path.join(tmp, "ok")])
     check("data: 자료 파일 하나 프로젝트(3)", code == 3 and "자료 파일 하나" in err)
+
+
+def _define_tests(tmp):
+    print("=" * 80)
+    print("I. 원자료 미리보기·자료 정의 쓰기")
+    print("=" * 80)
+    P, d = new_project(tmp, "define")
+    sf = os.path.join(d, "DATA", "series.toml")
+    state0 = (len(P.history.list()), len(P.work.log()), read(sf))
+    v = P.data_preview("DATA/raw/toy_q.csv", rows=5)
+    check("미리보기: 읽은 그대로의 줄과 틀로 읽은 것(주기·구간·열)", v.ok and v.freq == "Q" and v.span == ["1970Q1", "2019Q4"]
+          and v.shape == (201, 11) and len(v.grid) == 5 and v.grid[0][1] == "CN" and v.grid[1][0] == "1970Q1" and v.time_col == 0
+          and [c["name"] for c in v.columns][:3] == ["CN", "I", "G"] and v.columns[0]["letter"] == "B" and v.columns[0]["n"] == 200
+          and "1970Q1" in v.note and v.sheets == [], f"{v.shape} {v.note}")
+    check("미리보기: 아무것도 쓰지 않는다(정의·바뀜 기록·작업 기록 그대로)", (len(P.history.list()), len(P.work.log()), read(sf)) == state0)
+    bad = P.data_preview("DATA/raw/toy_q.csv", time_col="CN")
+    check("미리보기: 틀이 맞지 않으면 예외가 아니라 까닭(칸 위치)", not bad.ok and "시점으로 읽을 수 없습니다" in bad.error and "B2" in bad.error
+          and bad.grid and bad.columns == [], bad.error)
+    check("미리보기: 없는 파일·읽을 수 없는 형식", raises(lambda: P.data_preview("DATA/raw/nope.csv"), ProjectError, "파일이 없습니다")
+          and raises(lambda: P.data_preview("equion.toml"), ProjectError, "csv·xlsx·xls"))
+    m = P.data_preview("DATA/raw/toy_m.csv", series={"column": "IP", "convert": "mean"})
+    one = m.series
+    check("미리보기: 열 하나를 변환대로(월 → 분기 평균) — 원자료 값과 만든 값", m.freq == "M" and one["freq"] == "Q" and one["source_freq"] == "M"
+          and len(one["raw"]) == 240 and len(one["values"]) == 80 and one["period"][0] == "2000Q1"
+          and abs(one["values"][0] - sum(one["raw"][:3]) / 3) < 1e-9 and "M → Q mean" in one["implicit"][0], str(one["implicit"]))
+    check("미리보기: 변환이 없으면 까닭", raises(lambda: P.data_preview("DATA/raw/toy_m.csv", series={"column": "IP"}), ProjectError, "convert")
+          and raises(lambda: P.data_preview("DATA/raw/toy_m.csv", series={"column": "ZZ"}), ProjectError, "열이 없습니다"))
+    # 불러오기 틀이 있는 원자료: 머리줄 위에 제목 줄, 단위 줄, 결측 표시, 천 단위 쉼표
+    lines = read(os.path.join(d, "DATA", "raw", "toy_q.csv")).rstrip("\n").split("\n")
+    rows = [ln.split(",") for ln in lines[1:9]]
+    cells = [[r[0], f'"1,{float(r[1]):.1f}"', r[2], r[4]] for r in rows]
+    cells[2][1], cells[3][2] = "-", "…"
+    body = "\n".join(",".join(c) for c in cells)
+    write(os.path.join(d, "DATA", "raw", "kr.csv"), "표 1. 지출(가상)\n시점,민간소비,투자,GDP\n,십억원,십억원,십억원\n" + body + "\n")
+    k = P.data_preview("DATA/raw/kr.csv", header_row=2, unit_row=3, missing=["-", "…"], thousands=",")
+    check("미리보기: 틀(열 이름 줄·단위 줄·결측 표시·천 단위) — 한글 열 이름·단위·결측으로 읽은 칸",
+          k.ok and [c["name"] for c in k.columns] == ["민간소비", "투자", "GDP"] and k.columns[0]["unit"] == "십억원" and k.columns[0]["missing"] == 1
+          and k.columns[1]["missing"] == 1 and not k.columns[0]["name_ok"] and k.columns[2]["name_ok"] and len(k.missing_cells) == 2
+          and k.span == ["1970Q1", "1971Q4"], f"{k.error} {k.columns[:1]} {k.missing_cells}")
+    check("미리보기: 틀 없이 읽으면 어디가 틀렸는지", "시점" in P.data_preview("DATA/raw/kr.csv").error)
+
+    before = read(sf)
+    r = P.data_define("kr", file="DATA/raw/kr.csv", header_row=2, unit_row=3, missing=["-", "…"], thousands=",", desc="지출(가상)",
+                      series={"KCN": {"column": "민간소비", "unit": "십억원", "desc": "민간소비"}, "KGDP": "GDP"}, who="tester", command="equion data define kr …")
+    text = read(sf)
+    ch = P.history.get(r.change)
+    check("정의 쓰기: 새 출처(틀)와 시리즈 — 주석·순서는 그대로, 바뀜 기록에 남는다",
+          r.new_source and r.added == ["KCN", "KGDP"] and r.changed == [] and r.file == "DATA/raw/kr.csv" and text.startswith(before[:200])
+          and "# 분기 거시 자료" in text and '[source.kr]' in text and 'header_row = 2' in text and 'missing = ["-", "…"]' in text
+          and '[series.KCN]\nfrom = "kr:민간소비"' in text and ch.who == "tester" and ch.how == "equion data define kr …" and "KCN" in ch.note, text[-300:])
+    b = quiet(P.data_build, use=True)
+    df = P.workfile.data
+    check("정의 쓰기: 이어서 자료를 만들면 새 시리즈가 회차에(결측 표시는 결측, 천 단위는 숫자로)",
+          b.created and b.n_series == 15 and abs(float(df["KCN"].dropna().iloc[0]) - (1000 + round(float(rows[0][1]), 1))) < 1e-6
+          and int(df["KCN"].loc[:"1971-12"].isna().sum()) == 1, f"{b.n_series} {df['KCN'].dropna().iloc[:2].tolist()}")
+    r2 = P.data_define("kr", series={"KCN": {"column": "민간소비", "desc": "민간소비(실질)", "unit": ""}, "KI": {"column": "투자", "fill": "linear"}})
+    text = read(sf)
+    check("정의 쓰기: 있는 시리즈는 준 키만 고치고(빈 값은 지움) 새 시리즈는 더한다",
+          r2.changed == ["KCN"] and r2.added == ["KI"] and not r2.new_source and 'desc = "민간소비(실질)"' in text
+          and 'unit = "십억원"' not in text and 'fill = "linear"' in text and text.count("[series.KCN]") == 1)
+    same = P.data_define("kr", series={"KI": {"column": "투자", "fill": "linear"}})
+    check("정의 쓰기: 바뀐 것이 없으면 바뀜 기록도 없다", same.change is None and same.added == [] and same.changed == [] and read(sf) == text)
+    n = len(P.history.list())
+    probs = problems_of(lambda: P.data_define("kr", series={"KX": "없는열", "KY": {"column": "GDP", "nope": 1}}))
+    check("정의 쓰기: 문제는 모아서 — 아무것도 쓰지 않는다", raises(lambda: P.data_define("kr", series={"KX": "없는열"}), ProjectError, "원자료에 없는 열: 없는열")
+          and any("알 수 없는 키 nope" in x for x in probs) and read(sf) == text and len(P.history.list()) == n, str(probs))
+    check("정의 쓰기: 있는 시리즈를 다른 열로는 replace일 때만",
+          raises(lambda: P.data_define("kr", series={"KCN": "GDP"}), ProjectError, "replace")
+          and P.data_define("kr", series={"KCN": "GDP"}, replace=True).changed == ["KCN"] and 'from = "kr:GDP"' in read(sf))
+    check("정의 쓰기: 이름·예약어·대소문자만 다른 이름",
+          raises(lambda: P.data_define("kr", series={"1x": "GDP"}), ProjectError, "영문으로 시작")
+          and raises(lambda: P.data_define("kr", series={"log": "GDP"}), ProjectError)
+          and raises(lambda: P.data_define("kr", series={"kgdp": "GDP"}), ProjectError, "대소문자만 다른")
+          and raises(lambda: P.data_define("9bad", file="DATA/raw/kr.csv"), ProjectError, "출처 이름"))
+    check("정의 쓰기: 새 출처에는 파일이, 파일은 프로젝트 안에",
+          raises(lambda: P.data_define("zz", series={"A1": "GDP"}), ProjectError, "file이 있어야")
+          and raises(lambda: P.data_define("zz", file=eqn.datasets.path("toy_q"), series={"A1": "CN"}), ProjectError, "프로젝트 밖"))
+    check("정의 쓰기: 틀을 고쳐 원자료를 읽을 수 없게 되면 쓰지 않는다(이 출처의 시리즈가 쓰는 열을 모두 본다)",
+          raises(lambda: P.data_define("kr", header_row=1), ProjectError) and "header_row = 2" in read(sf))
+    check("정의 쓰기: 주기가 다른 원자료는 변환이 있어야 — 계절조정 글자 꼴(stl:multiplicative)",
+          raises(lambda: P.data_define("monthly", series={"IPX": "IP"}), ProjectError, "convert")
+          and P.data_define("monthly", series={"IPX": {"column": "IP", "convert": "mean", "seas": "stl:multiplicative"}}).added == ["IPX"]
+          and 'seas = {method = "stl", model = "multiplicative"}' in read(sf)
+          and raises(lambda: P.data_define("monthly", series={"IPY": {"column": "IP", "convert": "mean", "seas": "x13"}}), ProjectError, "seas"))
+    plain = quiet(Project.open, os.path.join(tmp, "ok"))
+    check("정의 쓰기: 자료 파일 하나를 쓰는 프로젝트에서는 까닭과 함께 거절", raises(lambda: plain.data_define("na", series={"A1": "CN"}), ProjectError, "자료 파일 하나"))
+
+    code, out, _ = run(["data", "preview", "DATA/raw/kr.csv", "--header-row", "2", "--unit-row", "3", "--missing", "-", "--missing", "…",
+                        "--thousands", ",", "--rows", "4"], d)
+    check("data preview(0): 읽은 그대로의 줄과 읽은 것", code == 0 and "8줄" not in out and "11줄 × 4열" in out and "민간소비" in out and "결측 표시 1" in out
+          and "십억원" in out, out[:400])
+    code, out, _ = run(["data", "preview", "DATA/raw/kr.csv", "--json"], d)
+    check("data preview: 틀이 맞지 않으면 3 — 까닭은 JSON에", code == 3 and json.loads(out)["ok"] is False and json.loads(out)["error"])
+    code, out, _ = run(["data", "preview", "DATA/raw/toy_m.csv", "--column", "IP", "--convert", "mean", "--seas", "stl"], d)
+    check("data preview --column: 만들어 본 것", code == 0 and "만들어 본 것" in out and "M → Q mean" in out and "계절조정 stl" in out, out[-300:])
+    code, out, _ = run(["data", "define", "cli", "--file", "DATA/raw/kr.csv", "--header-row", "2", "--unit-row", "3", "--missing", "-", "--missing", "…",
+                        "--thousands", ",", "--series", "CGDP=GDP", "--series", "CCN=민간소비", "--set", "CCN.unit=십억원", "--set", "CCN.desc=민간소비(명령줄)",
+                        "--set", "CCN.fill=linear", "--json"], d)
+    j = json.loads(out) if code == 0 else {}
+    check("data define --series·--set --json(0)", j.get("added") == ["CGDP", "CCN"] and j.get("new_source") and j.get("change")
+          and 'desc = "민간소비(명령줄)"' in read(sf) and quiet(Project.open, d).history.get(j["change"]).how.startswith("equion data define cli"), out[:300])
+    code, out, _ = run(["data", "define", "cli", "--series", "CGDP=GDP"], d)
+    check("data define: 바뀐 것이 없으면 그렇게 알린다(0)", code == 0 and "바뀐 것이 없습니다" in out)
+    code, _, err = run(["data", "define", "cli", "--series", "ZZ=없는열"], d)
+    code2, _, err2 = run(["data", "define", "cli", "--series", "CGDP"], d)
+    code3, _, err3 = run(["data", "define", "cli", "--series", "CGDP=GDP", "--set", "NOPE.unit=x"], d)
+    check("data define: 없는 열·꼴이 틀린 --series·--set(3)", code == 3 and "원자료에 없는 열" in err and code2 == 3 and "이름=열" in err2
+          and code3 == 3 and "이름.키=값" in err3, err[:200])
 
 
 def test_suite():

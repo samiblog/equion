@@ -89,3 +89,16 @@ print(p.data_impact().text())                        # 바뀐 시리즈를 쓰�
 p.data_use(r.id)                                     # 이 회차로 바꾸기 — equion.toml [data] vintage
 h = p.hs("main")                                     # [hs] range = "2005Q1:last" — 새 끝(2020Q1)까지
 print(h.start, h.end, h.counts()["ok"])
+
+# %% R59. 새 원자료를 정의에 — 미리 보고, 열을 시리즈로
+p = eqn.Project.create("def_prj", force=True)
+with open("def_prj/DATA/raw/kr.csv", "w", encoding="utf-8") as f:      # 받은 파일(가상): 제목 줄 · 열 이름 · 단위 줄 · 결측 표시 · 천 단위
+    f.write('표 1. 지출(가상)\n시점,민간소비,GDP\n,십억원,십억원\n2018년 3/4분기,"1,195.0","2,931.9"\n2018년 4/4분기,"1,198.3","2,940.2"\n'
+            '2019년 1/4분기,"1,201.5","2,950.1"\n2019년 2/4분기,-,"2,961.0"\n2019년 3/4분기,"1,214.2","2,975.4"\n2019년 4/4분기,"1,220.8","2,990.3"\n')
+print(p.data_preview("DATA/raw/kr.csv").error)                         # 틀 없이 읽으면 어디서 막히는지(칸 위치)
+print(p.data_preview("DATA/raw/kr.csv", header_row=2, unit_row=3, missing="-", thousands=",", rows=4).text())
+r = p.data_define("kr", file="DATA/raw/kr.csv", header_row=2, unit_row=3, missing="-", thousands=",",
+                  series={"KCN": {"column": "민간소비", "desc": "민간소비", "fill": "linear"}, "KGDP": "GDP"})
+print(r.text())
+b = p.data_build(use=True)                                             # 정의만으로는 자료가 생기지 않는다 — 만들고, 바꾼다
+print(b.n_series, p.workfile["KCN"].dropna().round(1).tolist())

@@ -3778,6 +3778,8 @@ s[:4].round(6).tolist()
 | [`data_diff`](#projectdata_diff) | `(a=None, b=None)` | 두 자료 회차의 차이 — 새·없어진 시리즈, 시리즈마다 새 기간과 개정(기간·크기). |
 | [`data_impact`](#projectdata_impact) | `(a=None, b=None)` | 회차를 바꾸면 영향받는 것 — 바뀐 시리즈를 쓰는 식(부품)과 모형. 다시 계산은 하지 않는다(사람이 시킬 때만). |
 | [`data_add`](#projectdata_add) | `(path, source=None, as_name=None, note=None, who=None, command=None)` | 원자료 넣기 — 파일을 DATA/raw/에 복사한다(받은 그대로, 같은 이름이면 날짜를 붙여 나란히). source를 주면 그 출처가 이 파일을 읽도록 series.toml을 고치되, 먼저 그 출처의 불러오기 틀로 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을 때만 넣고 고친다(틀 검사 — 맞지 않으면 아무것도 바꾸지 않고 `.problems`에 까닭). |
+| [`data_preview`](#projectdata_preview) | `(file, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, rows=30, series=None)` | 원자료 파일을 미리 본다 — 읽은 그대로의 앞쪽 줄과, 준 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위)로 읽어 본 결과. 아무것도 쓰지 않고 기록도 남기지 않는다. 틀이 맞지 않으면 예외가 아니라 `.ok`가 거짓이고 `.error`에 까닭(칸 위치와 함께). |
+| [`data_define`](#projectdata_define) | `(source, file=None, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, desc=None, series=None, replace=False, who=None, command=None)` | 자료 정의 쓰기 — `series.toml`에 출처(`[source.이름]` = 불러오기 틀)와 시리즈(`[series.이름]`)를 더하거나 고친다. 쓰기 전에 새 내용 전체와, 그 틀로 원자료를 읽어 시리즈가 쓰는 열이 다 있고 변환이 되는지 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 사람이 쓴 주석·순서는 그대로 두고(tomlkit) 바뀜 기록에 남긴다. 자료는 만들지 않는다 — 이어서 `data_build`, `data_use`. |
 | [`parts`](#projectparts) | `(name=None)` | 부품(식·항등식) 목록 — name이 없으면 전부, 블록 이름이면 그 블록, 모형 이름이면 조립된 식들. |
 | [`part`](#projectpart) | `(pid)` | 부품 하나 — `블록:목표`(대소문자 무시). |
 | [`used_by`](#projectused_by) | `(name)` | 쓰는 곳 — 블록이나 부품(`블록:목표`)을 쓰는 모형 목록. 고치기 전에 영향 범위를 본다. |
@@ -4029,6 +4031,82 @@ p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
 r = p.data_add(eqn.datasets.path("toy_q"))      # 같은 파일이 이미 있다
 r.copied, r.file
 # (False, 'DATA/raw/toy_q.csv')
+```
+
+### Project.data_preview
+
+`data_preview(file, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, rows=30, series=None)`
+
+원자료 파일을 미리 본다 — 읽은 그대로의 앞쪽 줄과, 준 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위)로 읽어 본 결과. 아무것도 쓰지 않고 기록도 남기지 않는다. 틀이 맞지 않으면 예외가 아니라 `.ok`가 거짓이고 `.error`에 까닭(칸 위치와 함께).
+
+**매개변수**
+
+- `file`: 원자료 파일(csv·xlsx·xls — 프로젝트 기준 경로 또는 절대 경로)
+sheet · header_row · unit_row · time_col · missing · thousands · freq: 불러오기 틀(docs/reference/formats.md)  
+- `rows`: 읽은 그대로 보일 줄 수
+- `series`: {column, convert, denton, seas, scale, fill} — 그 열을 변환대로 만들어 본 값을 `.series`에(자료 만들기와 같은 계산)
+
+**돌려주는 것**
+
+SourcePreview — .grid · .ok · .error · .freq · .span · .note · .columns · .missing_cells · .bad_cells · .series  
+
+**오류**
+
+- `ProjectError`: 없는 파일·읽을 수 없는 형식, series를 주었는데 열이 없거나 변환할 수 없음
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+v = p.data_preview("DATA/raw/toy_q.csv")
+v.ok, v.freq, v.span, v.columns[0]["name"]
+# (True, 'Q', ['1970Q1', '2019Q4'], 'CN')
+```
+
+관련  
+```text
+data_define · data_add · data_build
+```
+
+### Project.data_define
+
+`data_define(source, file=None, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, desc=None, series=None, replace=False, who=None, command=None)`
+
+자료 정의 쓰기 — `series.toml`에 출처(`[source.이름]` = 불러오기 틀)와 시리즈(`[series.이름]`)를 더하거나 고친다. 쓰기 전에 새 내용 전체와, 그 틀로 원자료를 읽어 시리즈가 쓰는 열이 다 있고 변환이 되는지 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 사람이 쓴 주석·순서는 그대로 두고(tomlkit) 바뀜 기록에 남긴다. 자료는 만들지 않는다 — 이어서 `data_build`, `data_use`.
+
+**매개변수**
+
+- `source`: 출처 이름(없으면 새로 — 그때 file이 있어야 한다)
+- `file`: 원자료 파일(프로젝트 안 — 보통 DATA/raw/)
+sheet · header_row · unit_row · time_col · missing · thousands · freq: 틀. 준 것만 바꾼다(None은 그대로, ""·0은 그 키를 지움)  
+- `desc`: 출처 설명
+- `series`: {시리즈 이름: 열 이름 또는 {column, unit, desc, convert, denton, seas, scale, fill}}
+- `replace`: 이미 있는 시리즈를 다른 열로 바꿔도 된다
+
+**돌려주는 것**
+
+DefineResult — .source · .file · .new_source · .added · .changed · .change(바뀜 기록)  
+
+**오류**
+
+- `ProjectError`: 자료 정의를 쓰지 않는 프로젝트, 이름·키 문제, 원자료에 없는 열, 변환할 수 없음(문제 모두 — 아무것도 쓰지 않음)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.data_define("na", series={"CONS": {"column": "CN", "desc": "소비(다른 이름으로)"}})
+r.added, r.new_source, r.change is not None
+# (['CONS'], False, True)
+```
+
+관련  
+```text
+data_preview · data_add · data_build · data_use
 ```
 
 ### Project.parts

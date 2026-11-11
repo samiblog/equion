@@ -28,7 +28,7 @@
 | `EQUATIONS/<블록>.txt` | 블록 = 방정식 파일 하나(한 줄에 한 식, `#` 뒤는 설명) | 사람·명령(`adopt`) |
 | `EQUATIONS/adopted.toml` | 채택표 `"demand:CN" = "est:cons_c5"` — 모형은 이 계수로 푼다 | 명령(`adopt`·`est --adopted --adopt`·`propose apply`) |
 | `DATA/raw/` · `DATA/raw/inbox/` | 원자료(받은 그대로 — 고치지 않는다) · 새로 받은 파일을 놓는 곳 | 명령(`data add`·`data build --inbox`) |
-| `DATA/series.toml` · `DATA/derived.txt` | 자료 정의(불러오기 틀·시리즈·변환) · 파생식 | 사람·명령(`an keep`·`data add --source`·`data build --inbox` — 출처의 `file`) |
+| `DATA/series.toml` · `DATA/derived.txt` | 자료 정의(불러오기 틀·시리즈·변환) · 파생식 | 사람·명령(`data define` — 출처의 틀과 시리즈 · `an keep` · `data add --source`·`data build --inbox` — 출처의 `file`) |
 | `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` | 가정 경로(CSV) · 보정항 규칙 · 시나리오(충격) | 사람 |
 | `FLOWS/*.eqs` | 스크립트 — 원자료에서 보고서까지의 순서 | 사람·`script new` |
 | `notes/*.md` · `reports/*.md` | 노트(명령 블록 + 결과 구역) · 보고서(결과만) | 글은 사람·Claude, 구역은 명령 |
@@ -52,7 +52,7 @@
 | `new` | 새 프로젝트 폴더(예시 데이터·방정식·스크립트) |  |
 | `assemble` | 프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수) |  |
 | `ident` | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |  |
-| `data` | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 | list · add · build · inbox · use · diff · impact |
+| `data` | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 | list · add · build · inbox · preview · define · use · diff · impact |
 | `est` | 식 하나를 추정해 기록을 남긴다(부품 또는 식 글자 — 후보) |  |
 | `adopt` | 추정 기록을 부품의 채택 계수로(블록 파일의 줄·채택표를 고치고 바뀜 기록에) |  |
 | `compare` | 기록 비교 — 추정 후보(적합·진단·기준·단독 모의) 또는 HS(변수별 RMSPE) |  |

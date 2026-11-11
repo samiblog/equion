@@ -167,6 +167,31 @@ def build_parser() -> argparse.ArgumentParser:
     db.add_argument("--inbox", choices=("ask", "auto", "no"), help="먼저 받은 원자료(DATA/raw/inbox/)를 출처와 짝지어 넣는다 — "
                     "ask: 터미널이면 파일마다 묻는다(아니면 auto) · auto: 짝이 하나이고 틀이 맞으면 넣는다")
     _common(dsub.add_parser("inbox", help="받은 원자료(DATA/raw/inbox/) — 파일마다 짝지을 출처와 틀 검사(미리보기)"))
+
+    def _frame(sp):
+        sp.add_argument("--sheet", metavar="시트", help="엑셀의 시트(이름 또는 번호 — 기본 첫 시트)")
+        sp.add_argument("--header-row", type=int, metavar="줄", help="열 이름이 있는 줄(1부터, 기본 1)")
+        sp.add_argument("--unit-row", type=int, metavar="줄", help="단위가 있는 줄(없으면 생략)")
+        sp.add_argument("--time-col", metavar="열", help="시점 열(이름·A·B… 또는 번호 — 기본 첫 열)")
+        sp.add_argument("--missing", action="append", metavar="표시", help="결측으로 볼 글자(여러 번 — 예: --missing - --missing …)")
+        sp.add_argument("--thousands", metavar="글자", help="천 단위 구분 글자(예: ,)")
+        sp.add_argument("--freq", metavar="주기", help="원자료의 주기 Q·M·A(기본: 시점에서 읽는다)")
+        return sp
+
+    dpv = _frame(_common(dsub.add_parser("preview", help="원자료 파일을 미리 본다 — 읽은 그대로의 줄과 그 틀로 읽어 본 결과(쓰지 않는다)")))
+    dpv.add_argument("file", help="원자료 파일(csv·xlsx·xls)")
+    dpv.add_argument("--rows", type=int, default=12, metavar="줄", help="읽은 그대로 보일 줄 수(기본 12)")
+    dpv.add_argument("--column", metavar="열", help="이 열을 변환대로 만들어 본다(--convert·--seas와 함께)")
+    dpv.add_argument("--convert", metavar="방법", help="주기 변환(mean·sum·last… · constant·linear·denton)")
+    dpv.add_argument("--seas", metavar="방법", help="계절조정 stl·classical(승법은 stl:multiplicative)")
+    ddf = _frame(_common(dsub.add_parser("define", help="자료 정의 쓰기 — series.toml에 출처(불러오기 틀)와 시리즈를 더하거나 고친다")))
+    ddf.add_argument("source", help="출처 이름([source.이름] — 없으면 새로 만든다)")
+    ddf.add_argument("--file", metavar="파일", help="원자료 파일(프로젝트 안 — 보통 DATA/raw/). 새 출처에는 꼭")
+    ddf.add_argument("--desc", metavar="글", help="출처 설명")
+    ddf.add_argument("--series", action="append", default=[], metavar="이름=열", help="시리즈를 그 열로(여러 번)")
+    ddf.add_argument("--set", dest="sets", action="append", default=[], metavar="이름.키=값",
+                     help="시리즈의 키(unit·desc·convert·denton·seas·scale·fill — 예: --set CN.unit=조원 --set CN.seas=stl:multiplicative)")
+    ddf.add_argument("--replace", action="store_true", help="이미 있는 시리즈를 다른 열로 바꿔도 된다")
     du = _common(dsub.add_parser("use", help="지금 자료 회차를 바꾼다(equion.toml [data] vintage)"))
     du.add_argument("vintage", help="회차(equion data list)")
     for nm, hl in (("diff", "두 회차의 차이 — 새·없어진 시리즈, 새 기간·개정"),
@@ -637,6 +662,31 @@ def cmd_data(args) -> int:
                 + ("\n  넣기   스크립트의 자료 단계(예: equion run FLOWS/monthly.eqs) — 따로 넣으려면 equion data build --inbox ask --use"
                    if items else ""))
             code = EXIT_OK if all(x.ok for x in items) else EXIT_INPUT
+        elif act == "preview":
+            frame = dict(sheet=args.sheet, header_row=args.header_row, unit_row=args.unit_row, time_col=args.time_col,
+                         missing=args.missing, thousands=args.thousands, freq=args.freq)
+            one = ({"column": args.column, **({"convert": args.convert} if args.convert else {}),
+                    **({"seas": args.seas} if args.seas else {})} if args.column else None)
+            res = p.data_preview(args.file, rows=args.rows, series=one, **frame)
+            out = res.to_dict() if args.json else res.text()
+            code = EXIT_OK if res.ok else EXIT_INPUT
+        elif act == "define":
+            series = {}
+            for item in args.series:
+                name, eq, col = item.partition("=")
+                if not eq or not name.strip() or not col.strip():
+                    raise ProjectError(f"--series {item!r} — 이름=열 꼴")
+                series[name.strip()] = {"column": col.strip()}
+            for item in args.sets:
+                left, eq, value = item.partition("=")
+                name, dot, key = left.partition(".")
+                if not eq or not dot or name.strip() not in series:
+                    raise ProjectError(f"--set {item!r} — 이름.키=값 꼴이고, 이름은 --series로 준 시리즈여야 합니다")
+                series[name.strip()][key.strip()] = value
+            res = p.data_define(args.source, file=args.file, sheet=args.sheet, header_row=args.header_row, unit_row=args.unit_row,
+                                time_col=args.time_col, missing=args.missing, thousands=args.thousands, freq=args.freq,
+                                desc=args.desc, series=series or None, replace=args.replace, who=who, command=cmdline)
+            out = res.to_dict() if args.json else res.text()
         elif act == "use":
             old = p.data_use(args.vintage, who=who, command=cmdline)
             out = ({"vintage": p.vintage, "previous": old} if args.json else

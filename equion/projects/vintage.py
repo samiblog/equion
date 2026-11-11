@@ -80,14 +80,21 @@ def _sha_text(path: str) -> str:
         return hashlib.sha256(f.read()).hexdigest()
 
 
-def load_defs(root: str, series_file: str, derived_file: Optional[str], freq: str) -> DataDefs:
-    """series.toml·derived.txt를 읽고 검사한다. 문제는 모아서 ProjectError."""
+def load_defs(root: str, series_file: str, derived_file: Optional[str], freq: str,
+              series_text: Optional[str] = None) -> DataDefs:
+    """series.toml·derived.txt를 읽고 검사한다. 문제는 모아서 ProjectError.
+
+    series_text를 주면 series.toml 파일 대신 그 글을 검사한다(고친 내용을 쓰기 전에 보는 데 — `define_text`).
+    """
     from ..formula.parser import reserved_name_error
     problems: List[str] = []
     spath = os.path.join(root, series_file)
     try:
-        with open(spath, "rb") as f:
-            raw = tomllib.load(f)
+        if series_text is not None:
+            raw = tomllib.loads(series_text)
+        else:
+            with open(spath, "rb") as f:
+                raw = tomllib.load(f)
     except FileNotFoundError:
         raise ProjectError(f"자료 정의 파일이 없습니다: {series_file}") from None
     except tomllib.TOMLDecodeError as e:
@@ -170,7 +177,7 @@ def load_defs(root: str, series_file: str, derived_file: Optional[str], freq: st
             problems.append(f"{series_file}: 대소문자만 다른 시리즈 이름 {lows[nm.lower()]} · {nm}")
         lows[nm.lower()] = nm
     derived: List[Tuple[int, str, str, str]] = []
-    texts = {series_file: _sha_text(spath)}
+    texts = {series_file: hashlib.sha256(series_text.encode("utf-8")).hexdigest() if series_text is not None else _sha_text(spath)}
     if derived_file:
         dpath = os.path.join(root, derived_file)
         if not os.path.isfile(dpath):
@@ -308,6 +315,32 @@ def _convert(s: pd.Series, src_freq: str, freq: str, spec: SeriesSpec) -> pd.Ser
     return tr.aggregate(s, src_freq, freq, how, complete=True)
 
 
+def _series_values(s: pd.Series, src_freq: str, F: str, spec: SeriesSpec, implicit: List[str]) -> Tuple[pd.Series, pd.Series]:
+    """원자료의 열 하나를 정의대로 — 주기 변환 → 배율 → 채움 → 계절조정. (값, 값의 종류). 알아서 한 것은 implicit에, 문제는 ValueError."""
+    if src_freq != F:
+        s = _convert(s, src_freq, F, spec).rename(spec.name)
+        implicit.append(f"{spec.name}: {src_freq} → {F} {spec.convert}")
+    flags = pd.Series(np.where(np.isfinite(s.to_numpy(dtype=float)),
+                               "transformed" if src_freq != F else "actual", "missing"), index=s.index)
+    if spec.scale is not None:
+        s = s * float(spec.scale)
+        flags[flags == "actual"] = "transformed"
+    if spec.fill == "linear":
+        before = s.isna()
+        s = s.interpolate(limit_area="inside")
+        filled = before & s.notna()
+        if filled.any():
+            flags[filled] = "filled"
+            implicit.append(f"{spec.name}: 안쪽 결측 {int(filled.sum())}칸을 선형으로 채움 "
+                            f"({format_period(s.index[filled.to_numpy()][0], F)}부터)")
+    if spec.seas:
+        s = _seasonal(s, F, spec.seas)
+        flags[flags == "actual"] = "transformed"
+        implicit.append(f"{spec.name}: 계절조정 {spec.seas.get('method', 'stl')} "
+                        f"{spec.seas.get('model', 'additive')}")
+    return s, flags
+
+
 def _suffix(n: int) -> str:
     s = ""
     n += 1
@@ -364,27 +397,7 @@ def build_vintage(defs: DataDefs, equion_version: str, now: datetime = None) -> 
             implicit.append(f"{spec.name}: 열 {spec.column} → {col}(대소문자만 다름)")
         s = t.data[col].astype(float).rename(spec.name)
         try:
-            if t.freq != F:
-                s = _convert(s, t.freq, F, spec).rename(spec.name)
-                implicit.append(f"{spec.name}: {t.freq} → {F} {spec.convert}")
-            flags = pd.Series(np.where(np.isfinite(s.to_numpy(dtype=float)),
-                                       "transformed" if t.freq != F else "actual", "missing"), index=s.index)
-            if spec.scale is not None:
-                s = s * float(spec.scale)
-                flags[flags == "actual"] = "transformed"
-            if spec.fill == "linear":
-                before = s.isna()
-                s = s.interpolate(limit_area="inside")
-                filled = before & s.notna()
-                if filled.any():
-                    flags[filled] = "filled"
-                    implicit.append(f"{spec.name}: 안쪽 결측 {int(filled.sum())}칸을 선형으로 채움 "
-                                    f"({format_period(s.index[filled.to_numpy()][0], F)}부터)")
-            if spec.seas:
-                s = _seasonal(s, F, spec.seas)
-                flags[flags == "actual"] = "transformed"
-                implicit.append(f"{spec.name}: 계절조정 {spec.seas.get('method', 'stl')} "
-                                f"{spec.seas.get('model', 'additive')}")
+            s, flags = _series_values(s, t.freq, F, spec, implicit)
         except ValueError as e:
             problems.append(f"{where} {e}")
             continue
@@ -721,3 +734,353 @@ def set_toml_value(path: str, table: List[str], key: str, value):
     text = toml_with_value(path, table, key, value)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
+
+
+# ---- 불러오기: 원자료 미리보기와 자료 정의 쓰기 ------------------------------------------------
+
+FRAME_KEYS = ("sheet", "header_row", "unit_row", "time_col", "missing", "thousands", "freq")
+SERIES_KEYS = ("convert", "denton", "seas", "scale", "fill", "unit", "desc")
+
+
+def _frame_spec(root: str, file: str, name: str = "preview", sheet=None, header_row=None, unit_row=None, time_col=None,
+                missing=None, thousands=None, freq=None) -> SourceSpec:
+    """파일과 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위·주기)로 불러오기 틀 하나를 만든다. 문제는 ProjectError."""
+    from ..data.source import EXTENSIONS
+    path = os.path.normpath(file if os.path.isabs(file) else os.path.join(root, file))
+    if not os.path.isfile(path):
+        raise ProjectError(f"파일이 없습니다: {file}")
+    if os.path.splitext(path)[1].lower() not in EXTENSIONS:
+        raise ProjectError(f"{file}: 읽을 수 없는 형식 — csv·xlsx·xls")
+    inside = os.path.normcase(path).startswith(os.path.normcase(os.path.abspath(root)) + os.sep)
+    rel = os.path.relpath(path, root).replace(os.sep, "/") if inside else path
+    miss = [missing] if isinstance(missing, str) else list(missing or [])
+    if isinstance(sheet, str) and sheet.strip().isdigit():
+        sheet = int(sheet)
+    if isinstance(time_col, str) and time_col.strip().isdigit():
+        time_col = int(time_col)
+    try:
+        return SourceSpec(name=name, file=rel, path=path, sheet=sheet if sheet not in ("", None) else None,
+                          header_row=int(header_row or 1), unit_row=int(unit_row) if unit_row else None,
+                          time_col=time_col if time_col not in ("", None) else None, missing=[str(m) for m in miss if str(m) != ""],
+                          thousands=thousands or None, freq=normalize_freq(freq) if freq else None)
+    except (TypeError, ValueError) as e:
+        raise ProjectError(f"{file}: 틀을 읽을 수 없습니다 — {e}") from None
+
+
+@dataclass
+class SourcePreview:
+    """원자료 미리보기 — 읽은 그대로의 칸(`grid`)과, 그 틀로 읽어 본 결과(주기·구간·열마다 값의 수). 아무것도 쓰지 않는다."""
+
+    file: str                              # 프로젝트 기준 경로(프로젝트 밖이면 받은 경로)
+    sheets: List[str]                      # 엑셀의 시트 이름(csv는 빈 목록)
+    shape: Tuple[int, int]                 # 파일의 (줄, 열)
+    grid: List[List[str]]                  # 앞쪽 줄 — 읽은 그대로(글자)
+    frame: dict                            # 본 틀
+    ok: bool = False                       # 그 틀로 읽혔나
+    error: str = ""                        # 읽지 못한 까닭(칸 위치와 함께)
+    freq: Optional[str] = None
+    span: Optional[List[str]] = None
+    note: str = ""                         # "시점 열 A('1970Q1' 꼴) → Q 1970Q1~2019Q4"
+    time_col: Optional[int] = None         # 시점 열의 자리(0부터)
+    columns: List[dict] = field(default_factory=list)       # 열마다 name·col·letter·unit·n·first·last·missing·bad·name_ok
+    missing_cells: List[str] = field(default_factory=list)  # 결측 표시로 읽은 칸('C42 "–"' 꼴)
+    bad_cells: List[str] = field(default_factory=list)      # 숫자가 아니어서 결측으로 본 칸
+    series: Optional[dict] = None          # 열 하나를 변환대로 만들어 본 것(`data_preview(series=…)`)
+
+    def to_dict(self) -> dict:
+        """명령줄 --json과 같은 사전."""
+        return {"file": self.file, "sheets": self.sheets, "shape": list(self.shape), "grid": self.grid, "frame": self.frame,
+                "ok": self.ok, "error": self.error, "freq": self.freq, "span": self.span, "note": self.note,
+                "time_col": self.time_col, "columns": self.columns, "missing_cells": self.missing_cells,
+                "bad_cells": self.bad_cells, "series": self.series}
+
+    def text(self) -> str:
+        """명령줄에 보이는 짧은 글."""
+        L = [f"[data preview] {self.file} — {self.shape[0]}줄 × {self.shape[1]}열"
+             + (f" · 시트 {', '.join(self.sheets)}" if self.sheets else "")]
+        for k, row in enumerate(self.grid[:6], 1):
+            L.append(f"  {k:>3} | " + " | ".join(c[:12] for c in row[:8]) + (" | …" if len(row) > 8 else ""))
+        if not self.ok:
+            L.append(f"  읽지 못했습니다: {self.error}")
+            return "\n".join(L)
+        L.append(f"  읽은 것  {self.note}")
+        for c in self.columns:
+            L.append(f"    {c['letter']:>3} {c['name']:<16} {c['first'] or '—'}~{c['last'] or '—'} · 값 {c['n']}"
+                     + (f" · 결측 표시 {c['missing']}" if c["missing"] else "") + (f" · 숫자 아님 {c['bad']}" if c["bad"] else "")
+                     + (f" · {c['unit']}" if c["unit"] else ""))
+        if self.series:
+            s = self.series
+            L.append(f"  만들어 본 것  {s['column']} → {s['freq']} {s['period'][0] if s['period'] else '—'}~"
+                     f"{s['period'][-1] if s['period'] else '—'} · 값 {s['n']}" + "".join(f"\n    - {x}" for x in s["implicit"]))
+        return "\n".join(L)
+
+
+def preview_source(root: str, file: str, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None,
+                   thousands=None, freq=None, rows: int = 30) -> SourcePreview:
+    """원자료 파일을 미리 본다 — 읽은 그대로의 앞쪽 줄과, 준 틀로 읽어 본 결과. 틀이 맞지 않아도 예외가 아니라 `.error`에 까닭."""
+    import re
+
+    from ..data.source import _cell_text, _read_grid, _time_index, col_letter
+    spec = _frame_spec(root, file, "preview", sheet, header_row, unit_row, time_col, missing, thousands, freq)
+    sheets: List[str] = []
+    if not spec.path.lower().endswith(".csv"):
+        try:
+            with pd.ExcelFile(spec.path) as book:
+                sheets = [str(s) for s in book.sheet_names]
+        except Exception as e:  # noqa: BLE001 — 깨진 파일·암호가 걸린 파일
+            raise ProjectError(f"{spec.file}: 열 수 없습니다 — {e}") from None
+    try:
+        grid = _read_grid(spec)
+    except ValueError as e:
+        raise ProjectError(str(e)) from None
+    head = [[_cell_text(v) for v in row] for row in grid.iloc[:max(1, int(rows))].values.tolist()]
+    out = SourcePreview(spec.file, sheets, (int(grid.shape[0]), int(grid.shape[1])), head,
+                        {"sheet": spec.sheet, "header_row": spec.header_row, "unit_row": spec.unit_row, "time_col": spec.time_col,
+                         "missing": list(spec.missing), "thousands": spec.thousands, "freq": spec.freq})
+    try:
+        t = read_source(spec)
+        names = [_cell_text(v) or f"열{col_letter(k)}" for k, v in enumerate(grid.iloc[spec.header_row - 1].tolist())]
+        tcol = _time_index(grid, names, spec)
+    except ValueError as e:
+        out.error = str(e)
+        return out
+
+    def by_letter(cells: List[str]) -> Dict[str, int]:
+        count: Dict[str, int] = {}
+        for c in cells:
+            m = re.match(r"([A-Z]+)\d+", c)
+            if m:
+                count[m.group(1)] = count.get(m.group(1), 0) + 1
+        return count
+
+    miss, bad = by_letter(t.missing_cells), by_letter(t.bad_cells)
+    for k, nm in enumerate(names):
+        if k == tcol:
+            continue
+        valid = t.data[nm].dropna()
+        out.columns.append({"name": nm, "col": k, "letter": col_letter(k), "unit": t.units.get(nm, ""), "n": int(len(valid)),
+                            "first": format_period(valid.index[0], t.freq) if len(valid) else None,
+                            "last": format_period(valid.index[-1], t.freq) if len(valid) else None,
+                            "missing": miss.get(col_letter(k), 0), "bad": bad.get(col_letter(k), 0),
+                            "name_ok": bool(NAME_RE.match(nm))})
+    out.ok, out.freq, out.time_col = True, t.freq, int(tcol)
+    out.span = [format_period(t.data.index[0], t.freq), format_period(t.data.index[-1], t.freq)]
+    out.note = t.time_note.split(": ", 1)[-1]
+    out.missing_cells, out.bad_cells = t.missing_cells[:200], t.bad_cells[:200]
+    return out
+
+
+def _seas_spec(seas):
+    """seas 값 — "stl"·"classical"·"stl:multiplicative"·사전 → 사전(없으면 None)."""
+    if seas in (None, "", False):
+        return None
+    if isinstance(seas, str):
+        method, _, model = seas.partition(":")
+        seas = {"method": method.strip(), **({"model": model.strip()} if model.strip() else {})}
+    if not isinstance(seas, dict) or seas.get("method", "stl") not in ("stl", "classical") or \
+            seas.get("model", "additive") not in ("additive", "multiplicative"):
+        raise ProjectError(f"seas = {seas!r} — \"stl\"·\"classical\" 또는 {{ method, model = \"additive\"·\"multiplicative\" }}")
+    return dict(seas)
+
+
+def preview_series(freq: str, spec: SourceSpec, column: str, convert=None, denton: str = "sum", seas=None, scale=None,
+                   fill=None, name: str = None) -> dict:
+    """열 하나를 변환대로 만들어 본다(자료 만들기와 같은 계산 — 아무것도 쓰지 않는다).
+
+    돌려주는 것: column·freq·period·values(만든 값) · source_freq·raw_period·raw(원자료 값) · n · unit · implicit(알아서 한 것).
+    문제(없는 열·주기 변환·계절조정)는 ProjectError.
+    """
+    try:
+        t = read_source(spec)
+    except ValueError as e:
+        raise ProjectError(str(e)) from None
+    col, _case = t.column(column)
+    if col is None:
+        raise ProjectError(f"열이 없습니다: {column} (있는 열: {', '.join(map(str, t.data.columns[:12]))})")
+    if convert is not None and convert not in AGG + EXPAND:
+        raise ProjectError(f"convert = {convert!r} — {' · '.join(AGG + EXPAND)}")
+    ss = SeriesSpec(name=name or str(col), source=spec.name, column=str(col), convert=convert or None, denton=denton or "sum",
+                    seas=_seas_spec(seas), scale=float(scale) if scale not in (None, "") else None, fill=fill or None,
+                    unit="", desc="")
+    raw = t.data[col].astype(float)
+    implicit: List[str] = []
+    try:
+        s, _flags = _series_values(raw.rename(ss.name), t.freq, freq, ss, implicit)
+    except ValueError as e:
+        raise ProjectError(str(e)) from None
+
+    def plain(x: pd.Series) -> List[Optional[float]]:
+        return [float(v) if np.isfinite(v) else None for v in x.to_numpy(dtype=float)]
+
+    return {"column": str(col), "freq": freq, "period": [format_period(i, freq) for i in s.index], "values": plain(s),
+            "source_freq": t.freq, "raw_period": [format_period(i, t.freq) for i in raw.index], "raw": plain(raw),
+            "n": int(s.notna().sum()), "unit": t.units.get(col, ""), "implicit": implicit}
+
+
+@dataclass
+class DefineResult:
+    """자료 정의 쓰기 결과 — 어느 출처·시리즈가 생기고 바뀌었나."""
+
+    source: str
+    file: str
+    new_source: bool
+    added: List[str] = field(default_factory=list)      # 새 시리즈
+    changed: List[str] = field(default_factory=list)    # 고친 시리즈
+    change: Optional[str] = None                        # 바뀜 기록(바뀐 것이 없으면 None)
+
+    def text(self) -> str:
+        """명령줄에 보이는 짧은 글."""
+        L = [f"[data define] [source.{self.source}] {self.file}" + (" — 새 출처" if self.new_source else "")]
+        if self.added:
+            L.append(f"  새 시리즈   {', '.join(self.added)}")
+        if self.changed:
+            L.append(f"  고친 시리즈 {', '.join(self.changed)}")
+        if self.change:
+            L += [f"  바뀜 기록  {self.change}", "  다음   equion data build → equion data use <회차>"]
+        else:
+            L.append("  바뀐 것이 없습니다")
+        return "\n".join(L)
+
+    def to_dict(self) -> dict:
+        """명령줄 --json과 같은 사전."""
+        return {"source": self.source, "file": self.file, "new_source": self.new_source, "added": self.added,
+                "changed": self.changed, "change": self.change}
+
+
+def define_text(root: str, series_file: str, derived_file: Optional[str], freq: str, source: str, file: str = None,
+                frame: dict = None, desc: str = None, series: dict = None, replace: bool = False) -> Tuple[str, DefineResult]:
+    """`series.toml`에 출처(불러오기 틀)와 시리즈를 더하거나 고친 **새 내용**을 만든다 — 주석·순서는 그대로(tomlkit), 파일은 쓰지 않는다.
+
+    frame: 틀의 키(sheet·header_row·unit_row·time_col·missing·thousands·freq) — 준 키만 바꾸고, 빈 값·기본값이면 그 키를 지운다.
+    series: {이름: 열 이름 또는 {column, unit, desc, convert, denton, seas, scale, fill}} — 없는 이름은 더하고, 있는 이름은 준 키만 고친다
+    (다른 열로 바꾸는 것은 replace=True일 때만).
+    검사: 이름·키·새 내용 전체(`load_defs`)·그 틀로 원자료를 읽어 이 출처의 시리즈가 쓰는 열이 다 있는지·변환이 되는지.
+    문제는 모아서 ProjectError(아무것도 쓰지 않았다).
+    """
+    import tomlkit
+    problems: List[str] = []
+    if not NAME_RE.match(str(source)):
+        raise ProjectError(f"출처 이름 {source!r} — 영문으로 시작하고 영문·숫자·_만")
+    with open(os.path.join(root, series_file), encoding="utf-8") as f:
+        doc = tomlkit.parse(f.read())
+    for key in ("source", "series"):
+        if key not in doc:
+            doc[key] = tomlkit.table(True)
+    sources, stable = doc["source"], doc["series"]
+    new_source = source not in sources
+    tb = tomlkit.table() if new_source else sources[source]
+    if file:
+        path = os.path.normpath(file if os.path.isabs(file) else os.path.join(root, file))
+        if not os.path.normcase(path).startswith(os.path.normcase(os.path.abspath(root)) + os.sep):
+            raise ProjectError(f"프로젝트 밖의 파일입니다: {file} — 먼저 equion data add로 DATA/raw/에 넣으세요")
+        tb["file"] = os.path.relpath(path, root).replace(os.sep, "/")
+    elif new_source:
+        raise ProjectError(f"새 출처 '{source}'에는 file이 있어야 합니다(DATA/raw/의 파일)")
+    for k, v in (frame or {}).items():
+        if k not in FRAME_KEYS:
+            problems.append(f"[source.{source}] 알 수 없는 틀의 키 {k} — {' · '.join(FRAME_KEYS)}")
+            continue
+        if k == "missing":
+            v = [str(x) for x in ([v] if isinstance(v, str) else list(v or [])) if str(x) != ""]
+        elif k in ("header_row", "unit_row") and v not in (None, ""):
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                problems.append(f"[source.{source}] {k} = {v!r} — 줄 번호(1부터)")
+                continue
+        elif k in ("sheet", "time_col") and isinstance(v, str) and v.strip().isdigit():
+            v = int(v)
+        if v in (None, "", [], 0) or (k == "header_row" and v == 1):
+            if k in tb:
+                del tb[k]
+        else:
+            tb[k] = v
+    if desc is not None:
+        if desc:
+            tb["desc"] = str(desc)
+        elif "desc" in tb:
+            del tb["desc"]
+    if new_source:
+        sources[source] = tb
+    lows = {str(k).lower(): str(k) for k in stable}
+    res = DefineResult(source, str(tb.get("file", "")), new_source)
+    wanted: Dict[str, str] = {}
+    for name, given in (series or {}).items():
+        where = f"[series.{name}]"
+        given = {"column": given} if isinstance(given, str) else dict(given or {})
+        col = given.pop("column", None)
+        unknown = set(given) - set(SERIES_KEYS)
+        if not col:
+            problems.append(f"{where} 어느 열을 읽을지 없습니다(column)")
+            continue
+        if unknown:
+            problems.append(f"{where} 알 수 없는 키 {', '.join(sorted(unknown))} — {' · '.join(SERIES_KEYS)}")
+            continue
+        if not NAME_RE.match(str(name)):
+            problems.append(f"{where} 이름은 영문으로 시작하고 영문·숫자·_만(한글은 desc로)")
+            continue
+        try:
+            if "seas" in given and given["seas"] not in (None, "", False):
+                inline = tomlkit.inline_table()
+                inline.update(_seas_spec(given["seas"]))
+                given["seas"] = inline
+            if given.get("scale") not in (None, ""):
+                given["scale"] = float(given["scale"])
+        except (ProjectError, TypeError, ValueError) as e:
+            problems.append(f"{where} {e}")
+            continue
+        frm = f"{source}:{col}"
+        have = lows.get(str(name).lower())
+        if have is None:
+            t = tomlkit.table()
+            t["from"] = frm
+            for k in SERIES_KEYS:
+                if given.get(k) not in (None, "", False):
+                    t[k] = given[k]
+            stable[name] = t
+            lows[str(name).lower()] = str(name)
+            res.added.append(str(name))
+        elif have != name:
+            problems.append(f"{where} 대소문자만 다른 시리즈가 이미 있습니다: {have}")
+            continue
+        else:
+            cur = stable[name]
+            if str(cur.get("from")) != frm and not replace:
+                problems.append(f"{where} 이미 있는 시리즈입니다(from = {cur.get('from')!r}) — 다른 열로 바꾸려면 replace(--replace)")
+                continue
+            before = json.dumps(cur.unwrap(), sort_keys=True, default=str, ensure_ascii=False)
+            cur["from"] = frm
+            for k in SERIES_KEYS:
+                if k not in given:
+                    continue
+                if given[k] in (None, "", False):
+                    if k in cur:
+                        del cur[k]
+                else:
+                    cur[k] = given[k]
+            if json.dumps(cur.unwrap(), sort_keys=True, default=str, ensure_ascii=False) != before:
+                res.changed.append(str(name))
+        wanted[str(name)] = str(col)
+    if problems:
+        raise ProjectError(problems)
+    text = tomlkit.dumps(doc)
+    defs = load_defs(root, series_file, derived_file, freq, series_text=text)     # 새 내용 전체를 검사(문제는 ProjectError)
+    try:
+        t = read_source(defs.sources[source])
+    except ValueError as e:
+        raise ProjectError(f"[source.{source}] 이 틀로 원자료를 읽을 수 없습니다 — {e}") from None
+    for s in defs.series.values():
+        if s.source != source:
+            continue
+        col, _case = t.column(s.column)
+        if col is None:
+            problems.append(f"[series.{s.name}] 원자료에 없는 열: {s.column} (있는 열: {', '.join(map(str, t.data.columns[:12]))})")
+        elif s.name in wanted:
+            try:
+                _series_values(t.data[col].astype(float).rename(s.name), t.freq, freq, s, [])
+            except ValueError as e:
+                problems.append(f"[series.{s.name}] {e}")
+    if problems:
+        raise ProjectError(problems)
+    res.file = defs.sources[source].file
+    return text, res

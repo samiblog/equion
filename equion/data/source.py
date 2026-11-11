@@ -127,7 +127,14 @@ def _read_grid(spec: SourceSpec) -> pd.DataFrame:
             except UnicodeDecodeError:
                 raise ValueError(f"{spec.file}: 글자 인코딩을 읽을 수 없습니다 — UTF-8로 저장하세요") from None
         import io
-        return pd.read_csv(io.StringIO(text), header=None, dtype=str, keep_default_na=False)
+        try:
+            return pd.read_csv(io.StringIO(text), header=None, dtype=str, keep_default_na=False)
+        except pd.errors.ParserError:
+            # 줄마다 칸 수가 다른 파일(표 위에 제목 줄이 있는 통계표 등) — 가장 긴 줄에 맞춰 빈칸으로 채운다. 빈 줄은 위와 같이 건너뛴다
+            import csv
+            rows = [r for r in csv.reader(io.StringIO(text)) if r]
+            width = max((len(r) for r in rows), default=0)
+            return pd.DataFrame([r + [""] * (width - len(r)) for r in rows], dtype=str)
     sheet = spec.sheet
     if isinstance(sheet, int):
         sheet = sheet - 1

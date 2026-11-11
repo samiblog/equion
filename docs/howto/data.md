@@ -256,4 +256,59 @@ print(h.start, h.end, h.counts()["ok"])
 틀이 맞지 않는 파일(시리즈가 쓰는 열이 없거나 주기가 다름)은 넣지 않고 까닭을 알립니다. 옛 회차는 그대로 남아 언제든 `p.data_use(v0)`로
 돌아갈 수 있습니다. 명령줄은 `equion data list · add · build · use · diff · impact`([명령줄 참조](../reference/cli.md#equion-data)).
 
+## R59. 새 원자료를 정의에 — 미리 보고, 열을 시리즈로
+
+받은 파일이 통계표 꼴(표 위에 제목 줄, 열 이름 아래 단위 줄, `-` 같은 결측 표시, 천 단위 쉼표)이어도 파일은 고치지 않습니다.
+어느 줄이 열 이름인지 같은 **불러오기 틀**과 어느 열을 어떤 이름의 시리즈로 읽을지를 `DATA/series.toml`에 적습니다.
+`data_preview`로 읽은 그대로의 줄과 그 틀로 읽은 결과를 먼저 보고(아무것도 쓰지 않습니다), `data_define`으로 적습니다 — 쓰기 전에 원자료를
+그 틀로 읽어 열이 다 있는지·변환이 되는지 검사하고, 사람이 쓴 주석과 순서는 그대로 둡니다.
+
+```python
+p = eqn.Project.create("def_prj", force=True)
+with open("def_prj/DATA/raw/kr.csv", "w", encoding="utf-8") as f:      # 받은 파일(가상): 제목 줄 · 열 이름 · 단위 줄 · 결측 표시 · 천 단위
+    f.write('표 1. 지출(가상)\n시점,민간소비,GDP\n,십억원,십억원\n2018년 3/4분기,"1,195.0","2,931.9"\n2018년 4/4분기,"1,198.3","2,940.2"\n'
+            '2019년 1/4분기,"1,201.5","2,950.1"\n2019년 2/4분기,-,"2,961.0"\n2019년 3/4분기,"1,214.2","2,975.4"\n2019년 4/4분기,"1,220.8","2,990.3"\n')
+print(p.data_preview("DATA/raw/kr.csv").error)                         # 틀 없이 읽으면 어디서 막히는지(칸 위치)
+print(p.data_preview("DATA/raw/kr.csv", header_row=2, unit_row=3, missing="-", thousands=",", rows=4).text())
+```
+<!-- out -->
+```text
+[def_prj] 자료 회차 d2026-11a를 만들었습니다
+[def_prj] 지금 자료 회차: d2026-11a
+DATA/raw/kr.csv: 3줄의 시점 칸(A3)이 비었습니다
+[data preview] DATA/raw/kr.csv — 9줄 × 3열
+    1 | 표 1. 지출(가상) |  |
+    2 | 시점 | 민간소비 | GDP
+    3 |  | 십억원 | 십억원
+    4 | 2018년 3/4분기 | 1,195.0 | 2,931.9
+  읽은 것  시점 열 A('2018년 3/4분기' 꼴) → Q 2018Q3~2019Q4
+      B 민간소비             2018Q3~2019Q4 · 값 5 · 결측 표시 1 · 십억원
+      C GDP              2018Q3~2019Q4 · 값 6 · 십억원
+```
+
+```python
+r = p.data_define("kr", file="DATA/raw/kr.csv", header_row=2, unit_row=3, missing="-", thousands=",",
+                  series={"KCN": {"column": "민간소비", "desc": "민간소비", "fill": "linear"}, "KGDP": "GDP"})
+print(r.text())
+b = p.data_build(use=True)                                             # 정의만으로는 자료가 생기지 않는다 — 만들고, 바꾼다
+print(b.n_series, p.workfile["KCN"].dropna().round(1).tolist())
+```
+<!-- out -->
+```text
+[data define] [source.kr] DATA/raw/kr.csv — 새 출처
+  새 시리즈   KCN, KGDP
+  바뀜 기록  h0002
+  다음   equion data build → equion data use <회차>
+[def_prj] 자료 회차 d2026-11b를 만들었습니다
+[def_prj] 지금 자료 회차: d2026-11b (전: d2026-11a)
+[def_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 15
+15 [1195.0, 1198.3, 1201.5, 1207.8, 1214.2, 1220.8]
+```
+
+있는 시리즈는 준 키만 고치고(`unit=""`처럼 빈 값은 그 키를 지움), 다른 열로 바꾸는 것은 `replace=True`일 때만 합니다. 열이 없거나 주기가
+달라 변환(`convert`)이 필요한데 빠졌으면 문제를 모아 알리고 아무것도 쓰지 않습니다. 열 하나를 변환대로 만들어 보려면
+`p.data_preview(파일, series={"column": "IP", "convert": "mean", "seas": "stl"}).series`. 명령줄은
+`equion data preview 파일 [--header-row 2 …]` · `equion data define 출처 --file 파일 --series 이름=열 --set 이름.키=값`
+([명령줄 참조](../reference/cli.md#equion-data)), Equion Desk에서는 자료 작업대의 '불러오기'가 같은 일을 합니다.
+
 관련: [튜토리얼 1](../tutorial/01-data.md) · [API: Workfile](../reference/api.md#3-워크파일-workfile) · [API: Project](../reference/api.md#21-프로젝트-eqnproject)
