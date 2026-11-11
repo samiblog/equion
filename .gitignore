@@ -30,3 +30,6 @@ GIT_가이드.md
 
 # 시험 도구 캐시
 .pytest_cache/
+
+# Equion Desk 설치본을 만드는 폴더(런타임·설치 파일 — 커밋하지 않는다, D28)
+desk/dist/

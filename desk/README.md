@@ -14,7 +14,7 @@ Equion 프로젝트(자료 → 식 → 조립 → 과거 재현 → 전망 → �
 |---|---|
 | `equion_desk/` | 창(`__main__`)·로컬 서버(`server`)·작업 프로세스(`worker`)·터미널(`terminal`·`conpty`)·격리 환경(`runtime`) |
 | `equion_desk/web/` | 화면(순수 JS, 내장 라이브러리 `vendor/`) — 패키지 안에 두어 설치본의 런타임에 함께 설치된다 |
-| `build/` | 런타임 묶기·설치 파일(Inno Setup) |
+| `build/` | `runtime.py`(설치본의 Python 런타임 만들기) · `make.py`·`equiondesk.iss`(설치 파일 — `uv run python desk/build/make.py` → `desk/dist/EquionDesk-<판>-setup.exe`) |
 | `tests/` | 앱 시험(서버 API·경계) |
 
 Lectern(같은 저자, MIT)에서 복사한 코드와 묶어 내는 프로그램의 고지는 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).

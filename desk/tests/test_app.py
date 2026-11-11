@@ -63,6 +63,18 @@ def section_server(folder: str) -> None:
 
     empty = AppState(None, mode="browser")
     c = create_app(empty).test_client()
+    check("C12 폴더 고르기는 창에서만 — 브라우저 모드는 501", c.post("/api/open", json={}).status_code == 501)
+    empty.pick_folder = lambda: os.path.dirname(folder)       # equion.toml이 없는 폴더를 골랐다
+    r = c.post("/api/open", json={})
+    check("C13 프로젝트가 아닌 폴더를 고르면 열지 않고 까닭을 알린다", r.status_code == 422 and "equion.toml" in r.json["error"] and empty.root is None)
+    empty.pick_folder = lambda: folder
+    seen = []
+    empty.on_open = seen.append
+    r = c.post("/api/open", json={})
+    check("C14 프로젝트 폴더를 고르면 연다(창 제목을 바꾸게 알린다)", r.status_code == 200 and os.path.samefile(r.json["root"], folder) and len(seen) == 1)
+    empty.close()
+    empty = AppState(None, mode="browser")
+    c = create_app(empty).test_client()
     check("C11 프로젝트 없이 — 상태는 주고 계산은 거절(409)",
           c.get("/api/state").json["root"] is None and c.post("/api/est", json={"target": "x"}).status_code == 409)
 

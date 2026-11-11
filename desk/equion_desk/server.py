@@ -42,6 +42,18 @@ class AppState:
         self.term_secret = secrets.token_hex(16)
         self.terminals = terminal.Terminals()
         self.worker = Worker(self.root) if self.root else None
+        self.pick_folder: Any = None           # 창 모드에서 폴더 고르기 대화상자를 띄우는 함수(없으면 화면에서 고를 수 없다)
+        self.on_open: Any = None               # 프로젝트를 열었을 때(창 제목을 바꾼다)
+
+    def open(self, root: str) -> None:
+        """프로젝트 폴더를 연다 — 하던 터미널·작업 프로세스는 끝낸다."""
+        self.terminals.close_all()
+        if self.worker:
+            self.worker.stop()
+        self.root = str(Path(root).resolve())
+        self.worker = Worker(self.root)
+        if self.on_open:
+            self.on_open(self.root)
 
     def close(self) -> None:
         self.terminals.close_all()
@@ -103,8 +115,42 @@ def create_app(state: AppState) -> Flask:
     def api_state() -> Any:
         w = state.worker
         return jsonify(version=__version__, mode=state.mode, root=state.root, terminal=state.terminals.available,
+                       can_pick=state.pick_folder is not None,
                        worker={"alive": bool(w and w.alive), "busy": w.busy_op if w else None,
                                "started_seconds": w.started_seconds if w else None})
+
+    @app.post("/api/open")
+    def api_open() -> Any:
+        """폴더 고르기 대화상자를 띄워 고른 프로젝트 폴더를 연다(창 모드). {root} — 고르지 않았으면 root는 null."""
+        if state.pick_folder is None:
+            abort(501, description=t("폴더 고르기는 앱 창에서만 됩니다 — 실행할 때 폴더를 주세요"))
+        folder = state.pick_folder()
+        if not folder:
+            return jsonify(root=None)
+        if not (Path(folder) / "equion.toml").is_file():
+            return jsonify(error=t("Equion 프로젝트 폴더가 아닙니다(equion.toml이 없습니다): {path}", path=folder)), 422
+        state.open(folder)
+        return jsonify(root=state.root)
+
+    @app.post("/api/example")
+    def api_example() -> Any:
+        """예제 프로젝트(가상 분기 모형)를 문서 폴더 아래에 새로 만들어 연다. {root}"""
+        import subprocess
+
+        from . import runtime
+
+        base = Path.home() / "Documents" / "Equion"
+        base.mkdir(parents=True, exist_ok=True)
+        n = 1
+        while (base / f"example{n}").exists():
+            n += 1
+        r = subprocess.run([runtime.python_exe(), "-I", "-X", "utf8", "-m", "equion", "new", f"example{n}", "--template", "desk"],
+                           cwd=base, env=runtime.clean_env(), capture_output=True, text=True, encoding="utf-8",
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode != 0:
+            return jsonify(error=(r.stderr or r.stdout).strip()), 500
+        state.open(str(base / f"example{n}"))
+        return jsonify(root=state.root)
 
     def run(op: str, **args: Any) -> Any:
         """작업 프로세스에 일을 시키고 `{result, seconds, said, round_trip}`. 오류는 `{error, kind}`와 상태 코드로."""
@@ -228,6 +274,7 @@ def create_app(state: AppState) -> Flask:
     @app.errorhandler(409)
     @app.errorhandler(413)
     @app.errorhandler(415)
+    @app.errorhandler(422)
     @app.errorhandler(501)
     def json_error(err: Any) -> Any:
         if request.path.startswith("/api/"):

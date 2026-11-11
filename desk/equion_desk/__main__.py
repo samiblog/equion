@@ -83,8 +83,16 @@ def run_window(state: Any, port: int, debug: bool, query: str = "") -> None:
         except (AttributeError, OSError):
             pass
     title = "Equion Desk" + (f" — {os.path.basename(state.root)}" if state.root else "")
-    webview.create_window(title, f"http://127.0.0.1:{server.server_port}/{query}", width=WINDOW[0], height=WINDOW[1],
-                          min_size=MIN_WINDOW, text_select=True, zoomable=True)
+    window = webview.create_window(title, f"http://127.0.0.1:{server.server_port}/{query}", width=WINDOW[0], height=WINDOW[1],
+                                   min_size=MIN_WINDOW, text_select=True, zoomable=True)
+
+    def pick_folder() -> str | None:
+        dialog = getattr(getattr(webview, "FileDialog", None), "FOLDER", None) or webview.FOLDER_DIALOG
+        chosen = window.create_file_dialog(dialog)
+        return str(chosen[0]) if chosen else None
+
+    state.pick_folder = pick_folder
+    state.on_open = lambda root: window.set_title(f"Equion Desk — {os.path.basename(root)}")
     try:
         webview.start(debug=debug)
     finally:

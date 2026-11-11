@@ -20,6 +20,10 @@ dependencies = [
 [project.gui-scripts]
 equion-desk = "equion_desk.__main__:main"
 
+[dependency-groups]
+# 앱 시험용 — `uv run --package equion-desk pytest desk`가 이것을 설치한다(최상위의 dev 그룹은 패키지 equion의 것)
+dev = ["pytest>=8"]
+
 [tool.uv.sources]
 equion = { workspace = true }
 

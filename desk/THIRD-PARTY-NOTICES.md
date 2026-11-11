@@ -12,4 +12,12 @@ Equion Desk 설치본에 들어가는 다른 프로그램·코드의 고지입�
 | waitress | 로컬 서버 | ZPL-2.1 |
 | watchdog | 프로젝트 폴더 감시 | Apache-2.0 |
 
-설치본에 Python 런타임과 수치 패키지를 넣는 걸음(D0-4)에서 CPython·numpy·pandas·scipy·openpyxl 등의 고지를 여기에 더한다.
+설치본의 런타임(`runtime/`)에 들어가는 것 — 각 패키지의 라이선스 전문은 설치 폴더의 `runtime/Lib/site-packages/<패키지>-<판>.dist-info/`에 그대로 들어 있다.
+
+| 무엇 | 라이선스 |
+|---|---|
+| CPython 3.13 (python-build-standalone 배포본 — OpenSSL·SQLite·zlib·bzip2·xz·libffi 등을 품는다, `runtime/LICENSE.txt`) | PSF-2.0 외 |
+| numpy · pandas · scipy (OpenBLAS·LAPACK 포함) | BSD-3-Clause |
+| openpyxl · et-xmlfile · tomlkit · six | MIT |
+| python-dateutil · tzdata | Apache-2.0 / BSD-3-Clause |
+| pythonnet · clr-loader · proxy-tools · bottle · typing-extensions (pywebview의 의존성) | MIT · MIT · MIT · MIT · PSF-2.0 |

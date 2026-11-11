@@ -121,7 +121,26 @@ function model(path, body, label) {
   });
 }
 
+async function openWith(path) {
+  message('');
+  try {
+    const res = await postJSON(path);
+    if (res.root) location.reload();
+  } catch (err) {
+    message(err.message, true);
+  }
+}
+
 async function loadProject() {
+  const state = await getJSON('/api/state');
+  if (!state.root) {
+    $('#welcome').hidden = false;
+    $('#est-form').hidden = true;
+    $('#project').textContent = '연 프로젝트가 없습니다';
+    /** @type {HTMLButtonElement} */ ($('#btn-open')).disabled = !state.can_pick;
+    setWorker('작업 프로세스 —');
+    return;
+  }
   setWorker('작업 프로세스를 띄우는 중…', 'busy');
   let p;
   try {
@@ -178,6 +197,8 @@ async function main() {
   $('#btn-cancel').addEventListener('click', () => postJSON('/api/cancel').catch(() => {}));
   $('#btn-hs').addEventListener('click', () => model('/api/hs', {}, '과거 재현'));
   $('#btn-sim').addEventListener('click', () => model('/api/sim', { scenario: 'base' }, '전망'));
+  $('#btn-open').addEventListener('click', () => openWith('/api/open'));
+  $('#btn-example').addEventListener('click', () => openWith('/api/example'));
   splitter();
   startTerminal().catch((err) => console.error(err));
   await loadProject();

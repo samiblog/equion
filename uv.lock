@@ -243,6 +243,11 @@ dependencies = [
     { name = "watchdog" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "equion", editable = "." },
@@ -251,6 +256,9 @@ requires-dist = [
     { name = "waitress", specifier = ">=3.0,<4" },
     { name = "watchdog", specifier = ">=6.0,<7" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8" }]
 
 [[package]]
 name = "et-xmlfile"
