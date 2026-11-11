@@ -109,11 +109,13 @@ export function dataView(project, desc) {
     }
   }
 
-  async function addRaw(body, label) {
+  /** then: 넣은 뒤 할 일 — 'import' 면 그 파일로 불러오기 화면을 연다(새 원자료) */
+  async function addRaw(body, label, then = null) {
     try {
       const res = await project.compute('data/add', body, { quiet: true });
       if (!res.result) return;                         // 파일을 고르지 않았다
       const r = res.result;
+      if (then === 'import' && !r.problems?.length) { await load(); project.openTab({ type: 'import', file: r.file }); return; }
       if (r.problems?.length) st.error = `넣지 않았습니다 — ${label || r.file.split(/[\\/]/).pop()} 이(가) ${r.source || '그 원자료'} 의 틀과 맞지 않습니다(아무것도 바뀌지 않았습니다).\n${r.problems.join('\n')}`;
       else flash(r.source ? `${label || r.file} — ${r.source} 의 새 파일로 넣었습니다. ‘자료 만들기’로 새 회차를 만드세요` : `${r.file} 을(를) 넣었습니다`);
       st.section = 'raw';
@@ -128,7 +130,7 @@ export function dataView(project, desc) {
     const sources = st.data?.sources || [];
     popMenu(anchor, [h('div', { class: 'menu-title' }, '어느 원자료의 새 파일인가요'),
       ...sources.map((s) => ({ label: s.name, hint: `${s.file.split('/').pop()} 대신 읽게`, onPick: () => addRaw({ source: s.name }) })),
-      { label: '넣기만', hint: '아직 어느 시리즈도 읽지 않는 파일', onPick: () => addRaw({}) }], { cls: 'plain', align: 'right' });
+      { label: '새 원자료', hint: '넣고 나서 열을 시리즈로 짝짓는다(불러오기)', onPick: () => addRaw({}, null, 'import') }], { cls: 'plain', align: 'right' });
   }
 
   // ---- 그리기 -----------------------------------------------------------------------------------
@@ -279,7 +281,8 @@ export function dataView(project, desc) {
     const sourceCard = (s) => h('div', { class: `source ${s.error ? 'bad' : ''}`.trim() },
       h('div', { class: 'top' }, h('b', { class: 'mono name' }, s.name),
         h('button', { class: 'link mono', type: 'button', title: '파일 열기', onclick: () => project.openTab({ type: 'file', path: s.file }) }, s.file),
-        h('span', { class: 'grow' }), s.exists ? h('span', { class: 'muted' }, `${bytes(s.size)} · ${stamp(s.mtime)}`) : null),
+        h('span', { class: 'grow' }), s.exists ? h('span', { class: 'muted' }, `${bytes(s.size)} · ${stamp(s.mtime)}`) : null,
+        s.exists ? h('button', { class: 'btn small', type: 'button', 'data-act': 'import', title: '이 파일의 틀(열 이름 줄·시점 열·결측 표시)을 고치거나 다른 열을 시리즈로 더한다', onclick: () => project.openTab({ type: 'import', file: s.file }) }, '틀·시리즈 고치기') : null),
       s.error ? h('div', { class: 'banner error' }, icon('alert'), h('div', {}, s.error))
         : h('div', { class: 'read' }, h('span', {}, `${FREQ[s.freq] || s.freq || ''} 자료`), h('span', {}, s.note), h('span', {}, `${s.rows}줄 · 열 ${s.columns.length}개`),
           s.sheet ? h('span', {}, `시트 ${s.sheet}`) : null),
@@ -300,7 +303,8 @@ export function dataView(project, desc) {
         onclick: () => addRaw({ inbox: name, source: it.source }, name) }, `${it.source} 의 새 파일로 넣기`) : null,
       other.length || !it.source ? h('button', { class: 'btn small', type: 'button', onclick: (e) => popMenu(e.currentTarget, [h('div', { class: 'menu-title' }, '어느 원자료의 새 파일인가요'),
         ...(it.source ? other : d.sources).map((s) => ({ label: s.name, hint: `${s.file.split('/').pop()} 대신`, onPick: () => addRaw({ inbox: name, source: s.name }, name) }))], { cls: 'plain', align: 'right' }) },
-      it.source ? '다른 것으로' : '고르기', icon('chevron', 'down')) : null);
+      it.source ? '다른 것으로' : '고르기', icon('chevron', 'down')) : null,
+      !it.source ? h('button', { class: 'btn small primary', type: 'button', title: 'DATA/raw/ 로 넣고, 열을 시리즈로 짝짓는 불러오기 화면을 연다', onclick: () => addRaw({ inbox: name }, name, 'import') }, '새 원자료로 불러오기') : null);
     };
     return h('div', {},
       h('div', { class: 'list-tools' }, h('span', { class: 'muted' }, '원자료는 고치지 않습니다. 새 파일을 받으면 넣기만 하고, 어느 열을 읽을지는 정의가 정합니다.'), h('span', { class: 'grow' }),
@@ -310,7 +314,9 @@ export function dataView(project, desc) {
       h('h3', { class: 'cap' }, '정의가 읽는 파일', h('small', {}, ` — ${d.sources.length}개`)),
       d.sources.length ? d.sources.map(sourceCard) : h('div', { class: 'empty-state' }, '정의에 원자료가 없습니다.'),
       unused.length ? h('div', {}, h('h3', { class: 'cap' }, '읽지 않는 파일', h('small', {}, ' — 옛 파일은 지우지 않고 남겨 둡니다')),
-        h('div', { class: 'unused' }, unused.map((f) => h('button', { class: 'file-chip', type: 'button', title: `${bytes(f.size)} · ${stamp(f.mtime)}`, onclick: () => project.openTab({ type: 'file', path: f.file }) }, f.file.split('/').pop())))) : null);
+        h('div', { class: 'unused' }, unused.map((f) => h('span', { class: 'unused-item' },
+          h('button', { class: 'file-chip', type: 'button', title: `${bytes(f.size)} · ${stamp(f.mtime)} — 열어 본다`, onclick: () => project.openTab({ type: 'file', path: f.file }) }, f.file.split('/').pop()),
+          h('button', { class: 'link', type: 'button', title: '이 파일의 열을 시리즈로 짝짓는다', onclick: () => project.openTab({ type: 'import', file: f.file }) }, '불러오기'))))) : null);
   }
 
   function vintageSection() {

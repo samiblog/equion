@@ -1,4 +1,4 @@
-"""Equion Desk 화면 점검 — 진짜 브라우저(Edge)로 화면을 몰아 D1·D2a·D2b-1 의 완료 기준을 확인한다.
+"""Equion Desk 화면 점검 — 진짜 브라우저(Edge)로 화면을 몰아 D1·D2a·D2b 의 완료 기준을 확인한다.
 
     uv run --package equion-desk --group ui python desk/tests/ui_check.py            # 점검만
     uv run --package equion-desk --group ui python desk/tests/ui_check.py --shots 폴더   # 화면 그림도 남긴다(밝은·어두운 바탕)
@@ -8,7 +8,8 @@
 
 확인하는 것: 첫 화면 → 프로젝트 열기 → 부품을 눌러도 계산하지 않는다 → 추정이 1초 안에 화면에(S1) → 식 작업대(치는 동안의 검사 ·
 후보 목록 · 겹쳐 보기 · 기간 짚기 · **채택** · **이 후보로 과거 재현** · 항등식 검사 — D2a) → 자료 작업대(받은 상자 → **자료 만들기 → 견주기 →
-이 회차로 바꾸기**)와 분석 탭(등록부의 폼 · 명령 줄 · **미리보기 → 정의로 남기기** — D2b-1) → **터미널에서 친 명령의 기록이
+이 회차로 바꾸기**)와 분석 탭(등록부의 폼 · 명령 줄 · **미리보기 → 정의로 남기기** — D2b-1) → 불러오기(읽은 그대로의 표 · 틀을 권하는 단추 ·
+열 ↔ 시리즈 · **무엇이 적히는지 보고 저장** — D2b-2) → **터미널에서 친 명령의 기록이
 띠에 뜨고 카드로 열린다** → 전망과 작업 줄 → 밖에서 고친 정의 파일의 바뀜 알림과 차이 → **닫았다 열면 이어진다** → 어두운 바탕.
 서버·작업 프로세스 시험은 `test_app.py`, 이 파일은 화면까지 이어 본다(pytest 가 모으지 않는다 — 브라우저가 있어야 한다).
 """
@@ -140,7 +141,7 @@ def run(shots: str | None) -> int:
                 page.click(f"{pane} .eq-box textarea")
                 page.keyboard.press("Control+Enter")
                 page.wait_for_selector(f"{pane} table.grid tbody tr")
-                page.wait_for_selector(f"{pane} .fit svg path")
+                page.wait_for_selector(f"{pane} .fit svg path >> nth=2")       # 실측·적합·잔차 세 선이 다 그려질 때까지
                 timing = page.inner_text(f"{pane} .timing")
                 took = float(timing.split("화면까지")[1].split("초")[0])
                 check("V2 Ctrl+Enter 로 추정 — 계수표·진단·차트가 뜬다",
@@ -379,6 +380,71 @@ def run(shots: str | None) -> int:
                 check("A13 남긴 정의가 자료 작업대에 보인다 — 아직 회차에 없다고 표시하고 '자료 만들기'를 권한다",
                       "회차에 없음" in page.inner_text(f"{pane} table.series tr.row:has(b:text-is('CN_SA'))")
                       and "series.toml" in page.inner_text(f"{pane} .banner.warn") and page.locator(f"{pane} table.series tr.row").count() == 14)
+
+                print("M. 불러오기(D2b-2)")
+                # 통계표 꼴의 원자료가 DATA/raw/ 에 놓였다 — 표 위에 제목 줄, 열 이름 아래 단위 줄, 결측 표시(- …), 천 단위 쉼표, '1970년 1/4분기' 꼴의 시점
+                with open(os.path.join(folder, "DATA", "raw", "toy_q.csv"), encoding="utf-8") as f:
+                    table = [ln.split(",") for ln in f.read().rstrip("\n").split("\n")[1:]]
+                cells = [[r[0][:4] + "년 " + r[0][5] + "/4분기", f'"1,{float(r[1]):.1f}"', f"{float(r[2]):.2f}", f'"{float(r[4]) * 10:,.1f}"'] for r in table]
+                cells[2][1], cells[3][2] = "-", "…"
+                with open(os.path.join(folder, "DATA", "raw", "kr.csv"), "w", encoding="utf-8", newline="\n") as f:
+                    f.write("표 1. 지출 항목별 국내총생산(가상)\n시점,민간소비,설비투자,GDP\n,십억원,십억원,십억원\n" + "\n".join(",".join(c) for c in cells) + "\n")
+                series_toml = os.path.join(folder, "DATA", "series.toml")
+                page.click(f"{pane} .flow-card >> nth=0")
+                page.wait_for_selector(f"{pane} .unused-item:has-text('kr.csv')", timeout=20000)       # 폴더가 바뀐 것을 알아채고 다시 읽는다
+                page.click(f"{pane} .unused-item:has-text('kr.csv') .link")
+                page.wait_for_selector(f"{pane} .raw-grid")
+                page.wait_for_selector(f"{pane} [data-hint]")
+                check("M1 읽지 않는 파일의 '불러오기' — 읽은 그대로의 줄과, 읽지 못한 까닭·해 볼 것(단추)",
+                      "읽지 못했습니다" in page.inner_text(f"{pane} .banner.error") and "표 1." in page.inner_text(f"{pane} .raw-grid tbody tr >> nth=0")
+                      and page.locator(f"{pane} .pick").count() == 0 and page.locator(f"{pane} [data-act='store']").count() == 0)
+                for _ in range(6):                        # 권하는 단추를 차례로: 열 이름 줄 → 단위 줄 → 천 단위 → 결측 표시
+                    if not page.locator(f"{pane} [data-hint]").count():
+                        break
+                    page.click(f"{pane} [data-hint] >> nth=0")
+                    page.wait_for_timeout(900)
+                page.wait_for_selector(f"{pane} .banner.ok")
+                check("M2 권하는 단추를 차례로 누르면 틀이 맞는다(열 이름 줄·단위 줄·천 단위·결측 표시) — 표에 그 줄과 칸이 표시된다",
+                      page.input_value(f"{pane} [data-frame='header_row']") == "2" and page.input_value(f"{pane} [data-frame='unit_row']") == "3"
+                      and page.input_value(f"{pane} [data-frame='thousands']") == "," and sorted(page.input_value(f"{pane} [data-frame='missing']").split()) == ["-", "…"]
+                      and page.locator(f"{pane} .raw-grid tr.hdr").count() == 1 and page.locator(f"{pane} .raw-grid td.miss").count() == 2
+                      and page.locator(f"{pane} .pick").count() == 3 and "1970Q1~2019Q4" in page.inner_text(f"{pane} .banner.ok"), page.inner_text(f"{pane} .banner.ok"))
+                kcn = f"{pane} .pick[data-column='민간소비']"
+                page.click(f"{kcn} input[type=checkbox]")
+                page.fill(f"{kcn} [data-key='name']", "소비")
+                refused = "bad" in (page.get_attribute(f"{kcn} [data-key='name']", "class") or "")
+                page.fill(f"{kcn} [data-key='name']", "KCN")
+                page.click(f"{pane} .pick[data-column='GDP'] input[type=checkbox]")
+                page.select_option(f"{kcn} [data-key='seas']", "stl:multiplicative")
+                page.click(f"{kcn} [data-act='try']")
+                page.wait_for_selector(f"{pane} .try-chart .banner.error")
+                why = page.inner_text(f"{pane} .try-chart .banner.error")        # 결측 표시(-)가 가운데 있어 계절조정을 못 한다
+                page.select_option(f"{kcn} [data-key='fill']", "linear")         # 고르면 미리보기를 다시 만든다
+                page.wait_for_selector(f"{pane} .try-chart .fit svg")
+                check("M3 열을 골라 이름을 준다 — 영문이 아닌 이름은 바로 알리고, 한글 열 이름은 설명에. 미리보기는 안 되는 까닭(안쪽 결측)을 알리고, 채움을 고르면 원자료와 만든 값을 겹쳐 보인다",
+                      refused and page.input_value(f"{kcn} [data-key='desc']") == "민간소비" and page.input_value(f"{kcn} [data-key='unit']") == "십억원"
+                      and page.input_value(f"{pane} .pick[data-column='GDP'] [data-key='name']") == "GDP" and "결측" in why
+                      and page.locator(f"{pane} .try-chart .legend .key").count() == 2 and "계절조정" in page.inner_text(f"{pane} .try-chart .raw-cap"), why)
+                page.wait_for_timeout(300)
+                shot(page, "03e-import")
+                before = open(series_toml, encoding="utf-8").read()
+                page.click(f"{pane} [data-act='store']")
+                page.wait_for_selector(".dialog .diff")
+                dialog = page.inner_text(".dialog")
+                check("M4 저장하기 전에 무엇이 적히는지(차이)와 같은 일을 하는 명령을 보인다 — 아직 아무것도 쓰지 않았다",
+                      "+[source.kr]" in dialog and '+from = "kr:민간소비"' in dialog and "+header_row = 2" in dialog and "equion data define kr" in dialog
+                      and "multiplicative" in dialog and '+fill = "linear"' in dialog and open(series_toml, encoding="utf-8").read() == before, dialog[:300])
+                shot(page, "03f-import-save")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{pane} .banner.ok:has-text('정의에 저장했습니다')")
+                page.wait_for_selector(f"{pane} .src-fixed")
+                check("M5 저장하면 series.toml 에 적히고, 화면은 그 출처의 틀과 짝지은 열('정의에 있음')로 다시 열린다",
+                      "[series.KCN]" in open(series_toml, encoding="utf-8").read() and page.locator(f"{pane} .pick .tag:has-text('정의에 있음')").count() == 2
+                      and "kr" in page.inner_text(f"{pane} .src-fixed") and page.locator(f"{active} .notice[data-change]").count() == 0)
+                page.click(f"{pane} .banner.ok .btn")              # 자료 작업대로
+                page.wait_for_selector(f"{pane} table.series tr.row:has(b:text-is('KCN'))")
+                check("M6 자료 작업대가 이어 받는다 — 새 시리즈는 '회차에 없음', '자료 만들기'를 권한다",
+                      "회차에 없음" in page.inner_text(f"{pane} table.series tr.row:has(b:text-is('KCN'))") and page.locator(f"{pane} .banner.warn").count() == 1)
 
                 print("W. 터미널에서 친 명령의 기록이 띠에 뜨고 카드로 열린다(D1 완료 기준)")
                 typed = page.locator(f"{active} .term-body .xterm").count() > 0

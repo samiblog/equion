@@ -783,6 +783,122 @@ def section_data(tmp: str) -> None:
         state.close()
 
 
+def section_import(tmp: str) -> None:
+    print("L. 불러오기 — 원자료 미리보기·이 파일을 읽는 출처·정의 쓰기(무엇이 바뀌는지 먼저 → 저장)")
+    from equion_desk.server import create_app
+
+    folder = example(tmp, "imp")
+    sf = os.path.join(folder, "DATA", "series.toml")
+
+    def read(path: str = sf) -> str:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    # 제목 줄·단위 줄·결측 표시·천 단위가 있는 원자료(통계표 꼴)
+    with open(os.path.join(folder, "DATA", "raw", "toy_q.csv"), encoding="utf-8") as f:
+        rows = [ln.split(",") for ln in f.read().rstrip("\n").split("\n")[1:13]]
+    cells = [[r[0][:4] + "년 " + r[0][5] + "/4분기", f'"1,{float(r[1]):.1f}"', r[2], r[4]] for r in rows]
+    cells[2][1], cells[3][2] = "-", "…"
+    with open(os.path.join(folder, "DATA", "raw", "kr.csv"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("표 1. 지출(가상)\n시점,민간소비,투자,GDP\n,십억원,십억원,십억원\n" + "\n".join(",".join(c) for c in cells) + "\n")
+    os.makedirs(os.path.join(folder, "DATA", "raw", "inbox"), exist_ok=True)
+    with open(os.path.join(folder, "DATA", "raw", "inbox", "later.csv"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("period,A1\n2000Q1,1\n2000Q2,2\n2000Q3,3\n2000Q4,4\n2001Q1,5\n")
+    frame = {"sheet": "", "header_row": 2, "unit_row": 3, "time_col": "", "missing": ["-", "…"], "thousands": ",", "freq": ""}
+    state, pid = new_state(tmp, folder, "l.json")
+    api = f"/api/p/{pid}"
+    try:
+        c = create_app(state).test_client()
+        v = c.post(f"{api}/data/preview", json={"file": "DATA/raw/toy_q.csv"}).json
+        check("L1 이미 읽는 파일 — 그 출처의 틀로 읽고, 열마다 짝지은 시리즈(변환까지)와 이미 쓰는 이름을 함께 준다",
+              v["ok"] and v["freq"] == "Q" and v["project_freq"] == "Q" and v["source"]["name"] == "na" and v["source"]["frame"]["header_row"] == 1
+              and v["mapped"]["CN"]["name"] == "CN" and v["mapped"]["CNNSA"] == {**v["mapped"]["CNNSA"], "name": "CNSA", "seas": "stl:multiplicative"}
+              and {"RR", "IPQ", "CN"} <= set(v["taken"]) and len(v["grid"]) == 40 and v["grid"][0][1] == "CN" and [s["name"] for s in v["sources"]] == ["na", "monthly"],
+              str(v.get("source")) + str(v.get("mapped", {}).get("CNNSA")))
+        raw = c.post(f"{api}/data/preview", json={"file": "DATA/raw/kr.csv", "rows": 6}).json
+        ok = c.post(f"{api}/data/preview", json={"file": "DATA/raw/kr.csv", "frame": frame}).json
+        check("L2 새 파일 — 틀이 맞지 않으면 읽은 그대로의 줄과 까닭, 틀을 맞추면 열·단위·결측으로 읽은 칸",
+              raw["ok"] is False and raw["error"] and raw["source"] is None and len(raw["grid"]) == 6 and raw["grid"][0][0].startswith("표 1")
+              and raw["grid"][1] == ["시점", "민간소비", "투자", "GDP"] and ok["ok"] and ok["span"] == ["1970Q1", "1972Q4"]
+              and [(x["name"], x["unit"], x["missing"], x["name_ok"]) for x in ok["columns"]] == [("민간소비", "십억원", 1, False), ("투자", "십억원", 1, False), ("GDP", "십억원", 0, True)]
+              and ok["time_col"] == 0 and ok["bad_cells"] == [], f"{raw.get('error')} {ok.get('columns')}")
+        loose = c.post(f"{api}/data/preview", json={"file": "DATA/raw/kr.csv", "frame": {**frame, "thousands": "", "missing": []}}).json
+        check("L3 틀을 짐작할 재료 — 숫자가 아닌 칸(천 단위 쉼표·결측 표시)을 칸 위치와 글자로 알린다",
+              loose["ok"] and len(loose["bad_cells"]) == 13 and any("1,2" in x for x in loose["bad_cells"]) and any(x.endswith("'-'") for x in loose["bad_cells"]),
+              str(loose.get("bad_cells"))[:200])
+        one = c.post(f"{api}/data/preview", json={"file": "DATA/raw/toy_m.csv", "rows": 1, "series": {"column": "IP", "convert": "mean", "seas": "stl"}}).json
+        bad = c.post(f"{api}/data/preview", json={"file": "DATA/raw/toy_m.csv", "series": {"column": "IP"}}).json
+        check("L4 열 하나를 변환대로 만들어 본다(월 → 분기 평균 → 계절조정) — 변환이 빠지면 오류가 아니라 까닭을 돌려준다(표는 그대로)",
+              one["series"]["freq"] == "Q" and one["series"]["source_freq"] == "M" and len(one["series"]["values"]) == 80 and len(one["series"]["raw"]) == 240
+              and len(one["series"]["implicit"]) == 2 and one["series_error"] is None and bad["ok"] and bad["series"] is None and "convert" in bad["series_error"],
+              str(one.get("series", {}).get("implicit")) + str(bad.get("series_error")))
+        codes = [c.post(f"{api}/data/preview", json=j).status_code for j in (
+            {"file": "equion.toml"}, {"file": "DATA/series.toml"}, {"file": "../x.csv"}, {"file": "DATA/raw/nope.csv"}, {},
+            {"file": "DATA/raw/kr.csv", "rows": 100000}, {"file": "DATA/raw/kr.csv", "frame": {"header_row": "2"}},
+            {"file": "DATA/raw/kr.csv", "frame": {"missing": "-"}}, {"file": "DATA/raw/kr.csv", "series": {"unit": "x"}})]
+        inbox_ok = c.post(f"{api}/data/preview", json={"file": "DATA/raw/inbox/later.csv"}).json
+        check("L5 원자료 폴더(DATA/raw/)의 파일만 — 다른 파일·바깥 경로·틀린 형식의 틀은 거절, 받은 상자의 파일은 미리 볼 수 있다",
+              codes == [404, 404, 403, 404, 400, 400, 400, 400, 400] and inbox_ok["ok"] and inbox_ok["columns"][0]["name"] == "A1", str(codes))
+
+        want = {"KCN": {"column": "민간소비", "unit": "십억원", "desc": "민간소비"}, "KGDP": {"column": "GDP"}}
+        before, n_changes = read(), len(c.get(f"{api}/changes").json["changes"])
+        plan = c.post(f"{api}/data/define", json={"source": "kr", "file": "DATA/raw/kr.csv", "frame": frame, "series": want, "dry": True}).json
+        jobs = [e for e in state.feed.read(0, 0)["events"] if e["type"] == "job"]
+        check("L6 저장하기 전에 — 무엇이 적히는지(차이)와 같은 일을 하는 명령. 아무것도 쓰지 않고 작업 줄에도 올리지 않는다",
+              plan["new_source"] and plan["added"] == ["KCN", "KGDP"] and plan["same"] is False and plan["path"] == "DATA/series.toml"
+              and "+[source.kr]" in plan["diff"] and '+from = "kr:민간소비"' in plan["diff"] and "+header_row = 2" in plan["diff"]
+              and plan["command"].startswith("equion data define kr --file DATA/raw/kr.csv --header-row 2 --unit-row 3 --missing - --missing '…' --thousands , --series")
+              and "--set 'KCN.unit=십억원'" in plan["command"] and read() == before and len(c.get(f"{api}/changes").json["changes"]) == n_changes and jobs == [],
+              plan.get("command", "") + plan.get("diff", "")[:200])
+        done = c.post(f"{api}/data/define", json={"source": "kr", "file": "DATA/raw/kr.csv", "frame": frame, "series": want}).json["result"]
+        change = c.get(f"{api}/change?id={done['change']}").json
+        d = c.get(f"{api}/data").json
+        by = {x["name"]: x for x in d["series"]}
+        check("L7 정의에 저장 — series.toml 에 출처(틀)와 시리즈가 적히고(주석은 그대로) 바뀜 기록에 'Desk · 명령 그대로'로 남는다",
+              done["added"] == ["KCN", "KGDP"] and done["command"] == plan["command"] and "# 분기 거시 자료" in read() and "[series.KCN]" in read()
+              and change["who"] == "desk" and change["how"] == plan["command"] and [f["path"] for f in change["files"]] == ["DATA/series.toml"]
+              and by["KCN"]["built"] is False and by["KCN"]["source"] == "kr" and d["stale"]["definitions"] == ["DATA/series.toml"]
+              and [s["name"] for s in d["sources"]] == ["na", "monthly", "kr"], str(done))
+        built = c.post(f"{api}/data/build", json={}).json["result"]
+        c.post(f"{api}/data/use", json={"vintage": built["id"]})
+        s = c.get(f"{api}/series?name=KCN").json
+        check("L8 이어서 자료를 만들면 새 시리즈가 회차에 — 천 단위는 숫자로, 결측 표시는 결측으로",
+              built["created"] and abs(s["values"][0] - (1000 + round(float(rows[0][1]), 1))) < 1e-6 and s["values"][2] is None and len(s["period"]) == 12
+              and [x["step"] for x in s["lineage"]][:2] == ["원자료", "열"], str(s["values"][:3]))
+        again = c.post(f"{api}/data/preview", json={"file": "DATA/raw/kr.csv"}).json
+        edit = c.post(f"{api}/data/define", json={"source": "kr", "file": "DATA/raw/kr.csv", "frame": frame, "series": {"KCN": {"column": "민간소비", "desc": "민간소비(실질)", "unit": ""},
+                                                                                                             "KI": {"column": "투자"}}}).json["result"]
+        same = c.post(f"{api}/data/define", json={"source": "kr", "file": "DATA/raw/kr.csv", "frame": frame, "series": {}, "dry": True}).json
+        check("L9 다시 열면 저장한 틀과 짝지은 시리즈가 그대로 — 있는 시리즈는 고친 키만, 새 열은 더한다. 바뀐 것이 없으면 그렇게 알린다",
+              again["ok"] and again["source"] == {"name": "kr", "frame": {**frame, "sheet": None, "unit_row": 3, "time_col": None, "thousands": ",", "freq": None}}
+              and again["mapped"]["민간소비"]["name"] == "KCN" and edit["changed"] == ["KCN"] and edit["added"] == ["KI"] and 'desc = "민간소비(실질)"' in read()
+              and 'unit = "십억원"\ndesc = "민간소비(실질)"' not in read() and same["same"] is True, str(again.get("source")) + str(edit))
+        text = read()
+        r1 = c.post(f"{api}/data/define", json={"source": "kr", "file": "DATA/raw/kr.csv", "frame": frame, "series": {"KX": {"column": "없는열"}}})
+        r2 = c.post(f"{api}/data/define", json={"source": "kr", "file": "DATA/raw/kr.csv", "frame": {**frame, "header_row": 1}, "series": {}})
+        r3 = c.post(f"{api}/data/define", json={"source": "9x", "file": "DATA/raw/kr.csv", "series": {"A1": {"column": "GDP"}}})
+        r4 = c.post(f"{api}/data/define", json={"source": "kr", "file": "DATA/raw/inbox/later.csv", "series": {"A1": {"column": "A1"}}})
+        r5 = c.post(f"{api}/data/define", json={"source": "kr", "file": "DATA/raw/kr.csv", "frame": frame, "series": {"log": {"column": "GDP"}}})
+        check("L10 문제가 있으면 아무것도 쓰지 않는다 — 없는 열·읽을 수 없게 되는 틀·이름·받은 상자의 파일(먼저 넣어야 한다)",
+              r1.status_code == 422 and "없는열" in r1.json["error"] and r2.status_code == 422 and r3.status_code == 422 and r4.status_code == 404
+              and r5.status_code == 422 and read() == text, f"{r1.status_code} {r2.status_code} {r3.status_code} {r4.status_code} {r5.status_code}")
+        events = [(e["state"], e["label"]) for e in state.feed.read(0, 0)["events"] if e["type"] == "job" and e["state"] != "start"]
+        check("L11 작업 줄 — 저장은 올리고(정의 저장 kr) 미리보기는 올리지 않는다", ("done", "정의 저장 kr") in events and not any("미리" in label for _s, label in events), str(events))
+    finally:
+        state.close()
+
+    plain = os.path.join(tmp, "plain")
+    state, pid = new_state(tmp, plain, "l2.json")
+    try:
+        c = create_app(state).test_client()
+        v = c.post(f"/api/p/{pid}/data/preview", json={"file": "DATA/raw/toy_q.csv"}).json
+        r = c.post(f"/api/p/{pid}/data/define", json={"source": "na", "file": "DATA/raw/toy_q.csv", "series": {"A1": {"column": "CN"}}})
+        check("L12 자료 파일 하나를 그대로 읽는 프로젝트 — 미리보기는 되고(정의 없음) 정의 쓰기는 까닭과 함께 거절",
+              v["ok"] and v["defs"] is False and v["source"] is None and r.status_code == 422 and "자료 정의" in r.json["error"], str(r.json)[:200])
+    finally:
+        state.close()
+
+
 def section_instance(tmp: str, folder: str) -> None:
     print("I. 창은 하나 — 또 실행하면 폴더를 떠 있는 창에 넘긴다")
     from equion_desk import instance
@@ -815,6 +931,7 @@ def run() -> int:
         section_watch(tmp, folder)
         section_bench(tmp)
         section_data(tmp)
+        section_import(tmp)
         section_instance(tmp, folder)
     bad = [n for n, ok, _ in RESULTS if not ok]
     print(f"\nEquion Desk 앱 시험 {len(RESULTS) - len(bad)}/{len(RESULTS)}")

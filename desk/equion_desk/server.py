@@ -377,6 +377,101 @@ def create_app(state: AppState) -> Flask:
                 return jsonify(result=None)
         return run(pid, "data_add", t("원자료 넣기 {name}", name=Path(chosen).name), path=chosen, source=source, inbox=from_inbox)
 
+    FRAME_KEYS = ("sheet", "header_row", "unit_row", "time_col", "missing", "thousands", "freq")
+    SERIES_KEYS = ("column", "unit", "desc", "convert", "denton", "seas", "scale", "fill")
+
+    def raw_file(pid: str, data: dict[str, Any], inbox: bool = False) -> str:
+        """원자료 파일 하나(프로젝트 기준 경로) — `DATA/raw/` 아래의 것만(inbox 면 받은 상자도). 화면이 다른 파일을 읽히지 못한다."""
+        value = text_arg(data, "file", 400)
+        if value is None:
+            abort(400)
+        s = session(pid)
+        try:
+            path = s.resolve(value)
+        except Outside:
+            abort(403)
+        rel = path.relative_to(Path(s.root).resolve()).as_posix()
+        folder = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        if not path.is_file() or folder.lower() not in ("data/raw", *(("data/raw/inbox",) if inbox else ())):
+            abort(404, description=t("원자료 폴더(DATA/raw/)에 없는 파일입니다: {name}", name=value))
+        return rel
+
+    def frame_arg(data: dict[str, Any]) -> dict[str, Any] | None:
+        """불러오기 틀 — 아는 키와 맞는 형식만. 없으면 None(그 출처의 틀로)."""
+        raw = data.get("frame")
+        if raw is None:
+            return None
+        if not isinstance(raw, dict):
+            abort(400)
+        out: dict[str, Any] = {}
+        for key in FRAME_KEYS:
+            if key not in raw:
+                continue
+            value = raw[key]
+            if key == "missing":
+                if not isinstance(value, list) or len(value) > 12 or any(not isinstance(x, str) or len(x) > 12 for x in value):
+                    abort(400)
+            elif key in ("header_row", "unit_row"):
+                if value in (None, ""):
+                    value = ""
+                elif isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 1_000_000:
+                    abort(400)
+            elif value is None:
+                value = ""
+            elif isinstance(value, bool) or not isinstance(value, (str, int)) or len(str(value)) > 80:
+                abort(400)
+            out[key] = value
+        return out
+
+    def series_arg(value: Any, many: bool = True) -> dict[str, Any] | None:
+        """시리즈 정의들 `{이름: {column, unit, desc, convert, denton, seas, scale, fill}}`(many 가 아니면 그 안쪽 하나). 이름과 값의 검사는 패키지가 한다."""
+        if value is None:
+            return None
+        items = value if many else {"_": value}
+        if not isinstance(items, dict) or len(items) > 400:
+            abort(400)
+        out: dict[str, Any] = {}
+        for name, spec in items.items():
+            if not isinstance(name, str) or not 1 <= len(name) <= 80 or not isinstance(spec, dict):
+                abort(400)
+            clean: dict[str, Any] = {}
+            for key in SERIES_KEYS:
+                if key not in spec:
+                    continue
+                v = spec[key]
+                if v is not None and (isinstance(v, bool) or not isinstance(v, (str, int, float)) or len(str(v)) > 200):
+                    abort(400)
+                clean[key] = v
+            if not clean.get("column"):
+                abort(400, description=t("어느 열을 읽을지 없습니다: {name}", name=name))
+            out[name] = clean
+        return out if many else out["_"]
+
+    @app.post("/api/p/<pid>/data/preview")
+    def api_data_preview(pid: str) -> Any:
+        """{file, frame?, rows?, series?} — 원자료 미리보기(읽은 그대로의 줄 · 그 틀로 읽은 것 · 이 파일을 읽는 출처와 짝지은 시리즈).
+        `series`(열 하나와 변환)를 주면 그 열을 만들어 본 값도. 아무것도 쓰지 않고 기록도 남기지 않는다."""
+        data = body()
+        rows = data.get("rows", 40)
+        if isinstance(rows, bool) or not isinstance(rows, int) or not 1 <= rows <= 400:
+            abort(400)
+        return ask(pid, "data_preview", file=raw_file(pid, data, inbox=True), frame=frame_arg(data), rows=rows,
+                   series=series_arg(data.get("series"), many=False))
+
+    @app.post("/api/p/<pid>/data/define")
+    def api_data_define(pid: str) -> Any:
+        """{source, file, frame, desc?, series, replace?, dry?} — 정의 쓰기(`equion data define`): 출처(불러오기 틀)와 시리즈를 `series.toml`에.
+        `dry` 면 쓰지 않고 무엇이 바뀌는지(차이)만. 쓰기 전에 패키지가 검사한다 — 문제가 있으면 아무것도 쓰지 않는다."""
+        data = body()
+        source = pick(data, "source", NAME)
+        if source is None:
+            abort(400)
+        args = dict(source=source, file=raw_file(pid, data), frame=frame_arg(data), desc=text_arg(data, "desc", 200),
+                    series=series_arg(data.get("series")), replace=data.get("replace") is True)
+        if data.get("dry") is True:
+            return ask(pid, "data_define", dry=True, **args)
+        return run(pid, "data_define", t("정의 저장 {source}", source=source), **args)
+
     @app.get("/api/p/<pid>/analyses")
     def api_analyses(pid: str) -> Any:
         """분석 등록부 — 분석마다 대상 종류·옵션·만드는 것, 그리고 대상으로 고를 이름들. 화면의 폼이 여기서 나온다."""

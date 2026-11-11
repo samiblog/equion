@@ -424,3 +424,121 @@ def keep(project: Any, record: str, name: str | None = None, replace: bool = Fal
     kept = project.keep(record, as_name=name or None, replace=bool(replace), who="desk",
                         command=command("an", "keep", record, *(["--as", name] if name else []), *(["--replace"] if replace else [])))
     return kept.to_dict() if hasattr(kept, "to_dict") else {"kind": getattr(kept, "kind", None), "what": list(getattr(kept, "what", []) or [])}
+
+
+# ---- 불러오기(원자료의 열 ↔ 시리즈) ----------------------------------------------------------------
+
+FRAME_KEYS = ("sheet", "header_row", "unit_row", "time_col", "missing", "thousands", "freq")
+SERIES_KEYS = ("unit", "desc", "convert", "denton", "seas", "scale", "fill")
+
+
+def _seas_word(seas: Any) -> str:
+    """계절조정 정의 → 화면과 명령줄의 한 낱말(`stl`·`stl:multiplicative`·`classical`…). 없으면 빈 글."""
+    if not seas:
+        return ""
+    if isinstance(seas, str):
+        return seas
+    method, model = seas.get("method", "stl"), seas.get("model", "additive")
+    return method if model == "additive" else f"{method}:{model}"
+
+
+def _frame_of(spec: Any) -> dict:
+    return {"sheet": spec.sheet, "header_row": spec.header_row, "unit_row": spec.unit_row, "time_col": spec.time_col,
+            "missing": list(spec.missing), "thousands": spec.thousands, "freq": spec.freq}
+
+
+def _frame_args(frame: dict | None) -> dict:
+    """화면이 보낸 틀 → 패키지 함수의 인자. 빈 값은 ''로 둔다(정의를 쓸 때 그 키를 지운다는 뜻)."""
+    out: dict[str, Any] = {}
+    for key in FRAME_KEYS:
+        if frame is None or key not in frame:
+            continue
+        value = frame[key]
+        out[key] = [str(x) for x in value or []] if key == "missing" else ("" if value is None else value)
+    return out
+
+
+def preview(project: Any, file: str, frame: dict | None = None, rows: int = 40, series: dict | None = None) -> dict:
+    """원자료 미리보기 — 읽은 그대로의 줄과 그 틀로 읽은 것, 그리고 이 파일을 읽는 출처(있으면 그 틀과 짝지은 시리즈).
+    frame 이 없으면 그 출처의 틀로 읽는다(처음 열 때). 아무것도 쓰지 않는다."""
+    from equion.projects.vintage import load_defs
+
+    cfg = project.config
+    out: dict[str, Any] = {"project_freq": cfg.freq, "defs": bool(cfg.series_file), "source": None, "sources": [], "taken": [], "mapped": {},
+                           "defs_error": None}
+    if cfg.series_file:
+        try:
+            defs = load_defs(str(project.root), cfg.series_file, cfg.derived_file, cfg.freq)
+        except Exception as exc:              # 정의가 깨져 있어도 원자료는 볼 수 있다
+            out["defs_error"] = str(exc)
+            defs = None
+        if defs is not None:
+            out["sources"] = [{"name": n, "file": s.file} for n, s in defs.sources.items()]
+            out["taken"] = [s.name for s in defs.series.values()] + [name for _line, name, _expr, _desc in defs.derived]
+            match = next((s for s in defs.sources.values() if s.file.replace("\\", "/").lower() == file.lower()), None)
+            if match is not None:
+                out["source"] = {"name": match.name, "frame": _frame_of(match)}
+                out["mapped"] = {s.column: {"name": s.name, "unit": s.unit, "desc": s.desc, "convert": s.convert or "", "denton": s.denton,
+                                            "seas": _seas_word(s.seas), "scale": s.scale, "fill": s.fill or ""}
+                                 for s in defs.series.values() if s.source == match.name}
+                if frame is None:
+                    frame = out["source"]["frame"]
+    args = {k: (None if v == "" else v) for k, v in _frame_args(frame).items()}
+    out["series_error"] = None
+    try:
+        view = project.data_preview(file, rows=int(rows), series=series or None, **args)
+    except Exception as exc:
+        if not series:
+            raise
+        # 열 하나를 만들어 보다 안 된 것(변환이 빠짐·안쪽 결측 등)은 오류가 아니라 알릴 까닭이다 — 표는 그대로 보인다
+        out["series_error"] = str(exc)
+        view = project.data_preview(file, rows=int(rows), **args)
+    out.update(view.to_dict())
+    return out
+
+
+def define_command(source: str, file: str, frame: dict | None, desc: str | None, series: dict | None, replace: bool) -> str:
+    """정의 쓰기의 명령 글 — `equion data define …` 그대로(화면이 저장 전에 보이는 글과 같다)."""
+    words: list[Any] = ["data", "define", source, "--file", file]
+    for key, value in _frame_args(frame).items():
+        flag = "--" + key.replace("_", "-")
+        if key == "missing":
+            for mark in value:
+                words += [flag, mark]
+        elif value not in ("", None) and not (key == "header_row" and value == 1):
+            words += [flag, value]
+    if desc:
+        words += ["--desc", desc]
+    for name, spec in (series or {}).items():
+        words += ["--series", f"{name}={spec['column']}"]
+        for key in SERIES_KEYS:
+            if key in spec:
+                words += ["--set", f"{name}.{key}={'' if spec[key] is None else spec[key]}"]
+    if replace:
+        words.append("--replace")
+    return command(*words)
+
+
+def define(project: Any, source: str, file: str, frame: dict | None = None, desc: str | None = None, series: dict | None = None,
+           replace: bool = False, dry: bool = False) -> dict:
+    """정의 쓰기 — 출처(불러오기 틀)와 시리즈를 `series.toml`에. dry 면 쓰지 않고 무엇이 바뀌는지(차이)만 돌려준다.
+    검사(이름·열·변환)는 패키지가 쓰기 전에 한다 — 문제가 있으면 아무것도 쓰지 않는다."""
+    import difflib
+
+    from equion.projects.config import ProjectError
+    from equion.projects.vintage import define_text
+
+    cfg = project.config
+    if not cfg.series_file:
+        raise ProjectError("이 프로젝트는 자료 파일 하나를 그대로 읽습니다 — 불러오기는 자료 정의(DATA/series.toml)가 있는 프로젝트에서 됩니다")
+    args = _frame_args(frame)
+    cmd = define_command(source, file, frame, desc, series, replace)
+    if dry:
+        text, res = define_text(str(project.root), cfg.series_file, cfg.derived_file, cfg.freq, source, file=file, frame=args, desc=desc,
+                                series=series, replace=replace)
+        with open(os.path.join(str(project.root), cfg.series_file), encoding="utf-8") as f:
+            old = f.read()
+        diff = "".join(difflib.unified_diff(old.splitlines(True), text.splitlines(True), f"a/{cfg.series_file}", f"b/{cfg.series_file}", n=1))
+        return {**res.to_dict(), "diff": diff, "same": old == text, "command": cmd, "path": cfg.series_file}
+    res = project.data_define(source, file=file, desc=desc, series=series, replace=replace, who="desk", command=cmd, **args)
+    return {**res.to_dict(), "command": cmd, "path": cfg.series_file}

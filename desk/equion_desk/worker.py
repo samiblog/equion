@@ -252,6 +252,13 @@ def _ops(holder: _Project) -> dict[str, Any]:
     def data_add(path: str, source: str | None = None, name: str | None = None, inbox: bool = False) -> dict:
         return dataops.add(holder.get(), path, source, name, inbox=inbox)
 
+    def data_preview(file: str, frame: dict | None = None, rows: int = 40, series: dict | None = None) -> dict:
+        return dataops.preview(holder.get(), file, frame, rows, series)
+
+    def data_define(source: str, file: str, frame: dict | None = None, desc: str | None = None, series: dict | None = None,
+                    replace: bool = False, dry: bool = False) -> dict:
+        return dataops.define(holder.get(), source, file, frame, desc, series, replace, dry)
+
     def analyses() -> dict:
         return dataops.analyses(holder.get())
 
@@ -269,6 +276,7 @@ def _ops(holder: _Project) -> dict[str, Any]:
     return {"ping": ping, "parts": parts, "overview": overview, "est": est, "check": check, "ident": ident, "adopt": adopt,
             "hs": hs, "hs_swap": hs_swap, "an_diag": an_diag, "sim": sim, "scan": scan,
             "data": data, "series": series, "data_build": data_build, "data_use": data_use, "data_diff": data_diff, "data_add": data_add,
+            "data_preview": data_preview, "data_define": data_define,
             "analyses": analyses, "an": an, "an_keep": an_keep}
 
 

@@ -12,9 +12,10 @@ import { cardView } from './views/card.js';
 import { dataView } from './views/data.js';
 import { fileView } from './views/file.js';
 import { homeView } from './views/home.js';
+import { importView } from './views/importer.js';
 import { changesView, recordsView } from './views/lists.js';
 
-const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView };
+const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView };
 const MAX_TABS = 14;
 const FILE_ICON = { md: 'doc', csv: 'table', toml: 'code', txt: 'equation', eqs: 'play', json: 'code', xlsx: 'table' };
 
