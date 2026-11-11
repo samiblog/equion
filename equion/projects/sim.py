@@ -496,6 +496,7 @@ def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vinta
         res = res0
         diff = None
         vs_base = None
+        exo_shock = []      # 시나리오가 외생 경로에 준 충격 (변수, 종류, 값, 처음, 끝) — 기록의 수준에 푼 그 경로를 적는다
         if scenario != "base" or sd.get("shocks") or sd.get("addfactor"):
             sc1 = m.scenario(scenario)
             for x in eq_parts:
@@ -506,6 +507,8 @@ def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vinta
                 if sh["var"] not in exo and sh["var"] not in endo:
                     raise ProjectError(f"시나리오 {scenario}: {sh['var']}는 모형 {name_model}에 없는 변수입니다")
                 sc1.shock(sh["var"], sh["value"], a_, b_, kind=sh["kind"])
+                if sh["var"] in exo and sh["kind"] != "add_factor":
+                    exo_shock.append((sh["var"], sh["kind"], sh["value"], *wf._bounds(a_, b_)))
             for ad in sd["addfactor"]:
                 pt = p.part(ad["eq"])
                 sc1.shock(pt.target, ad["value"], _when(ad["from"], s, e, F), _when(ad["to"], s, e, F), kind="add_factor")
@@ -526,6 +529,10 @@ def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vinta
             full[v] = col
         for v in exo:
             full[v] = wf.data[v].to_numpy(dtype=float)
+        for v, kind, value, ja, jb in exo_shock:        # Scenario.build와 같은 셈 — 기준선의 가정 경로가 아니라 시나리오가 푼 경로
+            col = full[v].to_numpy(dtype=float).copy()
+            col[ja:jb + 1] = col[ja:jb + 1] + value if kind == "level" else col[ja:jb + 1] * (1 + value / 100.0)
+            full[v] = col
         full.index = pd.Index(labels, name="period")
         levels = full.iloc[h0:i1 + 1]
         fl = pd.DataFrame(index=levels.index)

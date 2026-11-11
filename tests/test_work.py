@@ -514,6 +514,22 @@ def _sim_tests(tmp):
           and (dfo["P_%"] > 0).all() and o.meta["scenario_def"]["shocks"][0]["var"] == "POIL")
     b_lv = o.levels
     check("시나리오의 기준선 = 기준선 기록", np.allclose(b_lv["P"].loc["2020Q1":] / (1 + dfo["P_%"] / 100), lv["P"].loc["2020Q1":]))
+    check("시나리오의 수준: 충격을 준 외생은 푼 그 경로(기준선의 가정 × 1.2)로 — 전망 앞과 다른 외생은 그대로",
+          np.allclose(b_lv["POIL"].loc["2020Q1":], 1.2 * lv["POIL"].loc["2020Q1":]) and np.allclose(b_lv["POIL"].loc[:"2019Q4"], lv["POIL"].loc[:"2019Q4"])
+          and np.allclose(b_lv["G"], lv["G"]) and list(o.record.read_csv("flags.csv")["POIL"].loc["2020Q1":].unique()) == ["가정"])
+    from equion.projects.notes import stale_reasons
+    fresh = stale_reasons(p, o.record)
+    p.view_define("core_view", series=["Y", "P"], show="yoy")
+    check("보기(VIEWS/)는 계산의 입력이 아니다 — 보기를 저장해도 기록이 낡지 않고 조립 명세에도 들지 않는다",
+          fresh == [] and stale_reasons(p, o.record) == [] and not any(k.startswith("VIEWS/") for k in quiet(p.sim, "base", as_name="b_view").record.read_json("assembly.json")["files"]))
+    hs_rec = p.work.get(quiet(p.hs, "main", record=True).id)
+    af = os.path.join(d, "ASSUMPTIONS", "base.csv")
+    kept = read(af)
+    write(af, kept.replace("2020Q1,", "2020Q1,1", 1))
+    s_hs, s_sim = stale_reasons(p, hs_rec), stale_reasons(p, o.record)
+    write(af, kept)
+    check("가정·보정항·시나리오는 전망만 읽는다 — 가정을 고치면 전망 기록은 낡고 과거 재현 기록은 낡지 않는다",
+          s_hs == [] and len(s_sim) == 1 and "ASSUMPTIONS/base.csv" in s_sim[0] and stale_reasons(p, o.record) == [], str(s_hs) + str(s_sim))
     write(os.path.join(d, "SCENARIOS", "cnaf.toml"),
           'desc = "소비 보정"\n[[addfactor]]\neq = "demand:CN"\nfrom = "start"\nto = "start+1"\nvalue = -2\n')
     c2 = quiet(p.sim, "cnaf", as_name="c1")

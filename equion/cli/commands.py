@@ -158,6 +158,20 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
         sp.add_argument("--json", action="store_true", help="결과를 JSON으로")
 
+    vw = sub.add_parser("view", help="프로젝트의 보기(VIEWS/*.toml) — 어느 시리즈를 어떤 모양으로 볼지")
+    vsub = vw.add_subparsers(dest="view_command", metavar="동작")
+    vsub.required = True
+    vl = vsub.add_parser("list", help="저장한 보기 목록")
+    vd = vsub.add_parser("define", help="보기를 더하거나 고친다(시리즈·보이기·제목·구간) — 준 것만 바꾼다")
+    vd.add_argument("name", help="보기 이름(없으면 새로 만든다)")
+    vd.add_argument("--series", metavar="시리즈들", help="시리즈 이름들(쉼표로)")
+    vd.add_argument("--show", choices=("level", "qoq", "yoy", "annual", "diff"), help="보이기 — 수준·전기비·전년동기비·연간·기준선 대비")
+    vd.add_argument("--title", metavar="글", help="제목")
+    vd.add_argument("--range", metavar="S:E", help="구간(상대 기간 가능 — 2015Q1:last)")
+    for sp in (vl, vd):
+        sp.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
+        sp.add_argument("--json", action="store_true", help="결과를 JSON으로")
+
     d = sub.add_parser("ident", help="프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다")
     d.add_argument("part", help="항등식 이름 블록:목표(예: demand:Y)")
     d.add_argument("--check", action="store_true", help="실측으로 좌변·우변을 계산해 견준다")
@@ -605,6 +619,28 @@ def cmd_assemble(args) -> int:
     return EXIT_OK if rep.ok else EXIT_INPUT
 
 
+@_summary_quiet
+def cmd_view(args) -> int:
+    """equion view list · equion view define — 보기(VIEWS/*.toml)."""
+    from ..projects import ProjectError
+    from ..work.store import detect_who
+    try:
+        p = _open_project(args.project)
+        if args.view_command == "list":
+            rows = p.views()
+            out = rows if args.json else (f"[view list] {p.name} — 보기 {len(rows)}" + "".join(
+                f"\n  {v['name']:<14} {v['show']:<7} {', '.join(v['series'])}" + (f"  — {v['title']}" if v["title"] else "") for v in rows))
+        else:
+            res = p.view_define(args.name, series=args.series, show=args.show, title=args.title, range=args.range,
+                                who=detect_who("terminal"), command=_cmdline(_ARGV))
+            out = res.to_dict() if args.json else res.text()
+    except (ProjectError, KeyError, ValueError) as e:
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
+        return EXIT_INPUT
+    print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else out)
+    return EXIT_OK
+
+
 def cmd_define(args) -> int:
     """equion model define · equion block define — 설정(equion.toml)의 모형·블록을 쓴다."""
     from ..projects import ProjectError
@@ -844,6 +880,8 @@ def _main(argv) -> int:
             return cmd_ident(args)
         if args.command in ("model", "block"):
             return cmd_define(args)
+        if args.command == "view":
+            return cmd_view(args)
         if args.command == "data":
             return cmd_data(args)
         from .workcmds import COMMANDS, dispatch

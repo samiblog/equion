@@ -31,7 +31,7 @@ from typing import List, Optional
 from .. import registry as reg
 from ..work.store import RecordError, now_iso
 from .config import ProjectError
-from .records import _who, data_spec, definition_hashes, history_of, store_of
+from .records import FORECAST_ONLY, NOT_INPUT, _who, data_spec, definition_hashes, history_of, store_of
 
 OUT_OPEN = re.compile(r"^<!-- equion:out (.*?)(\{.*\}) -->\s*$")
 OUT_CLOSE = "<!-- /equion:out -->"
@@ -130,7 +130,8 @@ def stale_reasons(p, rec) -> List[str]:
         files = rec.meta["inputs"]["files"]
     if files:
         now = definition_hashes(p)
-        ch = sorted(k for k in set(files) | set(now) if files.get(k) != now.get(k))
+        skip = NOT_INPUT if rec.kind == "sim" else NOT_INPUT + FORECAST_ONLY       # 가정·보정항·시나리오는 전망만 읽는다
+        ch = sorted(k for k in set(files) | set(now) if files.get(k) != now.get(k) and not k.startswith(skip))
         if ch:
             out.append("정의 파일이 바뀜: " + ", ".join(ch[:4]) + (" …" if len(ch) > 4 else ""))
     return out

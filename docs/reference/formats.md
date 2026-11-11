@@ -42,6 +42,7 @@ Y = CN + I + G
 | `DATA/series.toml` · `DATA/derived.txt` | 자료 정의 · 파생식 | 사람 · `data define` · `data add --source` · `an keep` |
 | `equion.toml`의 `[model.*]`·`[block]` | 모형 조립 · 블록 | 사람 · `model define` · `block define` |
 | `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` | 가정 CSV · 보정항 TOML · 시나리오 TOML | 사람 |
+| `VIEWS/*.toml` | 보기 — 어느 시리즈를 어떤 모양으로 볼지 | 사람 · `view define` |
 | `FLOWS/*.eqs` | 스크립트 — `equion-script` | 사람 · `script new` |
 | `notes/*.md` · `reports/*.md`(+ `<보고서>_data/`) | 노트·보고서 — 글과 결과 구역 | 글은 사람·Claude · 구역은 `note run` · `report add·update` |
 | `CLAUDE.md` | Claude Code에게 — 먼저 `equion guide` | 사람(예제가 만든다) |
@@ -284,6 +285,20 @@ pct = 20
 ```
 
 시나리오는 같은 가정·보정항의 기준선도 함께 풀어 차이(`diff.csv` — 수준 차이와 %)를 적습니다. 시나리오 이름 `base`는 파일이 없어도 됩니다(기준선).
+
+## 보기(`VIEWS/*.toml`)
+
+어느 시리즈를 어떤 모양으로 볼지를 이름으로 적어 둔 정의입니다. 보기는 결과를 만들지 않습니다 — 과거 재현·전망·시나리오 어느 결과에나 같은 시리즈와
+같은 모양을 다시 적용하는 데 씁니다(Equion Desk의 표·차트, 보고서로 보낼 때의 행). `equion view define 이름 --series Y,CN --show yoy`가 쓰고
+(`p.view_define`), `equion view list`(`p.views()`)가 읽습니다. 정의 파일이라 바뀜 기록에 남습니다.
+
+```toml
+# VIEWS/core.toml
+title = "핵심 지표"
+series = ["Y", "CN", "P"]         # 있어야 한다 — 자료에 있는 시리즈(대소문자 무시)
+show = "yoy"                      # level(수준, 기본) · qoq(전기비) · yoy(전년동기비) · annual(연간) · diff(기준선 대비)
+range = "2015Q1:last"             # 없으면 결과의 구간 그대로
+```
 
 ## 노트(`notes/*.md`)·보고서(`reports/*.md`)
 

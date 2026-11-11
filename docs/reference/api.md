@@ -3782,6 +3782,8 @@ s[:4].round(6).tolist()
 | [`data_define`](#projectdata_define) | `(source, file=None, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, desc=None, series=None, replace=False, who=None, command=None)` | 자료 정의 쓰기 — `series.toml`에 출처(`[source.이름]` = 불러오기 틀)와 시리즈(`[series.이름]`)를 더하거나 고친다. 쓰기 전에 새 내용 전체와, 그 틀로 원자료를 읽어 시리즈가 쓰는 열이 다 있고 변환이 되는지 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 사람이 쓴 주석·순서는 그대로 두고(tomlkit) 바뀜 기록에 남긴다. 자료는 만들지 않는다 — 이어서 `data_build`, `data_use`. |
 | [`model_define`](#projectmodel_define) | `(name, blocks=None, include=None, exclude=None, desc=None, who=None, command=None)` | 모형 정의 쓰기 — `equion.toml`의 `[model.이름]`을 더하거나 고친다(블록·끼울 모형·뺄 식·설명). 준 것만 바꾸고(None은 그대로, 빈 목록·빈 글은 그 키를 지움), 쓰기 전에 새 설정 전체를 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 주석·순서는 그대로 두고 바뀜 기록에 남긴다. 조립은 하지 않는다 — 이어서 `assemble`. |
 | [`block_define`](#projectblock_define) | `(name, file=None, desc=None, who=None, command=None)` | 블록 더하기 — `equion.toml`의 `[block]`에 블록(방정식 파일 하나)을 더하거나 설명을 고친다. 새 블록의 파일이 아직 없으면 머리 주석만 있는 빈 블록 파일을 함께 만든다(file을 주지 않으면 `EQUATIONS/<이름>.txt`). 바뀜 기록에 남긴다. 식은 그 파일에 한 줄에 하나씩 적고, 모형에는 `model_define`으로 넣는다. |
+| [`views`](#projectviews) | `()` | 저장한 보기(`VIEWS/*.toml`) — 어느 시리즈를 어떤 모양으로 볼지(이름순). 보기마다 name·title·series·show·range·file. |
+| [`view_define`](#projectview_define) | `(name, series=None, show=None, title=None, range=None, who=None, command=None)` | 보기 저장 — `VIEWS/이름.toml`에 시리즈와 보이기(level·qoq·yoy·annual·diff)·제목·구간을 적는다. 준 것만 바꾸고(None은 그대로, 빈 글은 그 키를 지움), 시리즈 이름이 자료에 있는지 본 뒤 쓴다. 바뀜 기록에 남긴다. 보기는 결과를 만들지 않는다 — 과거 재현·전망· 시나리오의 결과를 같은 시리즈·같은 모양으로 다시 보는 데 쓴다. |
 | [`parts`](#projectparts) | `(name=None)` | 부품(식·항등식) 목록 — name이 없으면 전부, 블록 이름이면 그 블록, 모형 이름이면 조립된 식들. |
 | [`part`](#projectpart) | `(pid)` | 부품 하나 — `블록:목표`(대소문자 무시). |
 | [`used_by`](#projectused_by) | `(name)` | 쓰는 곳 — 블록이나 부품(`블록:목표`)을 쓰는 모형 목록. 고치기 전에 영향 범위를 본다. |
@@ -4183,6 +4185,66 @@ r.new, r.files, "labor" in p.config.blocks
 관련  
 ```text
 model_define · parts
+```
+
+### Project.views
+
+`views()`
+
+저장한 보기(`VIEWS/*.toml`) — 어느 시리즈를 어떤 모양으로 볼지(이름순). 보기마다 name·title·series·show·range·file.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = p.view_define("core", series=["Y", "CN"], show="yoy", title="핵심 지표")
+[(v["name"], v["series"], v["show"]) for v in p.views()]
+# [('core', ['Y', 'CN'], 'yoy')]
+```
+
+관련  
+```text
+view_define
+```
+
+### Project.view_define
+
+`view_define(name, series=None, show=None, title=None, range=None, who=None, command=None)`
+
+보기 저장 — `VIEWS/이름.toml`에 시리즈와 보이기(level·qoq·yoy·annual·diff)·제목·구간을 적는다. 준 것만 바꾸고(None은 그대로, 빈 글은 그 키를 지움), 시리즈 이름이 자료에 있는지 본 뒤 쓴다. 바뀜 기록에 남긴다. 보기는 결과를 만들지 않는다 — 과거 재현·전망· 시나리오의 결과를 같은 시리즈·같은 모양으로 다시 보는 데 쓴다.
+
+**매개변수**
+
+- `name`: 보기 이름(없으면 새로 — 그때 series가 있어야 한다)
+- `series`: 시리즈 이름들(목록 또는 쉼표·공백으로 띄운 글)
+- `show`: level(수준) · qoq(전기비) · yoy(전년동기비) · annual(연간) · diff(기준선 대비)
+- `title`: 제목
+- `range`: 구간 "시작:끝"(상대 기간 가능 — 없으면 결과의 구간 그대로)
+
+**돌려주는 것**
+
+ViewChange — .name · .file · .new · .series · .change(바뀜 기록)  
+
+**오류**
+
+- `ProjectError`: 이름·series가 없음·모르는 show·자료에 없는 시리즈(아무것도 쓰지 않음)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.view_define("core", series="Y, CN, P", show="yoy")
+r.new, r.file, r.series
+# (True, 'VIEWS/core.toml', ['Y', 'CN', 'P'])
+```
+
+관련  
+```text
+views · report_add
 ```
 
 ### Project.parts
@@ -5375,6 +5437,7 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `assemble` | --help --json --project | 프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수) |
 | `model` | --help | 프로젝트의 모형 정의 — equion.toml의 [model.이름]을 더하거나 고친다 |
 | `block` | --help | 프로젝트의 블록 — equion.toml의 [block]에 블록(방정식 파일 하나)을 더하거나 고친다 |
+| `view` | --help | 프로젝트의 보기(VIEWS/*.toml) — 어느 시리즈를 어떤 모양으로 볼지 |
 | `ident` | --check --help --json --project --range --strict --tol | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |
 | `data` | --help | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 |
 | `est` | --adopt --adopted --as --cov --for --help --json --method --project --sim --smpl | 식 하나를 추정해 기록을 남긴다(부품 또는 식 글자 — 후보) |

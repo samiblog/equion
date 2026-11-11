@@ -87,13 +87,17 @@ def data_spec(p) -> dict:
     return {"kind": "file", "file": c.data_file, "sha256": file_sha256(c.data_path)}
 
 
+NOT_INPUT = ("notes/", "reports/", "FLOWS/", "VIEWS/")      # 바뀜 기록은 지켜보지만 계산의 입력은 아닌 정의 파일
+FORECAST_ONLY = ("ASSUMPTIONS/", "ADDFACTORS/", "SCENARIOS/")  # 전망(sim)만 읽는 정의 — 추정·과거 재현·분석 기록은 이것이 바뀌어도 낡지 않는다
+
+
 def definition_hashes(p) -> Dict[str, str]:
     """정의 파일(블록·equion.toml·채택표·자료 정의·가정·보정항·시나리오)의 해시 — 조립 명세에 남긴다."""
     import hashlib
     from ..work.history import tracked
     out = {}
     for rel in tracked(p.root, [b.file for b in p.config.blocks.values()] + [ADOPTED]):
-        if rel.startswith(("notes/", "reports/", "FLOWS/")):   # 노트·보고서는 글, 스크립트는 순서 — 계산의 입력이 아니다
+        if rel.startswith(NOT_INPUT):   # 노트·보고서는 글, 스크립트는 순서, 보기는 보이는 모양 — 계산의 입력이 아니다
             continue
         with open(os.path.join(p.root, rel), "rb") as f:
             out[rel] = hashlib.sha256(f.read()).hexdigest()

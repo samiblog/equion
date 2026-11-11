@@ -567,6 +567,59 @@ class Project:
         self._reset()
         return ConfigChange("block", name, new, [rel] if create else [], ch.id if ch else None)
 
+    def views(self) -> List[dict]:
+        """저장한 보기(`VIEWS/*.toml`) — 어느 시리즈를 어떤 모양으로 볼지(이름순). 보기마다 name·title·series·show·range·file.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = p.view_define("core", series=["Y", "CN"], show="yoy", title="핵심 지표")
+            >>> [(v["name"], v["series"], v["show"]) for v in p.views()]
+            [('core', ['Y', 'CN'], 'yoy')]
+
+        관련
+            view_define
+        """
+        from .views import load_views
+        return [v.to_dict() for v in load_views(self.root)]
+
+    def view_define(self, name: str, series=None, show: str = None, title: str = None, range: str = None, who: str = None,
+                    command: str = None) -> "ViewChange":
+        """보기 저장 — `VIEWS/이름.toml`에 시리즈와 보이기(level·qoq·yoy·annual·diff)·제목·구간을 적는다. 준 것만 바꾸고(None은 그대로,
+        빈 글은 그 키를 지움), 시리즈 이름이 자료에 있는지 본 뒤 쓴다. 바뀜 기록에 남긴다. 보기는 결과를 만들지 않는다 — 과거 재현·전망·
+        시나리오의 결과를 같은 시리즈·같은 모양으로 다시 보는 데 쓴다.
+
+        매개변수
+            name: 보기 이름(없으면 새로 — 그때 series가 있어야 한다)
+            series: 시리즈 이름들(목록 또는 쉼표·공백으로 띄운 글)
+            show: level(수준) · qoq(전기비) · yoy(전년동기비) · annual(연간) · diff(기준선 대비)
+            title: 제목
+            range: 구간 "시작:끝"(상대 기간 가능 — 없으면 결과의 구간 그대로)
+
+        돌려주는 것
+            ViewChange — .name · .file · .new · .series · .change(바뀜 기록)
+
+        오류
+            ProjectError: 이름·series가 없음·모르는 show·자료에 없는 시리즈(아무것도 쓰지 않음)
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.view_define("core", series="Y, CN, P", show="yoy")
+            >>> r.new, r.file, r.series
+            (True, 'VIEWS/core.toml', ['Y', 'CN', 'P'])
+
+        관련
+            views · report_add
+        """
+        from .records import history_of
+        from .views import ViewChange, view_text
+        text, new, spec = view_text(self.root, name, series=series, show=show, title=title, range=range,
+                                    known=[str(c) for c in self.workfile.data.columns])
+        ch = history_of(self).write_files({spec.file: text}, who or detect_who("python"), command or f"view define {name}",
+                                          note=f"{spec.file}" + (" 새 보기" if new else ""))
+        return ViewChange(name, spec.file, new, ch.id if ch else None, list(spec.series))
+
     def _load(self):
         if self._parts is None:
             data = self.workfile._data

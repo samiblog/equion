@@ -366,6 +366,7 @@ def _main(tmp, t0):
     _span_cli_tests(tmp, p, d, newf, badf)
     _define_tests(tmp)
     _config_define_tests(tmp)
+    _view_tests(tmp)
 
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
@@ -862,6 +863,55 @@ def _config_define_tests(tmp):
     code, _, err = run(["model", "define", "m3", "--blocks", "nope"], d)
     code2, _, _ = run(["model"], d)
     check("model define: 없는 블록(3) · 동작 없음(3)", code == 3 and "없는 블록" in err and code2 == 3)
+
+
+def _view_tests(tmp):
+    print("=" * 80)
+    print("K. 보기(VIEWS/*.toml)")
+    print("=" * 80)
+    P, d = new_project(tmp, "views")
+    vf = os.path.join(d, "VIEWS", "core.toml")
+    check("보기: 아직 없으면 빈 목록", P.views() == [])
+    r = P.view_define("core", series="Y, CN P", show="yoy", title="핵심 지표", who="tester", command="equion view define core …")
+    ch = P.history.get(r.change)
+    check("보기 저장: 새 보기 — 시리즈(쉼표·공백으로 띄운 글)·보이기·제목, 바뀜 기록에 남는다",
+          r.new and r.file == "VIEWS/core.toml" and r.series == ["Y", "CN", "P"] and ch.who == "tester" and list(ch.files) == ["VIEWS/core.toml"]
+          and read(vf) == 'title = "핵심 지표"\nseries = ["Y", "CN", "P"]\nshow = "yoy"\n', read(vf))
+    write(vf, "# 달마다 보는 표\n" + read(vf))
+    r2 = P.view_define("core", show="annual", range="2015Q1:last")
+    v = P.views()[0]
+    check("보기 고치기: 준 것만 바꾸고 주석은 그대로 — 빈 글은 그 키를 지운다",
+          not r2.new and r2.change and read(vf).startswith("# 달마다 보는 표\n") and (v["series"], v["show"], v["range"], v["title"]) == (["Y", "CN", "P"], "annual", "2015Q1:last", "핵심 지표")
+          and P.view_define("core", title="", range="").change and (P.views()[0]["title"], P.views()[0]["range"]) == ("", None))
+    check("보기: 바뀐 것이 없으면 바뀜 기록도 없다 · 이름순", P.view_define("core", show="annual").change is None
+          and P.view_define("a_first", series=["P"]).new and [x["name"] for x in P.views()] == ["a_first", "core"])
+    n, text = len(P.history.list()), read(vf)
+    check("보기: 자료에 없는 시리즈·모르는 show·series 없는 새 보기·이름·구간 꼴 — 아무것도 쓰지 않는다",
+          raises(lambda: P.view_define("core", series=["Y", "NOPE"]), ProjectError, "자료에 없는 시리즈 NOPE")
+          and raises(lambda: P.view_define("core", show="pct"), ProjectError, "show")
+          and raises(lambda: P.view_define("fresh", show="yoy"), ProjectError, "series")
+          and raises(lambda: P.view_define("9x", series=["Y"]), ProjectError, "영문으로 시작")
+          and raises(lambda: P.view_define("core", range="2015Q1"), ProjectError, "시작:끝")
+          and read(vf) == text and len(P.history.list()) == n and not os.path.exists(os.path.join(d, "VIEWS", "fresh.toml")))
+    check("보기: 시리즈 이름은 대소문자를 가리지 않고 받는다(적은 그대로 둔다)", P.view_define("lower", series=["y", "cn"]).series == ["y", "cn"])
+    write(os.path.join(d, "VIEWS", "broken.toml"), 'series = "Y"\nshape = 1\n')
+    probs = problems_of(lambda: P.views())
+    check("보기: 손으로 쓴 파일의 문제는 모아서 알린다(알 수 없는 키·series 꼴)",
+          any("알 수 없는 키 shape" in x for x in probs) and any("series = " in x for x in probs), str(probs))
+    os.remove(os.path.join(d, "VIEWS", "broken.toml"))
+    P.history.scan()
+    code, out, _ = run(["view", "list"], d)
+    check("view list(0)", code == 0 and "보기 3" in out and "core" in out and "annual" in out, out)
+    code, out, _ = run(["view", "define", "cli", "--series", "Y,P", "--show", "qoq", "--title", "명령줄로", "--json"], d)
+    j = json.loads(out) if code == 0 else {}
+    check("view define --json(0) — 출력은 JSON 하나", j.get("new") and j.get("series") == ["Y", "P"] and j.get("change")
+          and quiet(Project.open, d).history.get(j["change"]).how.startswith("equion view define cli"), out[:200])
+    code, out, _ = run(["view", "list", "--json"], d)
+    check("view list --json(0)", code == 0 and [x["name"] for x in json.loads(out)] == ["a_first", "cli", "core", "lower"])
+    code, _, err = run(["view", "define", "cli", "--series", "NOPE"], d)
+    code2, _, _ = run(["view", "define", "cli", "--show", "pct"], d)
+    code3, _, _ = run(["view"], d)
+    check("view define: 없는 시리즈(3) · 모르는 --show(3) · 동작 없음(3)", code == 3 and "자료에 없는 시리즈" in err and code2 == 3 and code3 == 3, err[:200])
 
 
 def test_suite():
