@@ -1,0 +1,37 @@
+[project]
+name = "equion-desk"
+version = "0.1.0.dev0"
+description = "Equion Desk — Equion 프로젝트를 화면에서 다루는 데스크톱 앱(Windows 전용)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"   # 잠금 파일을 함께 쓰므로 패키지와 같은 범위(설치본의 런타임은 3.13 — D39)
+
+# 앱 의존성은 여기에만 둔다(DECISIONS D28) — `pip install equion`에는 딸려 가지 않는다.
+# 서버·감시는 어느 OS에서나 돌게 짜고(D29 — 서버 시험은 3 OS), 창(pywebview — Edge WebView2)만 Windows에서 설치한다.
+# 판은 Lectern 0.69.1이 쓰는 것과 같은 줄기(D10·D39) — 정확한 판은 저장소의 uv.lock이 고정한다.
+dependencies = [
+    "equion",
+    "flask>=3.1,<4",
+    "waitress>=3.0,<4",
+    "watchdog>=6.0,<7",
+    "pywebview>=6.2,<7; sys_platform == 'win32'",
+]
+
+[project.gui-scripts]
+equion-desk = "equion_desk.__main__:main"
+
+[tool.uv.sources]
+equion = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["equion_desk"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_suite"]
+addopts = "-ra"

@@ -63,9 +63,10 @@ uv run python tests/test_project.py           # 프로젝트 150/150 (equion.tom
 uv run python tests/test_docs.py              # 문서 검사(build_docs --check: 예제·출력·링크·API 설명과 예제·doctest)
 
 uv run pytest                                 # 위 묶음을 한 번에(파일마다 test_suite())
+uv run --package equion-desk pytest desk      # 앱 Equion Desk(desk/ — 별도 패키지 equion-desk, D28·D40) 시험. 앱 의존성까지 설치: uv sync --all-packages
 
 # 의존성 추가/제거: uv add <pkg> / uv remove <pkg>  (pyproject.toml·uv.lock 자동 갱신)
-# CI(.github/workflows/ci.yml): locked(3 OS × py3.12~3.14)·minimal(선택 의존성 없이)·lowest·latest·audit
+# CI(.github/workflows/ci.yml): locked(3 OS × py3.12~3.14)·minimal(선택 의존성 없이)·lowest·latest·desk(앱 시험)·audit
 ```
 
 > ⚠ uv는 **0.13.7 이상**(`pyproject.toml`의 `[tool.uv] required-version` — CI의 setup-uv도 이 값을 따른다).
@@ -116,6 +117,7 @@ uv run pytest                                 # 위 묶음을 한 번에(파일�
 | `tests/` | `test_engine.py` · `test_workfile.py` · `test_cli.py` · `test_stats.py` · `test_scenarios.py`(상황별 시나리오) · `test_project.py`(프로젝트) · `test_work.py`(작업 명령·기록) · `test_analysis.py`(분석·노트·보고서) · `test_script.py`(스크립트·재연) · `test_guide.py`(Claude용 안내) · `test_journeys.py`(사용자 관점 시나리오 — `docs/TEST_SCENARIOS.md`) · `test_ast_formula.py` · `test_100_equations.py` · `test_error_equations.py` · `test_docs.py`. 모두 예제 자료·합성 자료로 돈다. 기준값 `fixtures/{stats,estimation,data}_reference.json` — 만드는 `fixtures/make_*_reference.py`는 statsmodels·linearmodels·mpmath가 있는 **별도 환경**에서만(`PYTHONPATH=.`). `uv run pytest`가 파일마다 `test_suite()`를 부른다 |
 | `docs/` | **사용자 문서(D27, Markdown 원본)**: `README.md`(첫 페이지) · `start/`(설치·첫 모델·치트시트) · `guide/`(가이드 1~9 — 사람과 상황별, `console` 블록을 실제로 실행) · `tutorial/`(1~9) · `howto/`(레시피) · `explain/`(방정식 문법 `equations.md`·추정·풀이·시나리오·동태·검증·엔진 API) · `reference/`(`api.md` **자동 생성** — `make_api.py` · 명령줄·함수·출력·오류·파일 형식·예제 자료) · `cases/`(Klein형) · `eviews.md` · `en/`. 도구 `build_docs.py`·`make_api.py`. 프로젝트 문서 `DECISIONS.md`(D-번호) · `ROADMAP.md` · 사용자 관점 시험 시나리오 `TEST_SCENARIOS.md` · Desk 개발 계획 `DESK_DEVPLAN.md`와 기획 자료 `DESK*.md`. `USER_GUIDE.md`·`EQUATION_GUIDE.md`·`API.md`는 새 위치 안내만 |
 | `examples/` | `start/`·`tutorial/` 스크립트와 `notebooks/` — **문서에서 자동 생성**(`build_docs.py`), 손으로 고치지 않는다 |
+| `desk/` | **Equion Desk**(별도 패키지 `equion-desk` — uv workspace, 의존은 `equion-desk → equion` 한쪽만, D28·D40): `equion_desk/`(`__main__` 창·`server` 로컬 서버·`worker` 작업 프로세스·`terminal`·`conpty`·`runtime` 격리 환경 · `web/` 화면) · `build/`(런타임 묶기·설치 파일) · `tests/`(`test_desk` 경계 · `test_app` 서버·작업 프로세스·터미널 · `bench_s1.py` 시간 재기). 띄우기 `uv run --package equion-desk equion-desk 폴더`(`--browser` 개발용) · 고지 `THIRD-PARTY-NOTICES.md`. `requires-python`은 패키지와 같게(잠금 파일을 함께 쓴다) |
 | `.github/` | `workflows/ci.yml`(locked 3 OS × py3.12~3.14 · minimal · lowest · latest · audit) · `release.yml`(태그 → 휠·설치 시험, PyPI는 `PYPI_PUBLISH` 변수로만) · `dependabot.yml` |
 | `out/` · `WT/` | CLI 보고서 `out/<실행ID>/` · 워크파일 `.eqw/`·Work Table `.wt/` 번들(자동 생성·git 제외) |
 | 루트 파일 | `README.md`(저장소 소개) · `README.en.md`(English) · `LICENSE`(MIT) · `THIRD-PARTY-NOTICES.md`(포함한 외부 자료 고지 — 수치표·plotly.js) · `CHANGELOG.md` · `CLAUDE.md` · `VERSION` · `pyproject.toml` · `uv.lock` · `.python-version` · `.gitignore` · `.gitattributes`(줄바꿈 LF) |

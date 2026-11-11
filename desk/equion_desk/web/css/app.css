@@ -1,0 +1,61 @@
+/* Equion Desk 시험판(D0)의 화면. 색·글꼴은 Lectern의 기본 스타일(밝은 바탕)을 따른다 — 전체 테마는 D1에서 옮긴다. */
+:root {
+  --ui-font: "Pretendard", "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "D2Coding", Consolas, monospace;
+  --bg: #ffffff; --panel: #f6f7f9; --border: #dfe2e7; --fg: #1f2328; --muted: #6a737d;
+  --accent: #1f6feb; --ok: #1a7f37; --bad: #cf222e; --warn: #9a6700; --term-bg: #1e1f22;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { font-family: var(--ui-font); font-size: 13.5px; color: var(--fg); background: var(--bg); display: flex; flex-direction: column; }
+code, textarea, .num { font-family: var(--mono); }
+.muted { color: var(--muted); } .small { font-size: 12px; } .grow { flex: 1; }
+[hidden] { display: none !important; }
+
+#top { display: flex; align-items: center; gap: 12px; padding: 7px 14px; border-bottom: 1px solid var(--border); background: var(--panel); white-space: nowrap; }
+#project { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#top .chip, .brand, #versions { flex: none; }
+.brand { font-weight: 700; letter-spacing: -.01em; }
+.chip { padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); font-size: 12px; }
+.chip.busy { border-color: var(--warn); color: var(--warn); } .chip.ok { border-color: var(--ok); color: var(--ok); } .chip.bad { border-color: var(--bad); color: var(--bad); }
+
+#layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px minmax(380px, 1fr) 5px var(--term-w, 44%); }
+#side { border-right: 1px solid var(--border); background: var(--panel); overflow: auto; padding: 6px 0 16px; }
+#side h2 { font-size: 11.5px; font-weight: 600; color: var(--muted); margin: 12px 14px 4px; text-transform: none; }
+#parts { list-style: none; margin: 0; padding: 0; }
+#parts li { padding: 4px 14px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+#parts li:hover { background: #e9ecf1; } #parts li.on { background: #dde6f7; }
+#parts .kind { font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; background: var(--bg); }
+.side-actions { display: flex; gap: 6px; padding: 2px 14px 6px; flex-wrap: wrap; }
+#model-out { padding: 0 14px; white-space: pre-wrap; }
+
+#bench { overflow-y: auto; overflow-x: hidden; padding: 14px 20px 40px; min-width: 0; }
+#est-form label { display: block; font-weight: 600; margin-bottom: 4px; }
+#eq { width: 100%; resize: vertical; padding: 7px 9px; font-size: 13.5px; border: 1px solid var(--border); border-radius: 5px; color: var(--fg); background: var(--bg); }
+#eq:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); border-color: var(--accent); }
+.row { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+button { font: inherit; padding: 4px 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--fg); cursor: pointer; }
+button:hover { background: #eef1f5; } button:disabled { opacity: .55; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; } button.primary:hover { filter: brightness(1.06); background: var(--accent); }
+#message { margin-top: 10px; white-space: pre-wrap; } #message.error { color: var(--bad); }
+#headline { margin: 14px 0 4px; font-size: 14.5px; } #headline .id { font-family: var(--mono); color: var(--accent); }
+/* 표 둘을 나란히 — 자리가 좁으면(터미널을 넓혔을 때) 아래로 내린다. 표가 칸보다 넓으면 그 칸 안에서만 가로로 민다 */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 4px 26px; }
+.cols > div { min-width: 0; overflow-x: auto; }
+h3 { font-size: 12.5px; margin: 16px 0 5px; color: var(--muted); font-weight: 600; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: 3px 8px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; } th { font-weight: 600; font-size: 12px; color: var(--muted); }
+td.num { font-variant-numeric: tabular-nums; } td.weak { color: var(--bad); }
+.pass { color: var(--ok); font-weight: 600; } .fail { color: var(--bad); font-weight: 600; }
+#implicit { margin: 0; padding-left: 18px; }
+#chart svg { width: 100%; height: auto; display: block; }
+#chart .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+#chart .key::before { content: ""; display: inline-block; width: 14px; height: 2px; margin-right: 5px; vertical-align: middle; background: var(--c); }
+
+#split { cursor: col-resize; background: var(--border); }
+#term-pane { display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); }
+#term-head { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 12px; color: #c9ccd1; font-size: 12px; border-bottom: 1px solid #33353a; }
+#term-head button { background: transparent; color: #c9ccd1; border-color: #45484e; padding: 1px 8px; font-size: 11.5px; } #term-head button:hover { background: #2c2e33; }
+#term { flex: 1; min-height: 0; padding: 6px 0 4px 8px; }
+#term .note { color: #c9ccd1; padding: 10px; font-size: 12.5px; }
