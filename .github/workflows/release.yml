@@ -54,10 +54,15 @@ jobs:
           uv venv -p 3.13 ../wheel-env
           WHL=$(ls dist/*.whl)
           VIRTUAL_ENV=../wheel-env uv pip install "$WHL"
-          PY=../wheel-env/bin/python; [ -x "$PY" ] || PY=../wheel-env/Scripts/python.exe
+          # 절대 경로로 — 아래에서 폴더를 옮긴다(저장소 폴더에서 돌리면 설치한 휠이 아니라 소스를 읽는다).
+          # 상대 경로 그대로 옮기면 실행 파일을 찾지 못한다(v0.8.0 태그의 첫 실행이 여기서 멈췄다 — 휠 만들기는 통과)
+          ENV=$(cd ../wheel-env && pwd)
+          PY="$ENV/bin/python"; [ -x "$PY" ] || PY="$ENV/Scripts/python.exe"
           cd ..
           "$PY" -m equion --version
           "$PY" -c "import equion, equion.assets as a; assert len(a.plotly_js()) > 1_000_000; print(equion.__version__)"
+          "$PY" -m equion new wheel_demo --template desk
+          "$PY" -m equion est demand:CN -p wheel_demo
 
   publish:
     needs: [build, test-install]
