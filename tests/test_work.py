@@ -219,6 +219,14 @@ def _main(tmp, t0):
                                                           "```vega-lite", "## 알아서 한 것")))
     r2 = quiet(p.est, "CN c Y(-1) CN(-1)", as_name="cn_alt")
     check("식 글자: 목표가 같은 부품의 후보로", r2.meta["part"] == "demand:CN" and r2.meta["sim"] is None)
+    rh = quiet(p.est, "demand:CN", as_name="cn_hac", cov="hac")
+    from equion.projects.records import est_text
+    check("계수 공분산: 보통이면 기록의 cov는 None, 견고한 것을 고르면 종류·이름·시차를 기록·카드·짧은 글에(계수는 같다)",
+          m["cov"] is None and "계수 공분산" not in r1.record.summary_md() and "공분산" not in est_text(m)
+          and rh.meta["cov"]["type"] == "hac" and "HAC" in rh.meta["cov"]["label"] and rh.meta["cov"]["lags"] >= 1
+          and "| 계수 공분산 | HAC" in rh.record.summary_md() and "[공분산 HAC" in est_text(rh.meta)
+          and np.allclose(rh.coefs.to_numpy(), r1.coefs.to_numpy(), rtol=1e-12, atol=0)
+          and rh.meta["coefs"][1]["se"] != m["coefs"][1]["se"], str(rh.meta.get("cov")))
     r3 = quiet(p.est, "I c Y(-1) R", as_name="inv_a")
     check("판단 기준: 기대 부호 통과(R −)", r3.passed is True and r3.meta["criteria"]["signs"][0]["ok"] is True)
     r4 = quiet(p.est, "I c Y(-1) R(-1) G", as_name="inv_b")

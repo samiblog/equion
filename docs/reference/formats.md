@@ -239,7 +239,7 @@ print(sorted(json.loads(Path(p.root, "work", "log.jsonl").read_text(encoding="ut
 | 종류 | 파일 |
 |---|---|
 | 공통 | `record.json`(`format: equion-record` · `format_version` · 이름 · 만든 때 · 누가 · 명령 그대로 · 대상 · 자료(회차 이름·내용 해시) · equion 판 · 알아서 한 것) · `summary.md`(카드 — 표와 같은 폴더 CSV의 vega-lite 차트) |
-| `est` | `coefs.csv`(계수·표준오차·t·p) · `series.csv`(실측·적합·잔차, `--sim`이면 목표변수의 단독 모의). `record.json`에 식 글자·펼친 식·표본·통계·진단·판단 기준·식 직렬화(계수 그대로 — 채택·바꿔 끼우기에 쓴다) |
+| `est` | `coefs.csv`(계수·표준오차·t·p) · `series.csv`(실측·적합·잔차, `--sim`이면 목표변수의 단독 모의). `record.json`에 식 글자·펼친 식·표본·통계·진단·판단 기준·계수 공분산(`cov` — `--cov`로 견고한 표준오차를 골랐을 때 종류·이름·시차, 보통이면 `null`)·식 직렬화(계수 그대로 — 채택·바꿔 끼우기에 쓴다) |
 | `hs` | `assembly.json`(조립 명세) · `stats.csv`(변수별 RMSPE·MAE…) · `solved.csv`(해) · `status.csv`(기간 상태) · `series.csv`(해와 실측) |
 | `sim` | `assembly.json` · `levels.csv`(전망 앞 2년의 실측 + 전망) · `flags.csv`(값의 종류: 실측·해·가정·채움·결측) · `growth.csv`(전기비·전년동기비) · `annual.csv`(연간 평균·증가율) · `addfactors.csv`(식마다 보정항) · `diff.csv`(시나리오 − 기준선) |
 | `run` | 스크립트 실행 — 아래 '스크립트와 실행 기록' |

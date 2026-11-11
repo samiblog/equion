@@ -215,7 +215,8 @@ def est_text(m: dict) -> str:
             f"DW {short(st.get('durbin_watson'))} · AIC {short(st.get('aic'))} · BIC {short(st.get('bic'))}")
     L = [head]
     L.append("  계수   " + " · ".join(f"{'c' if c['name'] == 'const' else c['name']} {short(c['coef'])}(t {short(c['t'])})"
-                                    for c in m["coefs"]))
+                                    for c in m["coefs"])
+             + (f"   [공분산 {m['cov'].get('label') or m['cov'].get('type')}]" if m.get("cov") else ""))
     alpha = (m.get("criteria") or {}).get("alpha", 0.05)
     dg = m.get("diagnostics") or {}
     shown = [f"{DIAG_LABEL[k]} p={pfmt(dg[k]['p'])} {'✓' if dg[k]['p'] >= alpha else '!'}"
@@ -399,6 +400,9 @@ def _write_est(p, store, obj, text, expr, pt, tv, name, req, notes, sim, who, co
                   for n in coefs.index],
         "diagnostics": diag, "criteria": cr, "sim": sim_info, "implicit": implicit, "data": data_spec(p),
         "equation": eq.to_saved(), "path": rel, "id": f"est:{name}",
+        # 계수 공분산(표준오차·t·p의 종류) — 보통이면 None. 견고한 공분산으로 본 기록은 t값이 다른 까닭을 기록이 스스로 말한다
+        "cov": ({"type": st.get("cov_type"), "label": st.get("cov_label"), "lags": st.get("hac_lags")}
+                if st.get("cov_type", "nonrobust") != "nonrobust" else None),
     }
     act = obj.actual.loc[res.index]
     series = pd.DataFrame({"actual": act.to_numpy(), "fitted": (act - res).to_numpy(), "resid": res.to_numpy()},
@@ -444,6 +448,8 @@ def _est_md(m, ctab, has_sim) -> str:
             ("equion", m["equion"])]
     if m["expr"] != m["text"]:
         head.insert(1, ("펼친 식", m["expr"]))
+    if m.get("cov"):
+        head.insert(3, ("계수 공분산", m["cov"].get("label") or m["cov"].get("type")))
     return md.card(f"추정 {m['id']}", head, sections)
 
 
