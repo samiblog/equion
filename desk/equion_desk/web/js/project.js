@@ -6,13 +6,15 @@
 import { getJSON, papi, postJSON, query } from './api.js';
 import { Term } from './terminal.js';
 import { clear, debounce, flash, h, icon, kindClass, WHO } from './util.js';
+import { analysisView } from './views/analysis.js';
 import { benchView } from './views/bench.js';
 import { cardView } from './views/card.js';
+import { dataView } from './views/data.js';
 import { fileView } from './views/file.js';
 import { homeView } from './views/home.js';
 import { changesView, recordsView } from './views/lists.js';
 
-const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView };
+const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView };
 const MAX_TABS = 14;
 const FILE_ICON = { md: 'doc', csv: 'table', toml: 'code', txt: 'equation', eqs: 'play', json: 'code', xlsx: 'table' };
 
@@ -37,8 +39,13 @@ export class Project {
     this.pending = 0;
     this.free = 0;
     this.ready = false;
+    this.dataInfo = null;        // 자료의 세 층(원자료·시리즈·회차) — 자료 작업대를 처음 열 때 읽는다
+    this.dataError = null;
+    this.dataWanted = false;
+    this.dataChecked = null;     // {vintage, fingerprint} — 만들어 보았더니 값이 같았던 정의·원자료(다시 권하지 않는다)
     this.saveView = debounce(() => this.persist(), 500);
     this.reloadOverview = debounce(() => this.loadOverview(), 150);
+    this.reloadData = debounce(() => { if (this.dataWanted) this.loadData(); }, 500);
     this.build();
   }
 
@@ -117,6 +124,7 @@ export class Project {
     this.expanded = new Set(Array.isArray(view.expanded) ? view.expanded.filter((x) => typeof x === 'string').slice(0, 200) : []);
     this.collapsed = new Set(Array.isArray(view.collapsed) ? view.collapsed.filter((x) => typeof x === 'string').slice(0, 200) : []);
     this.free = Number.isInteger(view.free) ? view.free : 0;
+    this.dataChecked = view.dataChecked && typeof view.dataChecked === 'object' ? { vintage: String(view.dataChecked.vintage), fingerprint: String(view.dataChecked.fingerprint) } : null;
     this.openTab({ type: 'home' }, { activate: false, save: false });
     for (const desc of Array.isArray(view.tabs) ? view.tabs.slice(0, MAX_TABS) : []) {
       if (desc && FACTORY[desc.type] && desc.type !== 'home') this.openTab(desc, { activate: false, save: false });
@@ -129,7 +137,7 @@ export class Project {
   persist(closing = false) {
     if (!this.ready) return;
     const tabs = [...this.tabs.values()].map((t) => t.view.desc()).filter((d) => d.type !== 'home');
-    this.post('view', { view: { tabs, active: this.active, side: this.side, expanded: [...this.expanded], collapsed: [...this.collapsed], free: this.free } },
+    this.post('view', { view: { tabs, active: this.active, side: this.side, expanded: [...this.expanded], collapsed: [...this.collapsed], free: this.free, dataChecked: this.dataChecked } },
       { keepalive: closing }).catch(() => {});
   }
 
@@ -148,6 +156,52 @@ export class Project {
     this.renderParts();
     this.emit({ type: 'overview' });
     this.app.renderStatus();
+  }
+
+  /** 자료의 세 층을 읽는다(원자료를 틀대로 읽어 보므로 개요보다 무겁다 — 자료 작업대를 연 뒤부터, 바뀔 때마다) */
+  async loadData() {
+    this.dataWanted = true;
+    const turn = (this.dataTurn = (this.dataTurn || 0) + 1);
+    try {
+      const info = await this.get('data');
+      if (turn !== this.dataTurn) return;
+      this.dataInfo = info;
+      this.dataError = null;
+    } catch (err) {
+      if (turn !== this.dataTurn) return;
+      this.dataError = err.message;
+    }
+    this.renderParts();
+    this.emit({ type: 'data' });
+  }
+
+  /** 지금 회차를 만든 뒤 정의·원자료가 바뀌었는가 — 만들어 보았더니 값이 같았던 것은 뺀다. 돌려주는 것: {definitions, sources} 또는 null */
+  dataStale() {
+    const d = this.dataInfo;
+    if (!d?.stale) return null;
+    const c = this.dataChecked;
+    return c && c.vintage === d.current && c.fingerprint === d.fingerprint ? null : d.stale;
+  }
+
+  /** '자료 만들기'를 누르면 새 회차가 생길 것 같은가(만들어 보았더니 값이 같았던 것은 뺀다) */
+  dataPending() {
+    const d = this.dataInfo;
+    if (!d?.pending) return false;
+    const c = this.dataChecked;
+    return !(c && c.fingerprint === d.fingerprint && d.vintages.some((v) => v.id === c.vintage));
+  }
+
+  /** 자료에 손볼 것이 있는가 — 사이드바의 점과 개요의 한 줄이 쓴다. 아직 읽지 않았으면 null */
+  dataNote() {
+    const d = this.dataInfo;
+    if (!d || d.mode !== 'defs') return null;
+    if (d.problems.length) return { level: 'bad', text: '정의 파일을 읽지 못했습니다' };
+    if (!d.current) return { level: 'warn', text: '아직 만든 자료가 없습니다' };
+    if (this.dataStale()) return { level: 'warn', text: '지금 회차를 만든 뒤 정의·원자료가 바뀌었습니다' };
+    const newest = d.vintages[d.vintages.length - 1]?.id;
+    if (newest && newest !== d.current) return { level: 'warn', text: `더 새 회차 ${newest} 가 있습니다` };
+    if (d.inbox.length) return { level: 'warn', text: `받은 상자에 새 파일 ${d.inbox.length}개` };
+    return { level: 'ok', text: '원자료·정의와 같습니다' };
   }
 
   async loadRecords() {
@@ -311,6 +365,17 @@ export class Project {
     const last = this.lastEst();
     const sec = (title, count, rows) => h('div', { class: 'sec' }, h('div', { class: 'sec-head' }, title, h('span', { class: 'count' }, count)), rows);
 
+    // 작업대 — 식은 아래 블록에서 고르고, 자료와 분석은 여기서 연다
+    const note = this.dataNote();
+    const nAn = this.records.filter((r) => r.kind === 'an').length;
+    box.append(sec('작업대', '', [
+      h('button', { class: 'row-item', type: 'button', 'data-key': 'data', title: note ? `자료 — ${note.text}` : '자료 — 원자료 · 시리즈 · 회차', onclick: () => this.openTab({ type: 'data' }) },
+        icon('data'), h('span', { class: 'label' }, '자료'), h('span', { class: 'desc mono' }, o.vintage?.id || (o.data_file || '').split('/').pop() || ''),
+        h('span', { class: 'tail' }, note && note.level !== 'ok' ? h('span', { class: `dot ${note.level}` }) : null)),
+      h('button', { class: 'row-item', type: 'button', 'data-key': 'analysis', title: '분석 — 요약·단위근·공적분·계절조정·ECM·VAR…', onclick: () => this.openTab({ type: 'analysis' }) },
+        icon('flask'), h('span', { class: 'label' }, '분석'), h('span', { class: 'desc' }, ''), h('span', { class: 'tail' }, nAn || null)),
+    ]));
+
     box.append(sec('모형', o.models.length, o.models.map((m) => h('button', {
       class: 'row-item', type: 'button', title: m.desc || m.name, onclick: () => this.openTab({ type: 'home' }),
     }, h('span', { class: 'glyph model' }, 'M'), h('span', { class: 'label mono' }, m.name), h('span', { class: 'desc' }, m.desc || '')))));
@@ -439,6 +504,7 @@ export class Project {
       if (!this.records.some((x) => x.id === r.id)) this.records.push(r);
       if (!this.tabs.has(`record:${r.id}`) && !(r.who === 'desk' && this.app.current === this)) this.unseen.add(r.id);
       r.fresh = true;
+      if (r.kind === 'data') this.reloadData();        // 터미널·Claude 가 만든 회차도 곧 보이게
       this.renderParts();
       this.emit({ type: 'record', record: r });
       this.app.renderActivity();
@@ -456,9 +522,11 @@ export class Project {
       if (card && !card.textContent.startsWith('Desk')) card.prepend('Desk 가 꺼져 있는 동안 ');
     } else if (e.type === 'defs') {
       this.reloadOverview();
+      this.reloadData();
       this.emit(e);
     } else if (e.type === 'tree') {
       this.refreshFiles();
+      this.reloadData();           // 원자료·받은 상자·회차 폴더가 바뀌었을 수 있다
       this.emit(e);
     } else if (e.type === 'job') {
       if (e.state === 'start') this.job = { ...e, began: performance.now() };
@@ -479,6 +547,7 @@ export class Project {
     this.loadRecords();
     this.loadOverview();
     this.refreshFiles();
+    this.reloadData();
   }
 
   dispose() {

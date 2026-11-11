@@ -1,4 +1,4 @@
-"""Equion Desk 시험 — 로컬 서버·작업 프로세스·터미널·프로젝트 탭·기록 읽기·감시·식 작업대(D0·D1·D2a). `uv run --package equion-desk pytest desk`.
+"""Equion Desk 시험 — 로컬 서버·작업 프로세스·터미널·프로젝트 탭·기록 읽기·감시·식 작업대·자료 작업대·분석(D0·D1·D2a·D2b). `uv run --package equion-desk pytest desk`.
 
 예제 프로젝트(`equion new p --template desk`)를 임시 폴더에 만들어, 화면이 부르는 길 그대로(서버 → 작업 프로세스 → `eqn.project`) 돈다.
 설정 파일은 임시 폴더에 둔다(사용자의 설정을 건드리지 않는다). 터미널(E2~E4)과 단일 인스턴스(I)는 Windows에서만 돈다.
@@ -598,6 +598,191 @@ def section_bench(tmp: str) -> None:
         state.close()
 
 
+def section_data(tmp: str) -> None:
+    print("K. 자료 작업대·분석 — 세 층 한눈에·시리즈의 내력·받은 상자·만들기·견주기·바꾸기·등록부의 분석·남기기")
+    from equion_desk.server import create_app
+
+    folder = example(tmp, "data")
+    state, pid = new_state(tmp, folder, "k.json")
+    api = f"/api/p/{pid}"
+
+    def read(*parts: str) -> str:
+        with open(os.path.join(folder, *parts), encoding="utf-8") as f:
+            return f.read()
+
+    try:
+        c = create_app(state).test_client()
+        d = c.get(f"{api}/data").json
+        first = d["current"]
+        by = {s["name"]: s for s in d["series"]}
+        check("K1 자료 한눈에 — 정의로 읽는 프로젝트, 지금 회차, 원자료 둘, 밀린 것 없음",
+              d["mode"] == "defs" and first and [(v["id"], v["current"]) for v in d["vintages"]] == [(first, True)]
+              and [s["name"] for s in d["sources"]] == ["na", "monthly"] and d["stale"] is None and d["pending"] is False
+              and d["problems"] == [] and d["inbox"] == [] and d["span"] == ["1970Q1", "2019Q4"], str({k: d[k] for k in ("mode", "current", "stale", "pending", "problems", "span")}))
+        na = d["sources"][0]
+        check("K2 원자료 — 틀대로 읽은 구간·열·읽는 시리즈, 어느 파일을 어느 출처가 읽는지",
+              na["file"] == "DATA/raw/toy_q.csv" and na["exists"] and na["freq"] == "Q" and na["rows"] == 200 and "CN" in na["series"] and "CNNSA" in na["columns"]
+              and na["error"] is None and na["changed"] is False and "1970Q1" in na["note"]
+              and [(f["file"], f["source"]) for f in d["raw"]] == [("DATA/raw/toy_m.csv", "monthly"), ("DATA/raw/toy_q.csv", "na")], str(na)[:300])
+        check("K3 시리즈 — 만드는 법(열·변환·파생식)·구간·쓰는 식",
+              by["CN"]["from"] == "na:CN" and "demand:CN" in by["CN"]["used_by"] and by["CNSA"]["how"].startswith("계절조정") and by["CNSA"]["column"] == "CNNSA"
+              and by["RR"]["kind"] == "derived" and by["RR"]["from"] == "= R - PI" and by["RL"]["start"] == "1980Q1" and by["CN"]["n"] == 200
+              and by["CN"]["missing"] == 0 and all(s["built"] for s in d["series"]) and by["IPQ"]["source"] == "monthly", str(by["CNSA"]))
+        s = c.get(f"{api}/series?name=CNSA").json
+        rr = c.get(f"{api}/series?name=RR").json
+        check("K4 시리즈 하나 — 값과 내력(원자료 → 열 → 계절조정), 원자료 값과 겹쳐 보기, 파생식은 그 줄",
+              len(s["period"]) == len(s["values"]) == 200 and [x["step"] for x in s["lineage"]] == ["원자료", "열", "계절조정"]
+              and s["lineage"][0]["file"] == "DATA/raw/toy_q.csv" and s["raw"] and len(s["raw"]["values"]) == 200 and s["raw"]["values"][0] != s["values"][0]
+              and rr["lineage"][0]["file"] == "DATA/derived.txt" and rr["lineage"][0]["text"] == "RR = R - PI" and not rr["raw"], str(s["lineage"]) + str(rr["lineage"]))
+        check("K5 없는 시리즈·이름이 아닌 것은 거절", c.get(f"{api}/series?name=ZZ").status_code == 422 and c.get(f"{api}/series?name=a/b").status_code == 400)
+
+        # 새 분기 자료가 받은 상자에 왔다 — 한 분기가 늘고 지난 분기의 값 하나가 고쳐졌다(개정). 틀이 다른 파일도 하나
+        raw = os.path.join(folder, "DATA", "raw", "toy_q.csv")
+        lines = read("DATA", "raw", "toy_q.csv").rstrip("\n").split("\n")
+        cells = lines[-2].split(",")
+        cells[1] = f"{float(cells[1]) * 1.02:.4f}"
+        lines[-2] = ",".join(cells)
+        lines.append(",".join(["2020Q1"] + [f"{float(v) * 1.01:.4f}" for v in lines[-1].split(",")[1:]]))
+        inbox = os.path.join(folder, "DATA", "raw", "inbox")
+        os.makedirs(inbox, exist_ok=True)
+        with open(os.path.join(inbox, "toy_q_2026-12.csv"), "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(lines) + "\n")
+        with open(os.path.join(inbox, "toy_q_bad.csv"), "w", encoding="utf-8", newline="\n") as f:
+            f.write("period,CN,I\n2020Q1,1,2\n")
+        d = c.get(f"{api}/data").json
+        got = {os.path.basename(i["file"]): i for i in d["inbox"]}
+        check("K6 받은 상자 — 이름으로 짝지은 원자료와 틀 검사(맞지 않는 파일은 까닭과 함께)",
+              set(got) == {"toy_q_2026-12.csv", "toy_q_bad.csv"} and got["toy_q_2026-12.csv"]["source"] == "na" and got["toy_q_2026-12.csv"]["problems"] == []
+              and got["toy_q_bad.csv"]["source"] == "na" and got["toy_q_bad.csv"]["problems"], str(d["inbox"])[:400])
+        no_dialog = c.post(f"{api}/data/add", json={})
+        outside = c.post(f"{api}/data/add", json={"inbox": "../../equion.toml", "source": "na"})
+        missing = c.post(f"{api}/data/add", json={"inbox": "nope.csv", "source": "na"})
+        check("K7 원자료 넣기 — 받은 상자의 파일만(바깥 경로·없는 파일은 거절), 파일 고르기는 창에서만",
+              no_dialog.status_code == 501 and outside.status_code == 403 and missing.status_code == 404, f"{no_dialog.status_code} {outside.status_code} {missing.status_code}")
+        before = read("DATA", "series.toml")
+        refused = c.post(f"{api}/data/add", json={"inbox": "toy_q_bad.csv", "source": "na"}).json["result"]
+        check("K8 틀이 맞지 않는 파일은 넣지 않는다 — 아무것도 바뀌지 않고 받은 상자에 그대로",
+              refused["problems"] and refused["copied"] is False and refused["removed"] is False and os.path.isfile(os.path.join(inbox, "toy_q_bad.csv"))
+              and read("DATA", "series.toml") == before and not os.path.exists(os.path.join(folder, "DATA", "raw", "toy_q_bad.csv")), str(refused))
+        os.remove(os.path.join(inbox, "toy_q_bad.csv"))
+        added = c.post(f"{api}/data/add", json={"inbox": "toy_q_2026-12.csv", "source": "na"}).json["result"]
+        d = c.get(f"{api}/data").json
+        check("K9 받은 파일을 넣는다 — DATA/raw/ 로 들어가 출처가 그 파일을 읽고, 받은 상자에서는 빠진다. 옛 파일은 남는다",
+              added["file"] == "DATA/raw/toy_q_2026-12.csv" and added["copied"] and added["removed"] and added["previous"] == "DATA/raw/toy_q.csv"
+              and not os.path.exists(os.path.join(inbox, "toy_q_2026-12.csv")) and os.path.isfile(raw) and d["inbox"] == []
+              and d["sources"][0]["file"] == "DATA/raw/toy_q_2026-12.csv" and d["sources"][0]["changed"]
+              and ("DATA/raw/toy_q.csv", None) in [(f["file"], f["source"]) for f in d["raw"]], str(added))
+        check("K10 넣고 나면 무엇이 바뀌었는지와 함께 '자료 만들기'를 권한다(저절로 만들지 않는다)",
+              d["stale"] == {"definitions": ["DATA/series.toml"], "sources": ["na"]} and d["pending"] is True and d["current"] == first, str(d["stale"]))
+        built = c.post(f"{api}/data/build", json={}).json["result"]
+        second = built["id"]
+        d = c.get(f"{api}/data").json
+        check("K11 자료 만들기 — 새 회차가 생기지만 지금 회차는 그대로(바꾸는 것은 따로), 차이를 함께 돌려준다",
+              built["created"] and second != first and built["current"] == first and built["record"] == f"data:{second}" and built["span"] == ["1970Q1", "2020Q1"]
+              and built["diff"]["a"] == first and built["diff"]["b"] == second and d["current"] == first and d["stale"] and d["pending"] is False
+              and [v["id"] for v in d["vintages"]] == [first, second], str({k: built[k] for k in ("id", "created", "current", "span")}) + str(d["pending"]))
+        df = c.get(f"{api}/data/diff?a={first}&b={second}").json
+        row = next(r for r in df["rows"] if r["name"] == "CN")
+        check("K12 견주기 — 새 값·고쳐진 값(개정)과 그것을 쓰는 식·모형",
+              df["extended"] >= 10 and df["revised"] >= 1 and row["new"] == 1 and row["revised"] == 1 and row["first"] == row["last"] == "2019Q3"
+              and abs(row["max_pct"] - 2.0) < 0.01 and "demand:CN" in df["impact"]["parts"] and "main" in df["impact"]["models"] and "IPQ" in df["unchanged"]
+              and c.get(f"{api}/data/diff?a=nope&b={second}").status_code >= 400, str(row) + str(df["impact"]["parts"]))
+        used = c.post(f"{api}/data/use", json={"vintage": second})
+        d = c.get(f"{api}/data").json
+        o = c.get(f"{api}/overview").json["overview"]
+        check("K13 이 회차로 바꾸기 — equion.toml 의 회차가 바뀌고 개요·자료가 새 회차를 가리킨다",
+              used.json["result"] == {"vintage": second, "previous": first} and d["current"] == second and d["stale"] is None and d["pending"] is False
+              and d["span"] == ["1970Q1", "2020Q1"] and o["vintage"]["id"] == second and f'vintage = "{second}"' in read("equion.toml"), str(used.json) + str(o["vintage"]))
+        again = c.post(f"{api}/data/build", json={}).json["result"]
+        nope = c.post(f"{api}/data/use", json={"vintage": "nope"})
+        check("K14 내용이 같으면 새로 만들지 않는다 · 없는 회차로는 바꾸지 못한다",
+              again["created"] is False and again["id"] == second and nope.status_code >= 400 and "nope" in nope.json["error"], str(again)[:200])
+        mark = d["fingerprint"]
+        with open(os.path.join(folder, "DATA", "series.toml"), "a", encoding="utf-8", newline="\n") as f:
+            f.write("\n# 값과 무관한 주석 한 줄\n")
+        d = c.get(f"{api}/data").json
+        noop = c.post(f"{api}/data/build", json={}).json["result"]
+        check("K14-1 정의의 글만 바뀌면(값은 같다) 바뀌었다고 알리되 만들어도 새 회차가 생기지 않는다 — 화면이 기억할 지문이 그때의 정의를 가리킨다",
+              d["stale"] == {"definitions": ["DATA/series.toml"], "sources": []} and d["pending"] is True and d["fingerprint"] and d["fingerprint"] != mark
+              and noop["created"] is False and noop["id"] == second and c.get(f"{api}/data").json["fingerprint"] == d["fingerprint"], str(noop)[:200])
+
+        a = c.get(f"{api}/analyses").json
+        spec = {x["name"]: x for x in a["analyses"]}
+        check("K15 분석 등록부 — 분석마다 대상·옵션·만드는 것, 대상으로 고를 이름들",
+              {"summary", "unitroot", "coint", "diag", "seas", "genr", "ecm", "var", "system"} <= set(spec) and spec["seas"]["makes"] == "definition"
+              and spec["ecm"]["makes"] == "candidate" and spec["summary"]["makes"] is None and spec["seas"]["targets"] == ["series"]
+              and [x["name"] for x in spec["unitroot"]["options"]] == ["trend", "lags", "ic", "maxlag"] and spec["unitroot"]["options"][0]["choices"] == ["n", "c", "ct"]
+              and all(x["label"] and x["group"] and x["help"] and x["target_labels"] for x in a["analyses"])
+              and "CN" in a["names"]["series"] and a["names"]["group"] == ["core"] and "demand:CN" in a["names"]["part"] and "main" in a["names"]["model"]
+              and "demand" in a["names"]["block"], str(a["names"]))
+        u = c.post(f"{api}/an", json={"analysis": "unitroot", "target": "core", "options": {"trend": "ct", "ic": "bic"}}).json["result"]
+        rec = c.get(f"{api}/record?id={u['id']}").json
+        check("K16 분석 실행 — 기록(an:)이 남고, 명령 글에는 기본값과 다른 옵션만 적힌다",
+              u["id"].startswith("an:unitroot_") and u["command"] == "equion an unitroot core --trend ct" and rec["meta"]["who"] == "desk"
+              and rec["meta"]["options"]["trend"] == "ct" and rec["meta"]["data"]["id"] == second and "단위근" in rec["summary"], str(u)[:300])
+        bad1 = c.post(f"{api}/an", json={"analysis": "nope", "target": "CN"})
+        bad2 = c.post(f"{api}/an", json={"analysis": "unitroot", "target": "CN", "options": {"trend": "zz"}})
+        bad3 = c.post(f"{api}/an", json={"analysis": "unitroot", "target": "  "})
+        check("K17 없는 분석·받을 수 없는 옵션 값·빈 대상은 거절(까닭과 함께)",
+              bad1.status_code >= 400 and "nope" in bad1.json["error"] and bad2.status_code >= 400 and "trend" in bad2.json["error"] and bad3.status_code >= 400,
+              f"{bad1.status_code} {bad2.status_code} {bad3.status_code}")
+        sa = c.post(f"{api}/an", json={"analysis": "seas", "target": "CN", "options": {"model": "multiplicative"}}).json["result"]
+        before = read("DATA", "series.toml")
+        kept = c.post(f"{api}/an/keep", json={"record": sa["id"], "name": "CN_SA"}).json["result"]
+        d = c.get(f"{api}/data").json
+        new = next(s for s in d["series"] if s["name"] == "CN_SA")
+        check("K18 남기기(정의) — 미리 본 계절조정이 series.toml 에 적히고 바뀜 기록이 남는다. 값은 아직 없다 — 자료 만들기를 권한다",
+              sa["command"] == "equion an seas CN --model multiplicative" and sa["makes"] == "definition" and kept["kind"] == "definition" and kept["change"]
+              and "[series.CN_SA]" in read("DATA", "series.toml") and "[series.CN_SA]" not in before and new["built"] is False
+              and d["stale"] == {"definitions": ["DATA/series.toml"], "sources": []} and d["pending"] is True, str(kept))
+        dup = c.post(f"{api}/an/keep", json={"record": sa["id"], "name": "CN_SA"})
+        check("K19 같은 이름으로 다시 남기지 못한다(까닭과 함께)", dup.status_code >= 400 and "CN_SA" in dup.json["error"], str(dup.json)[:200])
+        g = c.post(f"{api}/an", json={"analysis": "genr", "target": "GAP = Y - CN - I"}).json["result"]
+        kept_g = c.post(f"{api}/an/keep", json={"record": g["id"]}).json["result"]
+        check("K20 파생 — 명령 글의 따옴표, 남기면 derived.txt 에 한 줄(어느 기록에서 왔는지와 함께)",
+              g["command"] == "equion an genr 'GAP = Y - CN - I'" and kept_g["kind"] == "derived" and f"GAP = Y - CN - I   # {g['id']}" in read("DATA", "derived.txt"), str(kept_g))
+        e = c.post(f"{api}/an", json={"analysis": "ecm", "target": "log(CN) log(Y)"}).json["result"]
+        defs = read("DATA", "series.toml"), read("DATA", "derived.txt"), read("EQUATIONS", "demand.txt")
+        kept_e = c.post(f"{api}/an/keep", json={"record": e["id"]}).json["result"]
+        check("K21 남기기(식 후보) — 추정 기록(est:)이 생긴다, 정의 파일은 그대로",
+              kept_e["kind"] == "candidate" and len(kept_e["records"]) == 1 and kept_e["records"][0].startswith("est:") and kept_e["change"] is None
+              and c.get(f"{api}/record?id={kept_e['records'][0]}").status_code == 200
+              and defs == (read("DATA", "series.toml"), read("DATA", "derived.txt"), read("EQUATIONS", "demand.txt")), str(kept_e))
+        view = c.post(f"{api}/an/keep", json={"record": u["id"]})
+        check("K22 보는 분석은 남길 것이 없다", view.status_code >= 400 and "남길 것이 없습니다" in view.json["error"], str(view.json)[:200])
+        rebuilt = c.post(f"{api}/data/build", json={}).json["result"]
+        c.post(f"{api}/data/use", json={"vintage": rebuilt["id"]})
+        d = c.get(f"{api}/data").json
+        by = {s["name"]: s for s in d["series"]}
+        check("K23 남긴 정의로 자료를 다시 만들면 새 시리즈가 회차에 들어간다",
+              rebuilt["created"] and d["current"] == rebuilt["id"] and by["CN_SA"]["built"] and by["CN_SA"]["n"] == 201 and by["GAP"]["built"] and d["stale"] is None,
+              str(by.get("CN_SA")))
+        jobs = [(x["state"], x.get("record")) for x in state.feed.read(0, 0)["events"] if x["type"] == "job" and x["state"] != "start"]
+        check("K24 작업 줄 — 자료 만들기·분석은 기록 이름을 달고 끝난다(카드로 가는 길), 거절된 것은 오류로",
+              ("done", f"data:{second}") in jobs and ("done", u["id"]) in jobs and any(st == "error" for st, _ in jobs), str(jobs)[:400])
+    finally:
+        state.close()
+
+    # 자료 파일 하나를 그대로 읽는 프로젝트(정의·회차 없음)
+    plain = example(tmp, "plain")
+    path = os.path.join(plain, "equion.toml")
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    text = re.sub(r'(?m)^(series|derived|vintage) = .*\n', "", text).replace("[data]", '[data]\nfile = "DATA/raw/toy_q.csv"', 1)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    state, pid = new_state(tmp, plain, "k2.json")
+    try:
+        c = create_app(state).test_client()
+        d = c.get(f"/api/p/{pid}/data").json
+        refused = c.post(f"/api/p/{pid}/data/build", json={})
+        check("K25 자료 파일 하나를 그대로 읽는 프로젝트 — 시리즈만 보이고(회차·원자료 없음) 자료 만들기는 까닭과 함께 거절",
+              d["mode"] == "file" and d["vintages"] == [] and d["sources"] == [] and "CN" in [s["name"] for s in d["series"]] and d["span"] == ["1970Q1", "2019Q4"]
+              and refused.status_code >= 400 and refused.json["error"], str({k: d.get(k) for k in ("mode", "span", "data_file")}) + str(refused.json)[:200])
+    finally:
+        state.close()
+
+
 def section_instance(tmp: str, folder: str) -> None:
     print("I. 창은 하나 — 또 실행하면 폴더를 떠 있는 창에 넘긴다")
     from equion_desk import instance
@@ -629,6 +814,7 @@ def run() -> int:
         section_reading(tmp, folder)
         section_watch(tmp, folder)
         section_bench(tmp)
+        section_data(tmp)
         section_instance(tmp, folder)
     bad = [n for n, ok, _ in RESULTS if not ok]
     print(f"\nEquion Desk 앱 시험 {len(RESULTS) - len(bad)}/{len(RESULTS)}")

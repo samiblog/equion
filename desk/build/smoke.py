@@ -108,6 +108,14 @@ def main() -> int:
             code2, events = http("/api/events?since=0&wait=3")
             kinds = [e.get("type") for e in events.get("events", [])] if isinstance(events, dict) else []
             check("9 결과 카드와 알림 줄(새 기록이 생기는 순간 띠에)", code == 200 and "## 계수" in card.get("summary", "") and "record" in kinds and "job" in kinds, str(kinds))  # type: ignore[union-attr]
+            code, data = http(f"/api/p/{pid}/data")
+            code2, one = http(f"/api/p/{pid}/series?name=CN")
+            code3, an = http(f"/api/p/{pid}/an", {"analysis": "unitroot", "target": "core"})
+            data, one, an = (x if isinstance(x, dict) else {} for x in (data, one, an))
+            check("9-1 자료 작업대·분석 — 자료의 세 층(원자료·시리즈·회차), 시리즈 하나의 값, 분석 하나",
+                  (code, code2, code3) == (200, 200, 200) and data.get("mode") == "defs" and bool(data.get("current")) and len(data.get("sources", [])) == 2
+                  and len(data.get("series", [])) >= 10 and len(one.get("values", [])) >= 100 and str(an.get("result", {}).get("id", "")).startswith("an:"),
+                  f"{code} {code2} {code3} {str(data)[:150]} {str(an)[:150]}")
         finally:
             server.terminate()
             try:

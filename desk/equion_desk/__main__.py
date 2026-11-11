@@ -149,7 +149,13 @@ def run_window(state: Any, port: int, debug: bool, receiver: Any = None, query: 
         except Exception:  # 창이 아직 없거나 닫히는 중
             pass
 
+    def pick_file() -> str | None:
+        dialog = getattr(getattr(webview, "FileDialog", None), "OPEN", None) or webview.OPEN_DIALOG
+        chosen = window.create_file_dialog(dialog, allow_multiple=False, file_types=("자료 파일 (*.csv;*.xlsx;*.xls)", "모든 파일 (*.*)"))
+        return str(chosen[0]) if chosen else None
+
     state.pick_folder = pick_folder
+    state.pick_file = pick_file
     state.on_active = set_title
 
     # 최소화·최대화한 채로 닫으면 그때 크기를 저장하지 않는다(다음에 아주 작거나 화면만 한 창이 되지 않게 — Lectern)

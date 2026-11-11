@@ -9,7 +9,7 @@
 - 프로젝트 파일은 그 폴더 안의 것만 읽는다(`ProjectSession.resolve`). 화면은 파일을 고치지 않는다 — 고치는 것은 작업 프로세스의 명령뿐이다.
 
 경로: `/api/state`·`/api/open`·`/api/example`·`/api/tabs/*`·`/api/settings`·`/api/events`(알림 긴 폴링) ·
-프로젝트마다 `/api/p/<탭 id>/overview·est·check·candidates·ident·adopt·hs·diag·sim·cancel·records·record·changes·change·tree·file·raw·view` · `/api/term/*`.
+프로젝트마다 `/api/p/<탭 id>/overview·est·check·candidates·ident·adopt·hs·diag·sim·data(·build·use·add·diff)·series·analyses·an(·keep)·cancel·records·record·changes·change·tree·file·raw·view` · `/api/term/*`.
 """
 from __future__ import annotations
 
@@ -106,7 +106,7 @@ def create_app(state: AppState) -> Flask:
 
     def app_state() -> dict[str, Any]:
         return {"version": __version__, "mode": state.mode, "tabs": state.tabs(), "active": state.active,
-                "terminal": state.terminals.available, "can_pick": state.pick_folder is not None,
+                "terminal": state.terminals.available, "can_pick": state.pick_folder is not None, "can_pick_file": state.pick_file is not None,
                 "recent": state.config.get("recent") or [], "client": state.config.client(), "seq": state.feed.seq}
 
     @app.get("/api/state")
@@ -302,6 +302,106 @@ def create_app(state: AppState) -> Flask:
         if target is None:
             abort(400)
         return run(pid, "an_diag", t("식 진단 {target}", target=target), target=target)
+
+    # ---- 프로젝트: 자료 작업대 · 분석 탭 -----------------------------------------------------------
+
+    VINTAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_\-]{0,60}")
+    SERIES = re.compile(r"[^\s:/\\]{1,80}")
+    AN_RECORD = re.compile(r"an:[A-Za-z0-9][A-Za-z0-9_\-]{0,120}")
+
+    def ask(pid: str, op: str, **args: Any) -> Any:
+        """작업 프로세스에 묻는다(읽기 — 작업 줄에 올리지 않는다)."""
+        try:
+            return jsonify(session(pid).worker.call(op, **args)["result"])
+        except WorkerError as exc:
+            return worker_error(exc)
+
+    @app.get("/api/p/<pid>/data")
+    def api_data(pid: str) -> Any:
+        """자료의 세 층 — 원자료와 틀 · 시리즈(만드는 법·구간·쓰는 식) · 회차 목록 · 지금 회차가 낡았는지. 계산하지 않는다."""
+        return ask(pid, "data")
+
+    @app.get("/api/p/<pid>/series")
+    def api_series(pid: str) -> Any:
+        """시리즈 하나 — 지금 회차의 값·값의 종류와 내력."""
+        name = request.args.get("name", "")
+        if not SERIES.fullmatch(name):
+            abort(400)
+        return ask(pid, "series", name=name)
+
+    @app.get("/api/p/<pid>/data/diff")
+    def api_data_diff(pid: str) -> Any:
+        """두 회차의 차이(새 기간·개정)와 바뀐 시리즈를 쓰는 식·모형. `a`·`b`가 없으면 지금 회차와 그 앞."""
+        a, b = request.args.get("a") or None, request.args.get("b") or None
+        if any(v is not None and not VINTAGE.fullmatch(v) for v in (a, b)):
+            abort(400)
+        return ask(pid, "data_diff", a=a, b=b)
+
+    @app.post("/api/p/<pid>/data/build")
+    def api_data_build(pid: str) -> Any:
+        """자료 만들기 — 새 회차(내용이 같으면 만들지 않는다). 지금 회차는 바뀌지 않는다."""
+        body()
+        return run(pid, "data_build", t("자료 만들기"))
+
+    @app.post("/api/p/<pid>/data/use")
+    def api_data_use(pid: str) -> Any:
+        """{vintage} — 이 회차로 바꾸기(`equion.toml [data] vintage`). 바뀜 기록에 남는다."""
+        vintage = pick(body(), "vintage", VINTAGE)
+        if vintage is None:
+            abort(400)
+        return run(pid, "data_use", t("회차 바꾸기 {vintage}", vintage=vintage), vintage=vintage)
+
+    @app.post("/api/p/<pid>/data/add")
+    def api_data_add(pid: str) -> Any:
+        """원자료 넣기 — `{inbox: 파일 이름}`이면 받은 상자(`DATA/raw/inbox/`)의 그 파일을, 없으면 파일 고르기 대화상자를 띄운다(창 모드).
+        `source`를 주면 그 출처가 이 파일을 읽게 한다(틀이 맞을 때만). 화면이 아무 경로나 보내 복사시키지는 못한다."""
+        data = body()
+        s = session(pid)
+        source = pick(data, "source", NAME)
+        inbox = text_arg(data, "inbox", 200)
+        from_inbox = False
+        if inbox is not None:
+            try:
+                path = s.resolve(f"DATA/raw/inbox/{inbox}")
+            except Outside:
+                abort(403)
+            if not path.is_file() or path.parent.name != "inbox":
+                abort(404, description=t("받은 상자에 없는 파일입니다: {name}", name=inbox))
+            chosen = str(path)
+            from_inbox = True
+        else:
+            if state.pick_file is None:
+                abort(501, description=t("파일 고르기는 앱 창에서만 됩니다 — 파일을 DATA/raw/inbox/ 에 놓으면 받은 상자에 뜹니다"))
+            chosen = state.pick_file()
+            if not chosen:
+                return jsonify(result=None)
+        return run(pid, "data_add", t("원자료 넣기 {name}", name=Path(chosen).name), path=chosen, source=source, inbox=from_inbox)
+
+    @app.get("/api/p/<pid>/analyses")
+    def api_analyses(pid: str) -> Any:
+        """분석 등록부 — 분석마다 대상 종류·옵션·만드는 것, 그리고 대상으로 고를 이름들. 화면의 폼이 여기서 나온다."""
+        return ask(pid, "analyses")
+
+    @app.post("/api/p/<pid>/an")
+    def api_an(pid: str) -> Any:
+        """{analysis, target, options?, smpl?, name?} — 등록부의 분석 하나를 돌려 기록(an:)을 남긴다. 옵션은 작업 프로세스가 등록부대로 가린다."""
+        data = body()
+        analysis, target = pick(data, "analysis", NAME), text_arg(data, "target", 400)
+        options = data.get("options") or {}
+        if analysis is None or target is None or not isinstance(options, dict) or len(options) > 30 or not all(
+                isinstance(k, str) and len(k) <= 40 and (v is None or isinstance(v, (str, int, float, bool))) and len(str(v)) <= 200 for k, v in options.items()):
+            abort(400)
+        return run(pid, "an", t("분석 {analysis} {target}", analysis=analysis, target=target if len(target) <= 30 else target[:28] + "…"),
+                   analysis=analysis, target=target, options=options, smpl=text_arg(data, "smpl", 60), name=pick(data, "name", NAME))
+
+    @app.post("/api/p/<pid>/an/keep")
+    def api_an_keep(pid: str) -> Any:
+        """{record, name?, replace?} — 분석 기록을 남긴다: 만드는 분석은 정의로, 부품을 내는 분석은 식 후보로. 바뀜 기록에 남는다."""
+        data = body()
+        record = pick(data, "record", AN_RECORD)
+        if record is None:
+            abort(400)
+        return run(pid, "an_keep", t("남기기 {record}", record=record), record=record, name=pick(data, "name", NAME), replace=data.get("replace") is True)
 
     @app.post("/api/p/<pid>/sim")
     def api_sim(pid: str) -> Any:

@@ -47,10 +47,12 @@ export function homeView(project) {
     for (const w of o.warnings || []) el.append(h('div', { class: 'banner warn' }, icon('alert'), h('div', {}, w)));
 
     const v = o.vintage;
+    const note = project.dataNote();
     el.append(h('div', { class: 'facts' },
-      h('div', { class: 'fact', style: { 'grid-column': 'span 2' }, title: v?.n_series ? `시리즈 ${v.n_series}개` : '' },
-        h('div', { class: 'k' }, v?.id ? ['자료 회차 ', h('span', { class: 'mono' }, v.id)] : '자료'),
-        h('div', { class: 'v' }, v?.span ? `${v.span[0]} – ${v.span[1]}` : (o.data_file || '없음'))),
+      h('button', { class: 'fact go', type: 'button', style: { 'grid-column': 'span 2' }, onclick: () => project.openTab({ type: 'data' }),
+        title: `자료 작업대를 연다 — 원자료 · 시리즈 · 회차${v?.n_series ? `\n시리즈 ${v.n_series}개` : ''}${note && note.level !== 'ok' ? `\n${note.text}` : ''}` },
+      h('div', { class: 'k' }, v?.id ? ['자료 회차 ', h('span', { class: 'mono' }, v.id)] : '자료', note && note.level !== 'ok' ? h('span', { class: `dot ${note.level}` }) : null),
+      h('div', { class: 'v' }, v?.span ? `${v.span[0]} – ${v.span[1]}` : (o.data_file || '없음'))),
       h('div', { class: 'fact' }, h('div', { class: 'k' }, '모형'), h('div', { class: 'v' }, o.models.length)),
       h('div', { class: 'fact' }, h('div', { class: 'k' }, '블록'), h('div', { class: 'v' }, o.blocks.length)),
       h('div', { class: 'fact' }, h('div', { class: 'k' }, '부품'), h('div', { class: 'v' }, nParts, h('small', {}, `추정식 ${nEq}`))),
@@ -82,7 +84,7 @@ export function homeView(project) {
     key: 'home', type: 'home', title: '개요', icon: 'home', pinned: true, el,
     desc: () => ({ type: 'home' }),
     show: render,
-    event(e) { if (['overview', 'record', 'records'].includes(e.type)) render(); },
+    event(e) { if (['overview', 'record', 'records', 'data'].includes(e.type)) render(); },
     dispose() {},
   };
 }

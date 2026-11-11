@@ -223,7 +223,7 @@ const app = {
     if (!p) { bar.append(h('span', { class: 'grow' }), h('span', { class: 'item' }, `Equion Desk ${version}`)); return; }
     const o = p.overview;
     bar.append(h('span', { class: 'item path', title: p.root }, icon('folder'), p.root));
-    if (o?.vintage?.id) bar.append(h('span', { class: 'item', title: '지금 자료 회차 — equion data use 로 바꾼다' }, '자료 ', h('b', {}, o.vintage.id)));
+    if (o?.vintage?.id) bar.append(h('button', { class: 'item', type: 'button', title: '지금 자료 회차 — 누르면 자료 작업대(원자료 · 시리즈 · 회차)', onclick: () => p.openTab({ type: 'data' }) }, '자료 ', h('b', {}, o.vintage.id)));
     if (o?.freq) bar.append(h('span', { class: 'item' }, { Q: '분기', M: '월', A: '연' }[o.freq] || o.freq));
     bar.append(h('span', { class: 'grow' }));
     if (p.error && !o) bar.append(h('span', { class: 'item bad' }, h('span', { class: 'dot bad' }), '작업 프로세스 없음'));

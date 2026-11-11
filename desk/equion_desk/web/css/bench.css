@@ -73,10 +73,10 @@ table.cand td.nc { color: var(--ink-4); }
 table.cand td.nc sup { margin-left: 1px; color: var(--warn); font-size: .8em; }
 table.cand .tag { height: 18px; padding: 0 7px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 18px; vertical-align: middle; }
 .mini { display: inline-block; margin-left: 6px; padding: 0 4px; border-radius: 3px; background: var(--canvas-2); color: var(--ink-2); font: 600 9.5px/14px var(--font-ui); vertical-align: 1px; }
-.check { display: inline-grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 1.5px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--on-accent); vertical-align: middle; }
-.check:hover:not(:disabled) { border-color: var(--accent); }
-.check[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
-.check svg.ic { width: 11px; height: 11px; stroke-width: 2.4; }
+button.check { display: inline-grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 1.5px solid var(--line-strong); border-radius: 4px; background: var(--paper); color: var(--on-accent); vertical-align: middle; }
+button.check:hover:not(:disabled) { border-color: var(--accent); }
+button.check[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+button.check svg.ic { width: 11px; height: 11px; stroke-width: 2.4; }
 @container (max-width: 900px) {
   table.cand .p4 { display: none; }
   table.cand .c-eq { width: 34%; }

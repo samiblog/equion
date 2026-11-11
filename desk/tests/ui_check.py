@@ -1,4 +1,4 @@
-"""Equion Desk 화면 점검 — 진짜 브라우저(Edge)로 화면을 몰아 D1 의 완료 기준을 확인한다.
+"""Equion Desk 화면 점검 — 진짜 브라우저(Edge)로 화면을 몰아 D1·D2a·D2b-1 의 완료 기준을 확인한다.
 
     uv run --package equion-desk --group ui python desk/tests/ui_check.py            # 점검만
     uv run --package equion-desk --group ui python desk/tests/ui_check.py --shots 폴더   # 화면 그림도 남긴다(밝은·어두운 바탕)
@@ -7,7 +7,8 @@
 (Edge 가 없으면 playwright 의 chromium 을 찾는다: `python -m playwright install chromium`). 설정 파일과 예제 프로젝트는 임시 폴더에 둔다.
 
 확인하는 것: 첫 화면 → 프로젝트 열기 → 부품을 눌러도 계산하지 않는다 → 추정이 1초 안에 화면에(S1) → 식 작업대(치는 동안의 검사 ·
-후보 목록 · 겹쳐 보기 · 기간 짚기 · **채택** · **이 후보로 과거 재현** · 항등식 검사 — D2a) → **터미널에서 친 명령의 기록이
+후보 목록 · 겹쳐 보기 · 기간 짚기 · **채택** · **이 후보로 과거 재현** · 항등식 검사 — D2a) → 자료 작업대(받은 상자 → **자료 만들기 → 견주기 →
+이 회차로 바꾸기**)와 분석 탭(등록부의 폼 · 명령 줄 · **미리보기 → 정의로 남기기** — D2b-1) → **터미널에서 친 명령의 기록이
 띠에 뜨고 카드로 열린다** → 전망과 작업 줄 → 밖에서 고친 정의 파일의 바뀜 알림과 차이 → **닫았다 열면 이어진다** → 어두운 바탕.
 서버·작업 프로세스 시험은 `test_app.py`, 이 파일은 화면까지 이어 본다(pytest 가 모으지 않는다 — 브라우저가 있어야 한다).
 """
@@ -260,6 +261,125 @@ def run(shots: str | None) -> int:
                 page.wait_for_selector(f"{pane} .tag.ok:has-text('실측과 맞습니다')")
                 check("B14 항등식은 추정하지 않고 실측으로 검사한다", page.locator(f"{pane} .eq-box").count() == 0)
 
+                print("A. 자료 작업대 · 분석(D2b)")
+                first = page.inner_text("#status button.item b")
+                # 정의의 글만 고쳤다(값은 같다) — 바뀌었다고 알리되, 만들어 보아 값이 같으면 같은 것을 다시 권하지 않는다
+                with open(os.path.join(folder, "DATA", "series.toml"), "a", encoding="utf-8", newline="\n") as f:
+                    f.write("\n# 값과 무관한 주석 한 줄\n")
+                page.wait_for_selector(f"{active} .notice[data-change]", timeout=20000)
+                page.click(f"{active} .notice[data-change] .icon-btn")
+                page.click(f"{active} .side .row-item[data-key='data']")
+                page.wait_for_selector(f"{pane} .banner.warn")
+                told = page.inner_text(f"{pane} .banner.warn")
+                page.click(f"{pane} .banner.warn .btn")            # 자료 만들기 — 값이 같아 새 회차가 생기지 않는다
+                page.wait_for_selector(f"{pane} .banner.ok")
+                page.click(f"{pane} .flow-card >> nth=2")
+                check("A0 정의의 글만 고치면 '바뀐 것이 있습니다'(무엇이 바뀌었는지) → 만들어 보아 값이 같으면 회차는 그대로이고 다시 권하지 않는다",
+                      "series.toml" in told and page.locator(f"{pane} .vint").count() == 1 and first in page.inner_text(f"{pane} .banner.ok")
+                      and page.locator(f"{active} .side .row-item[data-key='data'] .dot").count() == 0, told)
+                page.click(f"{pane} .flow-card >> nth=1")
+                # 새 분기 자료가 받은 상자에 왔다 — 한 분기가 늘고 지난 분기의 값 하나가 고쳐졌다(개정)
+                with open(os.path.join(folder, "DATA", "raw", "toy_q.csv"), encoding="utf-8") as f:
+                    lines = f.read().rstrip("\n").split("\n")
+                cells = lines[-2].split(",")
+                cells[1] = f"{float(cells[1]) * 1.02:.4f}"
+                lines[-2] = ",".join(cells)
+                lines.append(",".join(["2020Q1"] + [f"{float(v) * 1.01:.4f}" for v in lines[-1].split(",")[1:]]))
+                os.makedirs(os.path.join(folder, "DATA", "raw", "inbox"), exist_ok=True)
+                with open(os.path.join(folder, "DATA", "raw", "inbox", "toy_q_2026-12.csv"), "w", encoding="utf-8", newline="\n") as f:
+                    f.write("\n".join(lines) + "\n")
+                page.wait_for_selector(f"{pane} .banner:has-text('받은 상자')", timeout=20000)      # 폴더가 바뀐 것을 알아채고 다시 읽는다
+                page.wait_for_selector(f"{pane} table.series tr.row")
+                check("A1 자료 작업대 — 세 층(원자료 → 시리즈 → 회차)과 지금 할 일 한 줄, 시리즈 목록",
+                      page.locator(f"{pane} .flow-card").count() == 3 and page.locator(f"{pane} table.series tr.row").count() == 13
+                      and "받은 상자에 새 파일 1개" in page.inner_text(f"{pane} .banner") and first in page.inner_text(f"{pane} .flow-card >> nth=2"))
+                page.fill(f"{pane} .find", "금리")
+                found = page.locator(f"{pane} table.series tr.row").all_inner_texts()
+                check("A2 이름·설명으로 시리즈를 찾는다", 0 < len(found) < 13 and all("금리" in x for x in found), str(found))
+                page.fill(f"{pane} .find", "")
+                page.click(f"{pane} table.series tr.row:has(b:text-is('CNSA'))")
+                page.wait_for_selector(f"{pane} .series-detail .fit svg")
+                check("A3 시리즈를 누르면 내력(원자료 → 열 → 계절조정 → 시리즈)과 차트 — 원자료 값과 겹쳐 보인다",
+                      page.locator(f"{pane} .lineage .stepchip").count() == 4 and page.locator(f"{pane} .series-detail .legend .key").count() == 2
+                      and "계절조정" in page.inner_text(f"{pane} .lineage"), page.inner_text(f"{pane} .lineage"))
+                page.wait_for_timeout(300)
+                shot(page, "03a-data")
+                page.click(f"{pane} .banner .btn")                 # 받은 상자 보기
+                page.wait_for_selector(f"{pane} .inbox-item")
+                check("A4 원자료 — 정의가 읽는 파일마다 틀(주기·구간·열)과 읽는 시리즈, 받은 상자의 파일과 짝지은 원자료",
+                      page.locator(f"{pane} .source").count() == 2 and "1970Q1~2019Q4" in page.inner_text(f"{pane} .source >> nth=0")
+                      and "na 의 새 파일" in page.inner_text(f"{pane} .inbox-item"), page.inner_text(f"{pane} .inbox-item"))
+                page.click(f"{pane} .inbox-item .btn.primary")
+                page.wait_for_selector(f"{pane} .banner.warn")
+                check("A5 받은 파일을 넣으면 받은 상자가 비고 '자료 만들기'를 권한다(저절로 만들지 않는다)",
+                      page.locator(f"{pane} .inbox-item").count() == 0 and "toy_q_2026-12.csv" in page.inner_text(f"{pane} .source >> nth=0")
+                      and "원자료 na" in page.inner_text(f"{pane} .banner.warn") and first in page.inner_text("#status"))
+                page.click(f"{pane} .banner.warn .btn")            # 자료 만들기
+                page.wait_for_selector(f"{pane} .diffbox table")
+                box = page.inner_text(f"{pane} .diffbox")
+                check("A6 자료 만들기 — 새 회차가 생기고(지금 회차는 그대로) 달라진 값과 그것을 쓰는 식을 보인다",
+                      page.locator(f"{pane} .vint").count() == 2 and "지금" in page.inner_text(f"{pane} .vint.now") and first in page.inner_text(f"{pane} .vint.now")
+                      and "2020Q1" in box and "개정" in box and "demand:CN" in box and "준비돼" in page.inner_text(f"{pane} .banner"), box[:300])
+                shot(page, "03b-vintages")
+                second = page.get_attribute(f"{pane} .vint:not(.now)", "data-vintage")
+                page.click(f"{pane} .vint [data-act='use']")
+                page.wait_for_selector(".dialog")
+                dialog = page.inner_text(".dialog")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{pane} .banner.ok")
+                check("A7 이 회차로 바꾸기 — 설정의 어느 줄이 바뀌는지와 다시 추정·풀기는 따로임을 먼저 보이고, 바꾸면 상태줄의 회차가 바뀐다",
+                      f'vintage = "{second}"' in dialog and "따로" in dialog and second in page.inner_text("#status")
+                      and second in page.inner_text(f"{pane} .vint.now"), dialog[:300])
+                page.click(f"{pane} .vint[data-vintage='{first}'] [data-act='use']")
+                page.wait_for_selector(".dialog")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{pane} .vint.now[data-vintage='{first}']")
+                check("A8 옛 회차로 되돌아갈 수 있다 — 새 회차는 그대로 남아 '준비돼 있다'고 알린다",
+                      first in page.inner_text("#status") and "준비돼" in page.inner_text(f"{pane} .banner") and page.locator(f"{pane} .vint").count() == 2)
+
+                page.click(f"{active} .side .row-item[data-key='analysis']")
+                page.wait_for_selector(f"{pane} .an-row")
+                check("A9 분석 — 등록부의 분석이 갈래마다 한 줄씩(무엇을 만드는 분석인지와 함께)",
+                      page.locator(f"{pane} .an-row").count() >= 13 and page.locator(f"{pane} .an-row .tag").count() >= 5)
+                page.click(f"{pane} .an-row[data-analysis='unitroot']")
+                page.click(f"{pane} .pick-row .pc:text-is('core')")
+                page.select_option(f"{pane} [data-opt='trend']", "ct")
+                preview = page.inner_text(f"{pane} .an-form .cmdline .cmd")
+                page.keyboard.press("Control+Enter")
+                page.wait_for_selector(f"{pane} .an-out .doc h2")
+                rid = page.inner_text(f"{pane} .an-out .result-head .rid")
+                check("A10 대상과 옵션을 고르면 같은 일을 하는 명령이 그대로 보이고, 실행한 기록의 명령과 글자까지 같다",
+                      preview == "equion an unitroot core --trend ct" and preview in page.text_content(f"{pane} .an-out .doc")
+                      and rid.startswith("an:unitroot_") and "단위근" in page.inner_text(f"{pane} .an-out .doc"), preview)
+                page.wait_for_timeout(300)
+                shot(page, "03c-analysis")
+                page.click(f"{active} .side .row-item[data-key='data']")
+                page.click(f"{pane} .flow-card >> nth=1")
+                if page.locator(f"{pane} table.series tr.row.open").count():
+                    page.click(f"{pane} table.series tr.row.open")           # 펼쳐 둔 줄을 접는다
+                page.click(f"{pane} table.series tr.row:has(b:text-is('CN'))")
+                page.click(f"{pane} .detail-foot .btn:has-text('계절조정')")
+                page.wait_for_selector(f"{pane} [data-act='keep']", timeout=30000)
+                check("A11 시리즈의 '계절조정' — 분석 탭이 그 시리즈로 열려 미리보기를 돌린다(아직 아무것도 바뀌지 않는다)",
+                      page.input_value(f"{pane} .an-target") == "CN" and "미리보기" in page.inner_text(f"{pane} .an-out .banner")
+                      and "CN_SA" not in open(os.path.join(folder, "DATA", "series.toml"), encoding="utf-8").read())
+                page.click(f"{pane} [data-act='keep']")
+                page.wait_for_selector(".dialog")
+                page.fill(".dialog input[type=text]", "CN_SA")
+                line = page.inner_text(".dialog .diff")
+                shot(page, "03d-keep")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{pane} .an-out .banner.ok")
+                check("A12 정의로 남기기 — 어느 파일에 무엇이 적히는지 먼저 보이고, 남기면 series.toml 에 적힌다(알림 카드는 띄우지 않는다)",
+                      "[series.CN_SA]" in line and "[series.CN_SA]" in open(os.path.join(folder, "DATA", "series.toml"), encoding="utf-8").read()
+                      and page.locator(f"{active} .notice[data-change]").count() == 0, line)
+                page.click(f"{pane} .an-out .banner.ok .btn")       # 자료 작업대로
+                page.wait_for_selector(f"{pane} .banner.warn")
+                page.wait_for_selector(f"{pane} table.series tr.row:has(b:text-is('CN_SA'))")
+                check("A13 남긴 정의가 자료 작업대에 보인다 — 아직 회차에 없다고 표시하고 '자료 만들기'를 권한다",
+                      "회차에 없음" in page.inner_text(f"{pane} table.series tr.row:has(b:text-is('CN_SA'))")
+                      and "series.toml" in page.inner_text(f"{pane} .banner.warn") and page.locator(f"{pane} table.series tr.row").count() == 14)
+
                 print("W. 터미널에서 친 명령의 기록이 띠에 뜨고 카드로 열린다(D1 완료 기준)")
                 typed = page.locator(f"{active} .term-body .xterm").count() > 0
                 before = page.locator("#strip .chip").count()
@@ -337,6 +457,18 @@ def run(shots: str | None) -> int:
                 check("Y3 사이드바의 고른 탭(파일)도 그대로", page.locator(f"{active} .side-tabs [data-side='files']").get_attribute("aria-selected") == "true")
                 check("Y4 어두운 바탕 — 운영체제 설정을 따른다", page.evaluate("document.documentElement.dataset.theme") == "dark")
                 shot(page, "07-dark")
+                page.click(f"{active} .side-tabs [data-side='parts']")
+                page.click(f"{active} .side .row-item[data-key='data']")
+                page.wait_for_selector(f"{pane} table.series tr.row")
+                page.wait_for_timeout(300)
+                shot(page, "08-data-dark")
+                page.click(f"{active} .side .row-item[data-key='analysis']")
+                page.wait_for_selector(f"{pane} .an-form")
+                check("Y6 자료 작업대와 분석 탭도 이어진다 — 보던 분석 기록과 폼이 그대로",
+                      page.input_value(f"{pane} .an-target") == "CN" and page.locator(f"{pane} .an-out .result-head .rid").count() == 1)
+                page.wait_for_timeout(300)
+                shot(page, "09-analysis-dark")
+                page.click(f"{active} .side-tabs [data-side='files']")
                 page.click("#btn-settings")
                 page.click(".popover .segmented button >> nth=1")
                 check("Y5 설정에서 바탕을 바꾸면 바로 바뀐다", page.evaluate("document.documentElement.dataset.theme") == "light")

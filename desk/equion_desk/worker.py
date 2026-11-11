@@ -22,7 +22,7 @@ import threading
 import time
 from typing import Any
 
-from . import jobs, runtime
+from . import dataops, jobs, runtime
 from .records import read_series
 
 START_WAIT = 60.0     # 프로세스가 뜨고 equion을 불러올 때까지 기다리는 시간(초) — 느린 디스크·보안 프로그램
@@ -232,13 +232,44 @@ def _ops(holder: _Project) -> dict[str, Any]:
         rec = holder.get().sim(scenario, model=model, who="desk", command=_command("sim", scenario, *(["--model", model] if model else [])))
         return rec.to_dict()
 
+    # ---- 자료 작업대 · 분석 탭(dataops.py) ---------------------------------------------------------
+
+    def data() -> dict:
+        return dataops.overview(holder.get())
+
+    def series(name: str) -> dict:
+        return dataops.series(holder.get(), name)
+
+    def data_build() -> dict:
+        return dataops.build(holder.get())
+
+    def data_use(vintage: str) -> dict:
+        return dataops.use(holder.get(), vintage)
+
+    def data_diff(a: str | None = None, b: str | None = None) -> dict:
+        return dataops.diff(holder.get(), a, b)
+
+    def data_add(path: str, source: str | None = None, name: str | None = None, inbox: bool = False) -> dict:
+        return dataops.add(holder.get(), path, source, name, inbox=inbox)
+
+    def analyses() -> dict:
+        return dataops.analyses(holder.get())
+
+    def an(analysis: str, target: str, options: dict | None = None, smpl: str | None = None, name: str | None = None) -> dict:
+        return dataops.run_analysis(holder.get(), analysis, target, options, smpl, name)
+
+    def an_keep(record: str, name: str | None = None, replace: bool = False) -> dict:
+        return dataops.keep(holder.get(), record, name, replace)
+
     def scan() -> dict | None:
         """명령 밖에서 고친 정의 파일을 '바깥' 바뀜으로 적는다(K7). 바뀐 것이 없으면 None."""
         change = holder.get().history.scan()
         return {"id": change.id, "files": list(change.files)} if change is not None else None
 
     return {"ping": ping, "parts": parts, "overview": overview, "est": est, "check": check, "ident": ident, "adopt": adopt,
-            "hs": hs, "hs_swap": hs_swap, "an_diag": an_diag, "sim": sim, "scan": scan}
+            "hs": hs, "hs_swap": hs_swap, "an_diag": an_diag, "sim": sim, "scan": scan,
+            "data": data, "series": series, "data_build": data_build, "data_use": data_use, "data_diff": data_diff, "data_add": data_add,
+            "analyses": analyses, "an": an, "an_keep": an_keep}
 
 
 def _plain(value: Any) -> Any:
