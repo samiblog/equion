@@ -158,6 +158,15 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
         sp.add_argument("--json", action="store_true", help="결과를 JSON으로")
 
+    dk = sub.add_parser("desk", help="Equion Desk(데스크톱 앱)에 알린다 — 떠 있는 앱이 그 화면을 연다")
+    dksub = dk.add_subparsers(dest="desk_command", metavar="동작")
+    dksub.required = True
+    dks = dksub.add_parser("show", help="앱에서 그 화면을 연다 — 화면 이동만(계산하거나 바꾸지 않는다)")
+    dks.add_argument("name", metavar="이름", help="기록(est:… · hs:… · sim:… · an:… · run:…) · 제안(prop:…) · 자료 회차(data:…) · 부품(블록:목표) · "
+                                                  "모형(model:이름) · 파일 경로 · home·data·analysis·forecast·reports·records·changes·proposals")
+    dks.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
+    dks.add_argument("--json", action="store_true", help="결과를 JSON으로")
+
     vw = sub.add_parser("view", help="프로젝트의 보기(VIEWS/*.toml) — 어느 시리즈를 어떤 모양으로 볼지")
     vsub = vw.add_subparsers(dest="view_command", metavar="동작")
     vsub.required = True
@@ -620,6 +629,21 @@ def cmd_assemble(args) -> int:
 
 
 @_summary_quiet
+def cmd_desk(args) -> int:
+    """equion desk show — Equion Desk에 그 화면을 열어 달라고 알린다(요청 파일에 한 줄)."""
+    from ..projects import ProjectError
+    from ..work.store import detect_who
+    try:
+        res = _open_project(args.project).desk_show(args.name, who=detect_who("terminal"))
+    except (ProjectError, KeyError, ValueError) as e:
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
+        return EXIT_INPUT
+    print(json.dumps(res, ensure_ascii=False, indent=2) if args.json
+          else f"[desk show] {res['show']} — Equion Desk에 알렸습니다(이 프로젝트를 열어 둔 앱이 그 화면을 엽니다)")
+    return EXIT_OK
+
+
+@_summary_quiet
 def cmd_view(args) -> int:
     """equion view list · equion view define — 보기(VIEWS/*.toml)."""
     from ..projects import ProjectError
@@ -882,6 +906,8 @@ def _main(argv) -> int:
             return cmd_define(args)
         if args.command == "view":
             return cmd_view(args)
+        if args.command == "desk":
+            return cmd_desk(args)
         if args.command == "data":
             return cmd_data(args)
         from .workcmds import COMMANDS, dispatch

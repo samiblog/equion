@@ -175,6 +175,15 @@ def _main(tmp, t0):
     check("같은 내용으로 쓰면 기록 없음", h.write_files({"EQUATIONS/b.txt": "CN c Y CN(-1)\n"}, "terminal", "x") is None)
     check("없는 바뀜", raises(lambda: h.get("h0999"), KeyError, "없는 바뀜"))
     check("글·사전", "바깥" in h.get("h0001").text() and h.get("h0002").to_dict()["note"] == "메모")
+    c4 = h.write_files({"EQUATIONS/b.txt": "CN c Y\n", "EQUATIONS/c.txt": "I c Y\n"}, "claude", "두 파일을 함께 고침")
+    c5 = h.revert(c4.id, "desk", files=["EQUATIONS/c.txt"])
+    check("되돌리기(파일 하나만): 고른 파일만 앞 내용으로 — 다른 파일은 그대로, 무엇을 물렸는지 메모에 남는다",
+          not os.path.exists(os.path.join(hr, "EQUATIONS", "c.txt")) and read(os.path.join(hr, "EQUATIONS", "b.txt")) == "CN c Y\n"
+          and list(c5.files) == ["EQUATIONS/c.txt"] and c5.reverts == c4.id and "EQUATIONS/c.txt만" in c5.note)
+    n_hist = len(h.list())
+    check("되돌리기(파일 하나만): 그 바뀜이 고친 파일이 아니면 KeyError — 아무것도 쓰지 않는다",
+          raises(lambda: h.revert(c4.id, "desk", files=["EQUATIONS/zz.txt"]), KeyError, "고친 파일이 아닙니다") and len(h.list()) == n_hist
+          and h.revert(c4.id, "desk", files=["EQUATIONS/c.txt"]) is None)
 
     print("=" * 80)
     print("C. md 렌더러")
@@ -430,6 +439,15 @@ def _main(tmp, t0):
     check("없는 기록(3)", code == 3 and "없는 기록" in err)
     code, _, err = run(["history", "show", "h0999"], dc)
     check("없는 바뀜(3)", code == 3 and "없는 바뀜" in err)
+    pc = quiet(Project.open, dc)
+    two = pc.history.write_files({"EQUATIONS/demand.txt": read(os.path.join(dc, "EQUATIONS", "demand.txt")) + "# 메모\n",
+                                  "SCENARIOS/x1.toml": 'desc = "x"\n'}, "claude", "두 파일")
+    code, out, _ = run(["history", "revert", two.id, "--file", "SCENARIOS/x1.toml", "--json"], dc)
+    j = json.loads(out) if code == 0 else {}
+    code2, _, err2 = run(["history", "revert", two.id, "--file", "equion.toml"], dc)
+    check("history revert --file: 그 파일만 되돌린다(0) · 그 바뀜이 고친 파일이 아니면 3",
+          list(j.get("files") or {}) == ["SCENARIOS/x1.toml"] and j.get("reverts") == two.id and not os.path.exists(os.path.join(dc, "SCENARIOS", "x1.toml"))
+          and read(os.path.join(dc, "EQUATIONS", "demand.txt")).endswith("# 메모\n") and code2 == 3 and "고친 파일이 아닙니다" in err2, out[:200] + err2[:200])
     code, _, _ = run(["work"], dc)
     check("work: 동작 없음(3)", code == 3)
 

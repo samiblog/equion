@@ -350,7 +350,10 @@ Lectern·GitHub·편집기에서 표와 차트째 읽힙니다.
 
 바뀜 기록에 남는 파일은 `equion.toml` · 블록 파일 · `EQUATIONS/adopted.toml` · `DATA/series.toml`·`derived.txt` · `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` · `VIEWS/` ·
 `notes/` · `reports/` · `FLOWS/*.eqs`입니다. 스크립트 안에서 바뀌면 `change.json`의 `run`에 그 실행 이름이 남습니다.
-되돌리기(`history revert`)는 이전 내용으로 다시 쓰는 것이고 그것도 기록에 남습니다.
+되돌리기(`history revert`)는 이전 내용으로 다시 쓰는 것이고 그것도 기록에 남습니다. `--file 경로`를 주면 그 바뀜이 고친 파일 가운데 그것만 되돌립니다.
+
+`work/desk/requests.jsonl`은 Equion Desk(데스크톱 앱)에 알리는 줄입니다 — `equion desk show <이름>`이 `{"at", "who", "show", "kind"}` 한 줄을 덧붙이고,
+그 프로젝트를 열어 둔 앱이 새 줄을 보고 그 화면을 엽니다(`kind`는 record·proposal·data·part·model·file·place). 기록이 아니라 신호라서 커지면 지난 줄을 버립니다.
 
 ## 스크립트(`FLOWS/*.eqs`)와 실행 기록(`work/run/`)
 

@@ -225,11 +225,21 @@ class History:
         return Change(m["id"], m["created"], m["who"], m["how"], m.get("note", ""), m["files"],
                       diff.decode("utf-8", "replace"), os.path.join(self.base, cid), m.get("reverts"), m.get("run"))
 
-    def revert(self, cid: str, who: str, how: str = None) -> Optional[Change]:
-        """그 바뀜 앞의 내용으로 되돌린다(그 뒤에 같은 파일이 또 바뀌었어도 — 지금 내용과의 차이가 새 바뀜으로 남는다)."""
+    def revert(self, cid: str, who: str, how: str = None, files: List[str] = None) -> Optional[Change]:
+        """그 바뀜 앞의 내용으로 되돌린다(그 뒤에 같은 파일이 또 바뀌었어도 — 지금 내용과의 차이가 새 바뀜으로 남는다).
+        files를 주면 그 바뀜이 고친 파일 가운데 그것만 되돌린다(파일 여럿을 고친 바뀜에서 하나만 물릴 때). 그 바뀜에 없는 파일이면 KeyError."""
         ch = self.get(cid)
+        want = None
+        if files:
+            want = [str(f).replace(os.sep, "/") for f in files]
+            missing = [f for f in want if f not in ch.files]
+            if missing:
+                raise KeyError(f"{cid}이(가) 고친 파일이 아닙니다: {', '.join(missing)} (고친 파일: {', '.join(ch.files)})")
         new = {}
         for rel, v in ch.files.items():
+            if want is not None and rel not in want:
+                continue
             b = _read(os.path.join(ch.path, "before", rel))
             new[rel] = None if v["op"] == "added" else b
-        return self.write_files(new, who, how or f"history revert {cid}", note=f"{cid} 되돌리기", reverts=cid)
+        return self.write_files(new, who, how or f"history revert {cid}",
+                                note=f"{cid} 되돌리기" + (f"({', '.join(want)}만)" if want is not None else ""), reverts=cid)

@@ -3782,6 +3782,7 @@ s[:4].round(6).tolist()
 | [`data_define`](#projectdata_define) | `(source, file=None, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, desc=None, series=None, replace=False, who=None, command=None)` | 자료 정의 쓰기 — `series.toml`에 출처(`[source.이름]` = 불러오기 틀)와 시리즈(`[series.이름]`)를 더하거나 고친다. 쓰기 전에 새 내용 전체와, 그 틀로 원자료를 읽어 시리즈가 쓰는 열이 다 있고 변환이 되는지 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 사람이 쓴 주석·순서는 그대로 두고(tomlkit) 바뀜 기록에 남긴다. 자료는 만들지 않는다 — 이어서 `data_build`, `data_use`. |
 | [`model_define`](#projectmodel_define) | `(name, blocks=None, include=None, exclude=None, desc=None, who=None, command=None)` | 모형 정의 쓰기 — `equion.toml`의 `[model.이름]`을 더하거나 고친다(블록·끼울 모형·뺄 식·설명). 준 것만 바꾸고(None은 그대로, 빈 목록·빈 글은 그 키를 지움), 쓰기 전에 새 설정 전체를 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 주석·순서는 그대로 두고 바뀜 기록에 남긴다. 조립은 하지 않는다 — 이어서 `assemble`. |
 | [`block_define`](#projectblock_define) | `(name, file=None, desc=None, who=None, command=None)` | 블록 더하기 — `equion.toml`의 `[block]`에 블록(방정식 파일 하나)을 더하거나 설명을 고친다. 새 블록의 파일이 아직 없으면 머리 주석만 있는 빈 블록 파일을 함께 만든다(file을 주지 않으면 `EQUATIONS/<이름>.txt`). 바뀜 기록에 남긴다. 식은 그 파일에 한 줄에 하나씩 적고, 모형에는 `model_define`으로 넣는다. |
+| [`desk_show`](#projectdesk_show) | `(name, who=None)` | Equion Desk(데스크톱 앱)에 "이 화면을 열어 달라"고 알린다 — 화면 이동만 하고 아무것도 계산하거나 바꾸지 않는다. |
 | [`views`](#projectviews) | `()` | 저장한 보기(`VIEWS/*.toml`) — 어느 시리즈를 어떤 모양으로 볼지(이름순). 보기마다 name·title·series·show·range·file. |
 | [`view_define`](#projectview_define) | `(name, series=None, show=None, title=None, range=None, who=None, command=None)` | 보기 저장 — `VIEWS/이름.toml`에 시리즈와 보이기(level·qoq·yoy·annual·diff)·제목·구간을 적는다. 준 것만 바꾸고(None은 그대로, 빈 글은 그 키를 지움), 시리즈 이름이 자료에 있는지 본 뒤 쓴다. 바뀜 기록에 남긴다. 보기는 결과를 만들지 않는다 — 과거 재현·전망· 시나리오의 결과를 같은 시리즈·같은 모양으로 다시 보는 데 쓴다. |
 | [`parts`](#projectparts) | `(name=None)` | 부품(식·항등식) 목록 — name이 없으면 전부, 블록 이름이면 그 블록, 모형 이름이면 조립된 식들. |
@@ -4185,6 +4186,42 @@ r.new, r.files, "labor" in p.config.blocks
 관련  
 ```text
 model_define · parts
+```
+
+### Project.desk_show
+
+`desk_show(name, who=None)`
+
+Equion Desk(데스크톱 앱)에 "이 화면을 열어 달라"고 알린다 — 화면 이동만 하고 아무것도 계산하거나 바꾸지 않는다.
+
+이름을 확인한 뒤 `work/desk/requests.jsonl`에 한 줄을 덧붙인다. 이 프로젝트를 열어 둔 앱이 그 줄을 보고 화면을 연다(앱이 떠 있지 않으면  
+아무 일도 일어나지 않는다). Claude가 방금 만든 기록·제안을 사람 앞에 띄울 때 쓴다.  
+
+**매개변수**
+
+- `name`: 기록(`est:…`·`hs:…`·`sim:…`·`an:…`·`run:…`) · 제안(`prop:p1`) · 자료 회차(`data:d2026-11a`) · 부품(`demand:CN`) · 모형(`model:main`) · 프로젝트 안의 파일 경로 · 화면 이름(home·data·analysis·forecast·reports·records·changes·proposals)
+
+**돌려주는 것**
+
+사전 — show(이름) · kind(record·proposal·data·part·model·file·place) · file(요청 파일)  
+
+**오류**
+
+- `ProjectError`: 없는 기록·제안·부품·모형·파일(아무것도 쓰지 않음)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.desk_show("demand:CN")["kind"], p.desk_show("model:main")["kind"], p.desk_show("forecast")["kind"]
+# ('part', 'model', 'place')
+```
+
+관련  
+```text
+propose · history
 ```
 
 ### Project.views
@@ -5338,7 +5375,7 @@ s.result.id, s.result.exit_code, [x.status for x in s.result.steps]
 | `write_files` | `(new, who, how, note='', reverts=None)` | 정의 파일을 고치고 바뀜 기록을 남긴다 — new: {경로: 새 내용(None이면 지움)}. 먼저 바깥 바뀜을 따로 적는다. |
 | `list` | `()` | 바뀜 기록(오래된 것부터). |
 | `get` | `(cid)` | 바뀜 하나. |
-| `revert` | `(cid, who, how=None)` | 그 바뀜 앞의 내용으로 되돌린다(그 뒤에 같은 파일이 또 바뀌었어도 — 지금 내용과의 차이가 새 바뀜으로 남는다). |
+| `revert` | `(cid, who, how=None, files=None)` | 그 바뀜 앞의 내용으로 되돌린다(그 뒤에 같은 파일이 또 바뀌었어도 — 지금 내용과의 차이가 새 바뀜으로 남는다). files를 주면 그 바뀜이 고친 파일 가운데 그것만 되돌린다(파일 여럿을 고친 바뀜에서 하나만 물릴 때). 그 바뀜에 없는 파일이면 KeyError. |
 
 ## 51. 바뀜 하나 `p.history.get(…)`
 
@@ -5437,6 +5474,7 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `assemble` | --help --json --project | 프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수) |
 | `model` | --help | 프로젝트의 모형 정의 — equion.toml의 [model.이름]을 더하거나 고친다 |
 | `block` | --help | 프로젝트의 블록 — equion.toml의 [block]에 블록(방정식 파일 하나)을 더하거나 고친다 |
+| `desk` | --help | Equion Desk(데스크톱 앱)에 알린다 — 떠 있는 앱이 그 화면을 연다 |
 | `view` | --help | 프로젝트의 보기(VIEWS/*.toml) — 어느 시리즈를 어떤 모양으로 볼지 |
 | `ident` | --check --help --json --project --range --strict --tol | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |
 | `data` | --help | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 |

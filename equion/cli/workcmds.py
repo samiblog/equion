@@ -129,6 +129,7 @@ def add_parsers(sub):
     hs_.add_argument("change", metavar="h0001")
     hr = _common(hsub.add_parser("revert", help="그 바뀜 앞의 내용으로 되돌린다(이것도 바뀜 기록에 남는다)"))
     hr.add_argument("change", metavar="h0001")
+    hr.add_argument("--file", action="append", metavar="경로", help="그 바뀜이 고친 파일 가운데 이것만 되돌린다(여러 번 쓸 수 있다)")
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +431,7 @@ def _history(p, args, who, cmdline):
     if act == "show":
         c = h.get(args.change)
         return c.to_dict() if args.json else c.text() + "\n" + (c.diff.rstrip() or "(차이 없음)")
-    c = h.revert(args.change, who, how=cmdline)
+    c = h.revert(args.change, who, how=cmdline, files=args.file)
     p._reset()
     if c is None:
         return {"change": None} if args.json else f"[history revert] {args.change} — 지금 내용이 이미 그 앞과 같습니다(바꾼 것 없음)"

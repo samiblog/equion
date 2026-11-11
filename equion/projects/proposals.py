@@ -20,7 +20,7 @@ import shutil
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from ..work.store import WORK_DIR, WHO_KO, dumps, now_iso
+from ..work.store import WORK_DIR, WHO_KO, dumps, move_into_place, now_iso
 from .config import ProjectError
 from .records import ADOPTED, _who, history_of, replace_line, store_of
 
@@ -257,7 +257,7 @@ def new(p, name: str = None, title: str = "", why: str = "", parts: Dict[str, st
             "files": meta_files, "parts": shown, "previews": list(previews), "decided": None}
     with open(os.path.join(tmp, "proposal.json"), "w", encoding="utf-8", newline="\n") as f:
         f.write(dumps(meta))
-    os.replace(tmp, d)
+    move_into_place(tmp, d)          # 폴더 감시(Desk·백신·색인)가 잠깐 쥐고 있어도 기다렸다 옮긴다
     prop = Proposal(p.root, name, meta)
     _save(prop)
     return prop

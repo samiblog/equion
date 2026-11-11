@@ -472,7 +472,8 @@ def _write_vintage(defs, df, fl, meta, implicit, equion_version, now) -> BuildRe
         with open(os.path.join(tmp, fn), "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
     final = os.path.join(base, vid)
-    os.replace(tmp, final)
+    from ..work.store import move_into_place
+    move_into_place(tmp, final)      # 폴더 감시(Desk·백신·색인)가 잠깐 쥐고 있어도 기다렸다 옮긴다
     return BuildResult(vid, final, True, len(df.columns), span, implicit)
 
 

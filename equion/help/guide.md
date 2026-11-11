@@ -14,6 +14,7 @@
    여러 파일은 제안(`equion propose new … ` → 사람이 `propose apply`). 명령이 없는 고침(블록 파일에 새 식, `series.toml`의 새 시리즈)은
    사람이 시켰을 때만 직접 고치고 — 다음 명령 때 '바깥' 바뀜으로 바뀜 기록에 남는다 — 무엇을 고쳤는지 말한다.
 5. **"제안만"이면 파일을 고치지 않는다** — `equion propose new --title … --why "근거 기록…" --part 부품=est:… --preview hs:…`.
+   사람이 Equion Desk를 쓰고 있으면 `equion desk show prop:p3`(또는 기록·부품·모형·파일 이름)으로 그 화면을 사람 앞에 띄운다 — 화면 이동만 한다.
 6. **거른 후보도 기록으로 남긴다.** 후보 식은 `equion est "식" --for 부품`으로 기록하고 `compare`로 견준다. 말로만 버리지 않는다.
 7. **돌리기 전에 미리 본다.** 스크립트는 `equion check x.eqs` → `equion run x.eqs --dry-run` → `equion run x.eqs`. 원자료를 넣기 전엔 `equion data inbox`.
 8. **짧은 글을 읽는다.** 명령의 출력은 짧은 글이 기본이다. 필요한 것만 `--json`·`work show 기록 --json`·기록 폴더의 CSV로 더 본다(문맥을 아낀다).
@@ -53,6 +54,7 @@
 | `assemble` | 프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수) |  |
 | `model` | 프로젝트의 모형 정의 — equion.toml의 [model.이름]을 더하거나 고친다 | define |
 | `block` | 프로젝트의 블록 — equion.toml의 [block]에 블록(방정식 파일 하나)을 더하거나 고친다 | define |
+| `desk` | Equion Desk(데스크톱 앱)에 알린다 — 떠 있는 앱이 그 화면을 연다 | show |
 | `view` | 프로젝트의 보기(VIEWS/*.toml) — 어느 시리즈를 어떤 모양으로 볼지 | list · define |
 | `ident` | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |  |
 | `data` | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 | list · add · build · inbox · preview · define · use · diff · impact |

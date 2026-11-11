@@ -567,6 +567,34 @@ class Project:
         self._reset()
         return ConfigChange("block", name, new, [rel] if create else [], ch.id if ch else None)
 
+    def desk_show(self, name: str, who: str = None) -> dict:
+        """Equion Desk(데스크톱 앱)에 "이 화면을 열어 달라"고 알린다 — 화면 이동만 하고 아무것도 계산하거나 바꾸지 않는다.
+
+        이름을 확인한 뒤 `work/desk/requests.jsonl`에 한 줄을 덧붙인다. 이 프로젝트를 열어 둔 앱이 그 줄을 보고 화면을 연다(앱이 떠 있지 않으면
+        아무 일도 일어나지 않는다). Claude가 방금 만든 기록·제안을 사람 앞에 띄울 때 쓴다.
+
+        매개변수
+            name: 기록(`est:…`·`hs:…`·`sim:…`·`an:…`·`run:…`) · 제안(`prop:p1`) · 자료 회차(`data:d2026-11a`) · 부품(`demand:CN`) ·
+                  모형(`model:main`) · 프로젝트 안의 파일 경로 · 화면 이름(home·data·analysis·forecast·reports·records·changes·proposals)
+
+        돌려주는 것
+            사전 — show(이름) · kind(record·proposal·data·part·model·file·place) · file(요청 파일)
+
+        오류
+            ProjectError: 없는 기록·제안·부품·모형·파일(아무것도 쓰지 않음)
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> p.desk_show("demand:CN")["kind"], p.desk_show("model:main")["kind"], p.desk_show("forecast")["kind"]
+            ('part', 'model', 'place')
+
+        관련
+            propose · history
+        """
+        from .deskreq import request_show
+        return request_show(self, name, who=who)
+
     def views(self) -> List[dict]:
         """저장한 보기(`VIEWS/*.toml`) — 어느 시리즈를 어떤 모양으로 볼지(이름순). 보기마다 name·title·series·show·range·file.
 

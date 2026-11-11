@@ -367,6 +367,7 @@ def _main(tmp, t0):
     _define_tests(tmp)
     _config_define_tests(tmp)
     _view_tests(tmp)
+    _desk_request_tests(tmp)
 
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
@@ -912,6 +913,39 @@ def _view_tests(tmp):
     code2, _, _ = run(["view", "define", "cli", "--show", "pct"], d)
     code3, _, _ = run(["view"], d)
     check("view define: 없는 시리즈(3) · 모르는 --show(3) · 동작 없음(3)", code == 3 and "자료에 없는 시리즈" in err and code2 == 3 and code3 == 3, err[:200])
+
+
+def _desk_request_tests(tmp):
+    print("=" * 80)
+    print("L. Desk에 알리기(equion desk show)")
+    print("=" * 80)
+    P, d = new_project(tmp, "deskreq")
+    rf = os.path.join(d, "work", "desk", "requests.jsonl")
+    rec = quiet(P.est, "demand:CN")
+    prop = P.propose(title="소비식 시차", why="근거 " + rec.id, parts={"demand:CN": "CN c Y CN(-1) CN(-2)"})
+    got = [P.desk_show(x, who="claude") for x in (rec.id, prop.id, "demand:CN", "model:main", "equion.toml", "EQUATIONS\\demand.txt", "forecast", f"data:{P.vintage}")]
+    lines = [json.loads(x) for x in read(rf).strip().split("\n")]
+    check("desk show: 이름이 무엇인지 확인하고 요청 파일에 한 줄씩(기록·제안·부품·모형·파일·화면·자료 회차) — 아무것도 계산하거나 바꾸지 않는다",
+          [x["kind"] for x in got] == ["record", "proposal", "part", "model", "file", "file", "place", "data"] and got[5]["show"] == "EQUATIONS/demand.txt"
+          and [x["show"] for x in lines] == [x["show"] for x in got] and all(x["who"] == "claude" and x["at"] for x in lines)
+          and got[0]["file"] == "work/desk/requests.jsonl" and len(P.history.list()) == len(quiet(Project.open, d).history.list()))
+    n = len(lines)
+    check("desk show: 없는 기록·제안·부품·모형·회차·파일, 프로젝트 밖, 빈 이름 — 아무것도 쓰지 않는다",
+          all(raises(lambda x=x: P.desk_show(x), ProjectError, msg) for x, msg in (
+              ("est:nope", "없는 기록"), ("prop:p9", "없는 제안"), ("nope:X", "없는 부품"), ("model:zz", "없는 모형"), ("data:nope", "없는 자료 회차"),
+              ("no/such.txt", "알 수 없습니다"), ("../x.txt", "프로젝트 밖"), ("", "비었습니다")))
+          and len(read(rf).strip().split("\n")) == n)
+    from equion.projects import deskreq
+    with open(rf, "a", encoding="utf-8", newline="\n") as f:
+        f.write("x" * (deskreq.LIMIT + 10) + "\n")
+    P.desk_show("home")
+    check("desk show: 요청 파일이 커지면 지난 줄을 버린다(앱은 새 줄만 읽는다)", read(rf).count("\n") == 1 and json.loads(read(rf))["show"] == "home")
+    code, out, _ = run(["desk", "show", "demand:CN"], d)
+    code2, out2, _ = run(["desk", "show", "model:main", "--json"], d)
+    code3, _, err3 = run(["desk", "show", "est:nope"], d)
+    code4, _, _ = run(["desk"], d)
+    check("desk show(0) · --json · 없는 것(3) · 동작 없음(3)", code == 0 and "Equion Desk에 알렸습니다" in out and code2 == 0 and json.loads(out2) == {"show": "model:main", "kind": "model", "file": "work/desk/requests.jsonl"}
+          and code3 == 3 and "없는 기록" in err3 and code4 == 3 and read(rf).count("\n") == 3, out + err3)
 
 
 def test_suite():
