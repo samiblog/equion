@@ -89,7 +89,8 @@ def create_app(state: AppState) -> Flask:
         html = (web / "index.html").read_text(encoding="utf-8")
         client = state.config.client()
         html = (html.replace("{{MODE}}", state.mode).replace("{{VERSION}}", __version__).replace("{{TERM}}", state.term_secret)
-                .replace("{{THEME}}", str(client.get("theme", "auto"))))
+                .replace("{{THEME}}", str(client.get("theme", "auto")))
+                .replace("{{TERM_FOLLOW}}", "false" if client.get("term_follow") is False else "true"))
         resp = Response(html, content_type="text/html; charset=utf-8")
         resp.headers["Content-Security-Policy"] = CSP
         resp.headers["Referrer-Policy"] = "no-referrer"

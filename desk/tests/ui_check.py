@@ -47,6 +47,19 @@ def equion(folder: str, env: dict[str, str], *args: str) -> subprocess.Completed
 LOG: list = []      # 서버가 알린 글을 남길 파일(--shots 를 주었을 때)
 
 
+# 터미널이 지금 어떤 색인지(바탕의 밝기 0~1, 색 이름 --term-bg, xterm 에 입힌 바탕·글자·'흰색'의 밝기, 대비 보정, '늘 어둡게' 여부)
+TERM_LOOK = """() => {
+                    const root = document.documentElement;
+                    const el = document.querySelector('.project:not([hidden]) .term');
+                    const m = getComputedStyle(el).backgroundColor.match(/[\\d.]+/g).map(Number);
+                    const x = window.equionDesk.current.term.xterm;
+                    const lum = (c) => { const n = c.match(/^#([0-9a-f]{6})$/i); if (!n) return null; const v = parseInt(n[1], 16); return (0.2126 * (v >> 16) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255)) / 255; };
+                    return { bg: (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255, token: getComputedStyle(root).getPropertyValue('--term-bg').trim(),
+                      xbg: x ? x.options.theme.background : null, xfg: x ? lum(x.options.theme.foreground) : null, white: x ? lum(x.options.theme.brightWhite) : null,
+                      contrast: x ? x.options.minimumContrastRatio : null, always: root.classList.contains('term-dark'), theme: root.dataset.theme };
+                }"""
+
+
 def start_server(env: dict[str, str], *args: str) -> subprocess.Popen:
     server = subprocess.Popen([sys.executable, "-m", "equion_desk", "--browser", "--port", str(PORT), *args], env=env,
                               stdout=subprocess.DEVNULL, stderr=LOG[0] if LOG else subprocess.DEVNULL)
@@ -743,6 +756,10 @@ def run(shots: str | None) -> int:
 
                 print("W. 터미널에서 친 명령의 기록이 띠에 뜨고 카드로 열린다(D1 완료 기준)")
                 typed = page.locator(f"{active} .term-body .xterm").count() > 0
+                look = page.evaluate(TERM_LOOK)
+                check("W0 밝은 바탕에서는 터미널도 밝다 — 바탕은 종이 색, 글자는 잉크, '흰색'은 또렷한 어두운 색으로(밝은 색표), 낮은 대비는 xterm 이 고친다",
+                      look["theme"] == "light" and look["bg"] > 0.9 and not look["always"]
+                      and (not typed or (look["xbg"] == look["token"] and look["xfg"] < 0.2 and look["white"] < 0.3 and look["contrast"] == 4.5)), str(look))
                 before = page.locator("#strip .chip").count()
                 if typed:
                     page.click(f"{active} .term-body")
@@ -822,6 +839,10 @@ def run(shots: str | None) -> int:
                       and page.input_value(f"{pane} .eq-opts select") == "hac")
                 check("Y3 사이드바의 고른 탭(파일)도 그대로", page.locator(f"{active} .side-tabs [data-side='files']").get_attribute("aria-selected") == "true")
                 check("Y4 어두운 바탕 — 운영체제 설정을 따른다", page.evaluate("document.documentElement.dataset.theme") == "dark")
+                page.wait_for_timeout(600)
+                look = page.evaluate(TERM_LOOK)
+                check("Y4-1 어두운 바탕에서는 터미널도 어둡다(글자는 밝게 — 어두운 색표)",
+                      look["bg"] < 0.12 and (look["xbg"] is None or (look["xbg"] == look["token"] and look["xfg"] > 0.7 and look["white"] > 0.9)), str(look))
                 shot(page, "07-dark")
                 page.click(f"{active} .side-tabs [data-side='parts']")
                 page.click(f"{active} .side .row-item[data-key='data']")
@@ -841,6 +862,22 @@ def run(shots: str | None) -> int:
                 page.click("#btn-settings")
                 page.click(".popover .segmented button >> nth=1")
                 check("Y5 설정에서 바탕을 바꾸면 바로 바뀐다", page.evaluate("document.documentElement.dataset.theme") == "light")
+                light = page.evaluate(TERM_LOOK)
+                page.click(".popover .segmented >> nth=1 >> button >> nth=1")          # 터미널 색 — 늘 어둡게
+                page.wait_for_timeout(200)
+                always = page.evaluate(TERM_LOOK)
+                page.wait_for_timeout(150)
+                shot(page, "10-term-always-dark")
+                page.click(".popover .segmented >> nth=1 >> button >> nth=0")          # 바탕에 맞춤
+                page.wait_for_timeout(200)
+                back = page.evaluate(TERM_LOOK)
+                same = lambda x: x["xbg"] is None or x["xbg"] == x["token"]
+                check("Y5-1 터미널 색이 창의 바탕을 따라 바뀐다 — 밝게 바꾸면 터미널도 밝게(열려 있던 터미널도 바로), '늘 어둡게'를 고르면 터미널만 어둡게, 되돌리면 다시 밝게",
+                      light["bg"] > 0.9 and same(light) and always["bg"] < 0.12 and always["always"] and always["theme"] == "light" and same(always)
+                      and (always["xfg"] is None or always["xfg"] > 0.7) and back["bg"] > 0.9 and not back["always"] and same(back), f"{light} {always} {back}")
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(150)
+                shot(page, "11-term-light")
                 page.close()
             finally:
                 server.terminate()

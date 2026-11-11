@@ -13,7 +13,7 @@ const dark = window.matchMedia('(prefers-color-scheme: dark)');
 
 const app = {
   state: null,
-  settings: { theme: 'auto', font_scale: 100, side_width: null, term_width: null, side_visible: true, term_visible: true },
+  settings: { theme: 'auto', font_scale: 100, side_width: null, term_width: null, side_visible: true, term_visible: true, term_follow: true },
   projects: new Map(),
   current: null,
   changes: new Map(),      // 프로젝트 → 아직 보지 않은 바뀜 수
@@ -24,14 +24,17 @@ const app = {
   applySettings() {
     const s = this.settings;
     const theme = s.theme === 'auto' ? (dark.matches ? 'dark' : 'light') : s.theme;
+    const termDark = s.term_follow === false;          // 터미널 색: 창의 바탕을 따른다(기본) · 늘 어둡게
     const changed = root.dataset.theme !== theme;
+    const termChanged = changed || root.classList.contains('term-dark') !== termDark;
     root.dataset.theme = theme;
+    root.classList.toggle('term-dark', termDark);
     root.style.setProperty('--scale', String(s.font_scale / 100));
     if (s.side_width) root.style.setProperty('--side-w', `${s.side_width}px`); else root.style.removeProperty('--side-w');
     if (s.term_width) root.style.setProperty('--term-w', `${s.term_width}px`); else root.style.removeProperty('--term-w');
     $('btn-side').setAttribute('aria-pressed', String(s.side_visible));
     $('btn-term').setAttribute('aria-pressed', String(s.term_visible));
-    for (const p of this.projects.values()) { p.applyLayout(); if (changed) p.term.retheme(); }
+    for (const p of this.projects.values()) { p.applyLayout(); if (termChanged) p.term.retheme(); }
     if (changed) recolorCharts();
   },
 
@@ -269,6 +272,7 @@ const app = {
     const step = (d) => { const v = Math.min(140, Math.max(80, s.font_scale + d)); this.setSetting('font_scale', v); size.textContent = `${v}%`; };
     const pop = h('div', { class: 'popover', role: 'dialog', 'aria-label': '설정' },
       h('h4', {}, '바탕'), seg('theme', [['auto', '자동', 'auto'], ['light', '밝게', 'sun'], ['dark', '어둡게', 'moon']]),
+      h('h4', {}, '터미널 색'), seg('term_follow', [[true, '바탕에 맞춤'], [false, '늘 어둡게']]),
       h('h4', {}, '글자 크기'), h('div', { class: 'stepper' },
         h('button', { class: 'btn small', type: 'button', 'aria-label': '작게', onclick: () => step(-5) }, icon('minus')), size,
         h('button', { class: 'btn small', type: 'button', 'aria-label': '크게', onclick: () => step(5) }, icon('plus')),

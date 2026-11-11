@@ -55,13 +55,17 @@
   --radius: 8px;
   --radius-s: 5px;
 
-  /* 터미널은 어느 바탕에서나 어둡다 — 그 안에서 도는 프로그램(Claude Code 등)의 색이 어두운 바탕에 맞춰져 있다 */
-  --term-bg: #15191c;
-  --term-fg: #d5dade;
-  --term-line: #262c31;
-  --term-soft: #aab3bb;
-  --term-dim: #8a949d;
-  --term-lamp: #4bc0b4;
+  /* 터미널은 창의 바탕을 따른다(Lectern 과 같다 — D48). 밝은 바탕에서는 밝은 터미널: 본문(흰 종이)보다 한 톤 가라앉은 종이 색.
+     설정에서 '늘 어둡게'를 고르면 아래 :root.term-dark 가 어두운 값으로 덮는다. 글자 색(ANSI 16색)은 terminal.js 가 밝기에 맞춰 고른다 */
+  --term-bg: #f7f6f2;
+  --term-fg: #1b1f24;
+  --term-line: #e2dfd9;
+  --term-soft: #48515b;
+  --term-dim: #77818b;
+  --term-lamp: #0b7a75;
+  --term-cursor: #0b7a75;
+  --term-select: rgba(11, 122, 117, .22);
+  --term-select-off: rgba(11, 122, 117, .12);
 
   --side-w: 264px;
   --term-w: 38%;
@@ -105,6 +109,26 @@
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .4), 0 0 0 1px rgba(255, 255, 255, .04);
   --shadow-2: 0 12px 34px rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .06);
   --term-bg: #101316;
+  --term-fg: #d5dade;
   --term-line: #22282d;
+  --term-soft: #aab3bb;
+  --term-dim: #8a949d;
+  --term-lamp: #4bc0b4;
+  --term-cursor: #e8ebee;
+  --term-select: rgba(75, 192, 180, .34);
+  --term-select-off: rgba(75, 192, 180, .2);
   color-scheme: dark;
+}
+
+/* 설정 '터미널 색 — 늘 어둡게': 밝은 바탕에서도 터미널만 어둡게(어두운 바탕에서는 위의 값 그대로) */
+:root.term-dark:not([data-theme="dark"]) {
+  --term-bg: #15191c;
+  --term-fg: #d5dade;
+  --term-line: #262c31;
+  --term-soft: #aab3bb;
+  --term-dim: #8a949d;
+  --term-lamp: #4bc0b4;
+  --term-cursor: #e8ebee;
+  --term-select: rgba(75, 192, 180, .34);
+  --term-select-off: rgba(75, 192, 180, .2);
 }

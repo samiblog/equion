@@ -352,6 +352,12 @@ def section_tabs(tmp: str, folder: str) -> None:
         check("F5 설정 — 아는 이름·맞는 형식만 받는다", s["theme"] == "dark" and s["font_scale"] == 110 and s["term_width"] == 520
               and "bogus" not in s and s["side_width"] is None, str(s))
         check("F6 첫 화면에 바탕 설정이 실려 온다(흰 화면이 번쩍이지 않게)", 'data-theme-setting="dark"' in c.get("/").text)
+        follows = s["term_follow"] is True and 'data-term-follow="true"' in c.get("/").text
+        t2 = c.post("/api/settings", json={"term_follow": False}).json["client"]
+        t3 = c.post("/api/settings", json={"term_follow": "dark"}).json["client"]
+        check("F6-1 터미널 색 — 기본은 창의 바탕을 따르고, '늘 어둡게'(term_follow=false)는 첫 화면에 실려 온다. 형식이 틀리면 받지 않는다",
+              follows and t2["term_follow"] is False and t3["term_follow"] is False and 'data-term-follow="false"' in c.get("/").text, str(t2))
+        c.post("/api/settings", json={"term_follow": True})
         c.post("/api/tabs/active", json={"id": b["id"]})
     finally:
         state.close()

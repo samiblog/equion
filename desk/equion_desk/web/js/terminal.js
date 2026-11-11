@@ -7,15 +7,37 @@ import { postJSON, TERM_SECRET } from './api.js';
 const X = { 'X-Term': TERM_SECRET };
 const FONT = '"Cascadia Mono", "D2Coding", Consolas, "Malgun Gothic", monospace';
 
+// ---- 색: 창의 바탕을 따른다(Lectern 의 terminal.js 와 같은 방식 — 설정 term_follow, 끄면 늘 어둡게) -----------------------
+// 바탕·글자·커서·선택 색은 tokens.css 의 --term-* 에서(밝은 바탕·어두운 바탕·'늘 어둡게'가 거기서 갈린다), ANSI 16색은 밝기에 맞는 색표를 쓴다.
+// 셸과 프로그램은 어두운 바탕을 가정하고 흰 글자를 쓰기도 하므로(PSReadLine 의 숫자, Claude Code 의 강조 등), 글자와 그 칸 바탕의 대비가
+// MIN_CONTRAST 보다 낮으면 xterm 이 글자 색을 진하게·옅게 고친다(minimumContrastRatio — 밝은 터미널에서도 다 읽히게).
+const MIN_CONTRAST = 4.5;
+const ANSI = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
+  'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite'];
+const ansi = (...colors) => Object.fromEntries(ANSI.map((name, i) => [name, colors[i]]));
+const PALETTES = {
+  dark: ansi('#1c2126', '#f0796d', '#5fcb8c', '#e3c05a', '#72aae8', '#c08ee6', '#4bc0b4', '#d5dade',
+    '#6b7580', '#ff9488', '#7fe0a6', '#f2d47c', '#93c1f4', '#d5aef2', '#7fd9cf', '#ffffff'),
+  // 밝은 바탕용(Lectern 의 밝은 색표): 흰색(white·brightWhite)은 프로그램이 '또렷한 글자'로 쓰므로 어두운 회색·검정으로
+  light: ansi('#24292f', '#c4262e', '#116329', '#8a5a00', '#0b62c4', '#8250df', '#1b7c83', '#57606a',
+    '#6e7781', '#a40e26', '#1a7f37', '#9a6700', '#0550ae', '#6639ba', '#136061', '#1f2328'),
+};
+
+/** 터미널이 지금 어두운가 — 창이 어둡거나, 설정이 '늘 어둡게'(html 의 term-dark) */
+export function termDark() {
+  const root = document.documentElement;
+  return root.dataset.theme === 'dark' || root.classList.contains('term-dark');
+}
+
 function theme() {
   const css = getComputedStyle(document.documentElement);
   const v = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
-  const bg = v('--term-bg', '#15191c');
+  const dark = termDark();
+  const bg = v('--term-bg', dark ? '#15191c' : '#f7f6f2');
   return {
-    background: bg, foreground: v('--term-fg', '#d5dade'), cursor: '#e8ebee', cursorAccent: bg, selectionBackground: '#2d5f5b',
-    black: '#1c2126', red: '#f0796d', green: '#5fcb8c', yellow: '#e3c05a', blue: '#72aae8', magenta: '#c08ee6', cyan: '#4bc0b4', white: '#d5dade',
-    brightBlack: '#6b7580', brightRed: '#ff9488', brightGreen: '#7fe0a6', brightYellow: '#f2d47c', brightBlue: '#93c1f4',
-    brightMagenta: '#d5aef2', brightCyan: '#7fd9cf', brightWhite: '#ffffff',
+    background: bg, foreground: v('--term-fg', dark ? '#d5dade' : '#1b1f24'), cursor: v('--term-cursor', dark ? '#e8ebee' : '#0b7a75'), cursorAccent: bg,
+    selectionBackground: v('--term-select', dark ? '#2d5f5b' : '#cfe6e3'), selectionInactiveBackground: v('--term-select-off', dark ? '#24403e' : '#e3efed'),
+    ...PALETTES[dark ? 'dark' : 'light'],
   };
 }
 
@@ -39,6 +61,7 @@ export class Term {
     this.started = true;
     this.xterm = new window.Terminal({
       fontFamily: FONT, fontSize: 13, lineHeight: 1.12, cursorBlink: true, scrollback: 8000, allowProposedApi: true, theme: theme(),
+      minimumContrastRatio: MIN_CONTRAST,
     });
     this.fit = new window.FitAddon.FitAddon();
     this.xterm.loadAddon(this.fit);
@@ -57,6 +80,7 @@ export class Term {
     try { this.fit.fit(); } catch { /* 숨겨짐 */ }
   }
 
+  /** 창의 바탕이나 '터미널 색' 설정이 바뀌었다 — 열린 터미널에 지금 색을 입힌다(이미 찍힌 글도 새 색으로 다시 그려진다) */
   retheme() { if (this.xterm) this.xterm.options.theme = theme(); }
 
   async open() {

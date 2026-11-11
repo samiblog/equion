@@ -5,7 +5,7 @@ Equion 프로젝트(자료 → 식 → 조립 → 과거 재현 → 전망 → �
 
 **1차판 출시 후보(0.1.0rc1)** — 뼈대(D1) · 식·자료(D2) · 모형과 흐름(D3) · 전망과 보고서(D4) · Claude와 되돌리기(D5)까지 만들었습니다 — 프로젝트를 탭으로 열고, 식을 다듬어 후보를 견주고 채택하고, 받은 통계표의 열을 시리즈로
 짝짓고, 새 회차를 만들어 견주어 바꾸고, 분석을 돌려 남기고, 모형을 조립해 과거를 풀어 오차의 원인을 따라가고, 스크립트를 단계로 보며 실행하고, 가정을 적어 기준선과 시나리오를 풀어 결과를 보고서와 엑셀로 내고, Claude에게 맡기거나 제안을 받아 적용·버림하고, 마음에 들지 않는 바뀜은 되돌립니다(F1 도움말). 터미널(사람·Claude)에서 친 명령의 기록이 생기는 순간 화면의 띠와 후보 목록에 뜹니다. 닫았다 열면 지난 화면이 이어집니다. 계획은 [`docs/DESK_DEVPLAN.md`](../docs/DESK_DEVPLAN.md),
-만들며 정한 것은 [`docs/DECISIONS.md`](../docs/DECISIONS.md)의 D39~D47, 설치 점검은 [`docs/DESK_D0_CHECK.md`](../docs/DESK_D0_CHECK.md).
+만들며 정한 것은 [`docs/DECISIONS.md`](../docs/DECISIONS.md)의 D39~D48, 설치 점검은 [`docs/DESK_D0_CHECK.md`](../docs/DESK_D0_CHECK.md).
 
     uv sync --all-packages                                        # 패키지 + 앱 의존성
     uv run --package equion-desk equion-desk [프로젝트폴더]        # 창으로 — 이미 떠 있으면 그 창의 새 탭으로(창은 하나)

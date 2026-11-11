@@ -201,6 +201,11 @@ svg.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor
 .term-head .icon-btn:hover { background: var(--term-line); color: var(--term-fg); }
 .term-body { flex: 1; min-height: 0; padding: 8px 0 4px 10px; }
 .term-body .note { padding: 12px 6px; color: var(--term-dim); font-size: var(--fs-s); line-height: 1.6; }
+/* 터미널의 스크롤바는 터미널의 색으로(창이 밝아도 '늘 어둡게'면 어둡게) */
+:root.term-dark .term { color-scheme: dark; }
+.term * { scrollbar-color: color-mix(in srgb, var(--term-dim) 55%, transparent) transparent; }
+.term ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--term-dim) 55%, transparent); background-clip: content-box; }
+.term ::-webkit-scrollbar-thumb:hover { background: var(--term-dim); background-clip: content-box; }
 
 /* ---- 작업 줄 + 작업 기록 띠 ------------------------------------------------------------------ */
 #activity {
