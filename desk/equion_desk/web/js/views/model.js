@@ -209,10 +209,16 @@ export function modelView(project, desc) {
     const last = runs()[0];
     const card = (key, n, title, big, small, mark) => h('button', { class: `flow-card ${st.section === key ? 'on' : ''}`.trim(), type: 'button', 'aria-pressed': String(st.section === key),
       onclick: () => { st.section = key; render(); save(); } }, h('span', { class: 'step' }, n), h('span', { class: 'ft' }, title, mark ? h('span', { class: `dot ${mark}` }) : null), h('span', { class: 'fb' }, big), h('span', { class: 'fs' }, small));
-    return h('div', { class: 'flow two', role: 'tablist', 'aria-label': '조립과 과거 재현' },
+    const sim = project.records.filter((x) => x.kind === 'sim' && x.target === st.model).pop();
+    return h('div', { class: 'flow', role: 'tablist', 'aria-label': '조립 · 과거 재현 · 전망' },
       card('assembly', '1', '조립', r ? `식 ${r.parts.length}개` : '—', r ? (r.problems.length ? `문제 ${r.problems.length}` : `내생 ${r.endogenous.length} · 외생 ${r.exogenous.length}`) : '', r ? (r.problems.length ? 'bad' : 'ok') : ''),
       h('span', { class: 'flow-arrow', 'aria-hidden': 'true' }, icon('arrow')),
-      card('hs', '2', '과거 재현', last ? last.id.replace(/^hs:/, '') : '아직 풀지 않았습니다', last ? (last.metric || '') : '풀기를 누르세요', ''));
+      card('hs', '2', '과거 재현', last ? last.id.replace(/^hs:/, '') : '아직 풀지 않았습니다', last ? (last.metric || '') : '풀기를 누르세요', ''),
+      h('span', { class: 'flow-arrow', 'aria-hidden': 'true' }, icon('arrow')),
+      h('button', { class: 'flow-card go', type: 'button', 'data-act': 'to-forecast', title: '전망 작업대를 연다 — 가정을 적고 기준선과 시나리오를 푼다',
+        onclick: () => project.openTab({ type: 'forecast', model: st.model, ...(sim ? { shown: sim.id } : {}) }) },
+      h('span', { class: 'step' }, '3'), h('span', { class: 'ft' }, '전망', icon('external')), h('span', { class: 'fb' }, sim ? sim.id.replace(/^sim:/, '') : '전망 작업대'),
+      h('span', { class: 'fs' }, sim ? (sim.metric || '가정 · 시나리오 · 결과') : '가정 · 시나리오 · 결과')));
   }
 
   function assemblySection() {

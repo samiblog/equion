@@ -1,4 +1,4 @@
-// 개요 — 프로젝트를 열면 처음 보이는 화면. 모형·블록과 부품·최근 작업 기록. 여기서 과거 재현·전망을 시킨다(계산은 단추를 눌렀을 때만).
+// 개요 — 프로젝트를 열면 처음 보이는 화면. 모형·블록과 부품·최근 작업 기록. 여기서 과거 재현을 시키고 작업대(모형·전망)로 간다(계산은 단추를 눌렀을 때만).
 
 import { clear, h, icon, kindPill, when, whoLabel } from '../util.js';
 
@@ -20,7 +20,7 @@ export function homeView(project) {
       h('div', { class: 'foot' },
         h('button', { class: 'btn small', type: 'button', 'data-act': 'bench', title: '모형 작업대 — 조립(블록과 식·연결·문제)과 과거 재현(오차·풀이 상태·원인 따라가기)', onclick: () => project.openTab({ type: 'model', model: model.name }) }, icon('cube'), '모형 작업대'),
         h('button', { class: 'btn small', type: 'button', title: `equion hs ${model.name}`, onclick: () => project.compute('hs', { model: model.name }) }, icon('rewind'), '과거 재현'),
-        h('button', { class: 'btn small', type: 'button', title: `equion sim base --model ${model.name}`, onclick: () => project.compute('sim', { scenario: 'base', model: model.name }) }, icon('forward'), '전망'),
+        h('button', { class: 'btn small', type: 'button', 'data-act': 'forecast', title: '전망 작업대 — 가정을 적고 기준선과 시나리오를 푼다', onclick: () => project.openTab({ type: 'forecast', model: model.name }) }, icon('forward'), '전망'),
         h('span', { class: 'grow' }),
         h('button', { class: 'btn small quiet', type: 'button', title: '터미널에 조립 검사 명령을 붙인다(Enter 는 직접)', onclick: () => project.sendToTerminal(`equion assemble ${model.name}`) }, icon('send'), '조립 검사')));
   }

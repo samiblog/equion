@@ -6,6 +6,7 @@
 
 import { renderDoc } from '../md.js';
 import { bytes, clear, cmdText, copyText, h, icon, kindPill, when, whoLabel } from '../util.js';
+import { exportXlsx, sendToReport } from './send.js';
 
 /** 전후 비교(변수마다 RMSPE 가 얼마에서 얼마로) — 좋아진 것은 초록, 나빠진 것은 붉게 */
 function compareStrip(vs) {
@@ -53,6 +54,11 @@ export function cardView(project, desc) {
         h('div', { class: 'sub' }, m.who ? whoLabel(m.who) : null, m.created ? h('span', {}, when(m.created)) : null, h('span', { class: 'mono' }, rec.path))),
       h('div', { class: 'tools' },
         kind === 'est' && m.part ? h('button', { class: 'btn', type: 'button', title: '이 기록을 후보 목록에서 고른 채로 식 작업대를 연다', onclick: () => project.openTab({ type: 'bench', part: m.part, shown: id }) }, icon('equation'), '식 작업대에서') : null,
+        kind === 'sim' && m.model ? h('button', { class: 'btn', type: 'button', title: '이 전망을 고른 채로 전망 작업대를 연다', onclick: () => project.openTab({ type: 'forecast', model: m.model, shown: id }) }, icon('forward'), '전망 작업대에서') : null,
+        kind === 'hs' && m.model && project.overview?.models.some((x) => x.name === m.model) ? h('button', { class: 'btn', type: 'button', title: '이 풀이를 고른 채로 모형 작업대를 연다 — 오차·풀이 상태·원인 따라가기',
+          onclick: () => project.openTab({ type: 'model', model: m.model, shown: id }) }, icon('cube'), '모형 작업대에서') : null,
+        ['est', 'hs', 'sim', 'an'].includes(kind) ? h('button', { class: 'btn quiet', type: 'button', 'data-act': 'to-report', title: '이 기록의 표를 보고서의 한 구역으로 보낸다', onclick: () => sendToReport(project, id) }, icon('doc'), '보고서로') : null,
+        ['est', 'hs', 'sim'].includes(kind) ? h('button', { class: 'btn quiet', type: 'button', 'data-act': 'to-xlsx', title: '값·값의 종류·출처를 엑셀로', onclick: () => exportXlsx(project, [id]) }, icon('table'), '엑셀로') : null,
         h('button', { class: 'btn quiet', type: 'button', title: '이름 복사', onclick: () => copyText(id, `${id} — 복사했습니다`) }, icon('copy'), '이름'),
         h('button', { class: 'btn quiet', type: 'button', title: '터미널에 이름을 붙인다(Enter 는 직접)', onclick: () => project.sendToTerminal(id) }, icon('send'), '터미널로'))));
     if (command) {

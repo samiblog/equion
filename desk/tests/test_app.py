@@ -1072,6 +1072,156 @@ def section_model(tmp: str) -> None:
         state.close()
 
 
+def section_forecast(tmp: str) -> None:
+    print("O. 전망 작업대·보고서 — 가정 표·기준선과 시나리오 풀기·결과 보기·보기 저장·보고서로 보내기·새 기록으로 바꾸기·엑셀로")
+    from equion_desk.server import create_app
+
+    folder = example(tmp, "fc")
+
+    def read(*parts: str) -> str:
+        with open(os.path.join(folder, *parts), encoding="utf-8") as f:
+            return f.read()
+
+    state, pid = new_state(tmp, folder, "o.json")
+    api = f"/api/p/{pid}"
+    try:
+        c = create_app(state).test_client()
+        f = c.get(f"{api}/forecast").json
+        check("O1 전망 한눈에 — 모형과 전망 구간, 외생마다 끝 실측, 가정 표(직접 적은 칸·빈칸), 보정항 규칙, 시나리오. 계산하지 않는다",
+              f["model"] == "main" and f["range"] == ["2020Q1", "2021Q4"] and len(f["periods"]) == 8 and [x["name"] for x in f["exogenous"]] == ["G", "POIL", "R"]
+              and [x["period"] for x in f["exogenous"][0]["last"]] == ["2019Q1", "2019Q2", "2019Q3", "2019Q4"]
+              and f["assume"] == {**f["assume"], "name": "base", "file": "ASSUMPTIONS/base.csv", "exists": True, "fill": "last", "extra": []}
+              and f["assume"]["values"]["2020Q1"]["G"] != "" and f["assume"]["values"]["2020Q1"]["R"] == ""
+              and f["addfactors"]["eqs"]["demand:I"]["rule"] == "decay" and f["scenarios"][0]["name"] == "oil20" and f["scenarios"][0]["shocks"][0]["var"] == "POIL"
+              and f["records"] == [] and f["views"] == [] and f["error"] is None, str(f)[:300])
+        core = c.get(f"{api}/forecast?model=core").json
+        check("O2 다른 모형 — 그 모형의 외생으로 가정 표를 짠다 · 없는 모형은 까닭을 돌려준다 · 이름 모양이 틀리면 400",
+              core["model"] == "core" and [x["name"] for x in core["exogenous"]] == ["G", "R"] and c.get(f"{api}/forecast?model=nope").json["error"]
+              and c.get(f"{api}/forecast?model=..%2Fx").status_code == 400, str([x["name"] for x in core["exogenous"]]))
+
+        before = read("ASSUMPTIONS", "base.csv")
+        r = c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": {"2020Q1": {"G": "70.5", "R": "3.1"}, "2021Q4": {"POIL": ""}}})
+        after = read("ASSUMPTIONS", "base.csv")
+        rows = {ln.split(",")[0]: ln.split(",") for ln in after.strip().split("\n")}
+        head = rows["period"]
+        change = (r.json or {}).get("result", {}).get("change")
+        hist = c.get(f"{api}/changes").json["changes"]
+        check("O3 가정 표 쓰기 — 고친 칸만 바뀌고(빈칸은 채움에 맡긴다) 다른 줄은 그대로, 바뀜 기록에 'Desk'로",
+              r.status_code == 200 and change and rows["2020Q1"][head.index("G")] == "70.5" and rows["2020Q1"][head.index("R")] == "3.1"
+              and rows["2021Q4"][head.index("POIL")] == "" and head == ["period", "G", "POIL", "R"] and "2020Q3,70.187,63.787\n" in before and rows["2020Q3"] == ["2020Q3", "70.187", "63.787", ""]
+              and any(x["id"] == change and x["who"] == "desk" for x in hist), after[:200])
+        same = c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": {"2020Q1": {"G": "70.5"}}})
+        bad = [c.post(f"{api}/assume", json=j).status_code for j in (
+            {"name": "base", "columns": ["G"], "rows": {"2020Q1": {"G": "abc"}}}, {"name": "../x", "columns": ["G"], "rows": {}},
+            {"name": "base", "columns": ["G"], "rows": [1]}, {"name": "base", "columns": [], "rows": {}}, {"name": "base", "columns": ["G"], "rows": {"20 20": {"G": "1"}}})]
+        check("O4 가정 표: 바뀐 것이 없으면 바뀜 기록도 없다 · 숫자가 아닌 칸·이름·모양이 틀리면 400(아무것도 쓰지 않는다)",
+              same.json["result"]["change"] is None and bad == [400] * 5 and read("ASSUMPTIONS", "base.csv") == after, str(bad))
+
+        since = state.feed.read(0, 0)["seq"]
+        r = c.post(f"{api}/sim/run", json={"scenarios": ["base", "oil20"], "model": "main"})
+        out = r.json["result"]
+        events = wait_events(state, since, lambda e: e.get("type") == "job" and e.get("state") == "done" and e.get("op") == "sim_run")
+        jobs = [e for e in events if e.get("type") == "job" and e.get("op") == "sim_run"]
+        base, oil = out["ids"]
+        check("O5 풀기 — 기준선과 시나리오를 차례로(작업 하나: 시작 → 1/2 → 2/2 → 끝), 기록 둘, 응답에 일의 이름(이어서 시킬 수 있게)",
+              r.status_code == 200 and base.startswith("sim:") and base.endswith("_base") and oil.endswith("_oil20") and out["failed"] is None and r.json["job"]
+              and [e["state"] for e in jobs] == ["start", "progress", "progress", "done"] and [e.get("line") for e in jobs if e["state"] == "progress"] == ["1/2 base", "2/2 oil20"]
+              and jobs[-1]["record"] == oil and len({e["job"] for e in jobs}) == 1, str(out) + str([e.get("state") for e in jobs]))
+        v, vb = c.get(f"{api}/sim/view?id={oil}").json, c.get(f"{api}/sim/view?id={base}").json
+        i0 = v["period"].index("2020Q1")
+        check("O6 전망 기록 보기 — 수준과 값의 종류(실측·해·가정·채움), 전기비·전년동기비·연간, 시나리오는 기준선 대비",
+              v["names"][:6] == ["Y", "CN", "I", "P", "RL", "M2"] and set(v["names"][6:]) == {"G", "POIL", "R"} and len(v["period"]) == i0 + 8
+              and v["flag"]["Y"][i0 - 1] == "실측" and v["flag"]["Y"][-1] == "해" and v["flag"]["G"][-1] == "가정" and v["flag"]["R"][i0] == "가정" and v["flag"]["R"][-1] == "채움"
+              and vb["flag"]["POIL"][-1] == "채움" and abs(vb["level"]["POIL"][-1] - vb["level"]["POIL"][-2]) < 1e-9
+              and abs(vb["level"]["G"][i0] - 70.5) < 1e-9 and abs(vb["level"]["R"][i0] - 3.1) < 1e-9 and abs(vb["level"]["R"][-1] - 3.1) < 1e-9
+              and v["annual"]["years"] == ["2020", "2021"] and len(v["annual"]["growth"]["Y"]) == 2 and len(v["qoq"]["Y"]) == len(v["period"]) and v["yoy"]["P"][-1] is not None
+              and vb["diff"] is None and v["diff"]["period"][0] == "2020Q1" and set(v["diff"]["pct"]) == {"Y", "CN", "I", "P", "RL", "M2"} and v["diff"]["pct"]["P"][-1] > 0
+              and all(abs(a / b - 1.2) < 1e-9 for a, b in zip(v["level"]["POIL"][i0:], vb["level"]["POIL"][i0:]))
+              and v["meta"]["scenario"] == "oil20" and v["meta"]["range"] == ["2020Q1", "2021Q4"] and v["vintage"], str(v["flag"]["R"][-3:]) + str(v["diff"]["pct"]["P"][:2]))
+        r2 = c.post(f"{api}/sim/run", json={"scenarios": ["base"], "model": "main", "range": "2020Q1:2020Q4", "vs": base}).json["result"]
+        v2 = c.get(f"{api}/sim/view?id={r2['id']}").json
+        half = c.post(f"{api}/sim/run", json={"scenarios": ["base", "nope"], "model": "main"})
+        none = c.post(f"{api}/sim/run", json={"scenarios": ["nope"], "model": "main"})
+        check("O7 구간·견줄 지난 전망(--range · --vs) · 앞의 것이 풀린 뒤 하나가 실패하면 남긴 기록과 까닭을 함께 · 하나도 못 풀면 오류",
+              v2["meta"]["range"] == ["2020Q1", "2020Q4"] and v2["meta"]["vs"]["id"] == base and "--range 2020Q1:2020Q4" in v2["meta"]["command"] and f"--vs {base}" in v2["meta"]["command"]
+              and half.status_code == 200 and len(half.json["result"]["ids"]) == 1 and half.json["result"]["failed"] == "nope" and half.json["result"]["error"]
+              and none.status_code == 422 and c.post(f"{api}/sim/run", json={"scenarios": ["base"], "range": "x"}).status_code == 400
+              and c.get(f"{api}/sim/view?id=hs:x").status_code == 400 and c.get(f"{api}/sim/view?id=sim:nope").status_code == 422, str(v2["meta"]["command"]))
+        c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": {"2020Q3": {"G": ""}}})
+        gap = c.post(f"{api}/sim/run", json={"scenarios": ["base"], "model": "main"})
+        c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": {"2020Q3": {"G": "70.187"}}})
+        check("O7b 값 사이의 빈칸은 채우기 규칙이 채우지 않는다(마지막으로 적은 값 뒤만 채운다) — 풀지 않고 까닭(변수와 기간)을 돌려준다",
+              gap.status_code == 422 and "G: 2020Q3" in gap.json["error"], str(gap.json)[:300])
+        f2 = c.get(f"{api}/forecast").json
+        check("O8 전망 한눈에: 푼 기록이 모형·시나리오·구간·연간 증가율과 함께", [x["id"] for x in f2["records"]][:2] == [base, oil]
+              and f2["records"][1] == {**f2["records"][1], "scenario": "oil20", "model": "main", "range": ["2020Q1", "2021Q4"], "who": "desk"} and "2020" in f2["records"][0]["annual"]
+              and f2["assume"]["values"]["2020Q1"]["G"] == "70.5", str(f2["records"][:1])[:300])
+
+        r = c.post(f"{api}/view/define", json={"name": "core", "series": ["Y", "CN", "P"], "show": "yoy", "title": "핵심 지표"})
+        views = c.get(f"{api}/views").json["views"]
+        bad = [c.post(f"{api}/view/define", json=j).status_code for j in ({"name": "v2", "series": []}, {"name": "v2", "series": ["Y"], "show": "pct"},
+                                                                         {"name": "../v", "series": ["Y"]}, {"name": "v2", "series": ["NOPE"]})]
+        check("O9 이 보기 저장 — VIEWS/core.toml(시리즈·보이기·제목), 전망 한눈에에도 뜬다 · 빈 시리즈·모르는 보이기·이름은 400, 자료에 없는 시리즈는 422(쓰지 않는다)",
+              r.status_code == 200 and r.json["result"]["file"] == "VIEWS/core.toml" and 'show = "yoy"' in read("VIEWS", "core.toml")
+              and views == [{"name": "core", "title": "핵심 지표", "series": ["Y", "CN", "P"], "show": "yoy", "range": None, "file": "VIEWS/core.toml"}]
+              and c.get(f"{api}/forecast").json["views"] == views and bad == [400, 400, 400, 422] and not os.path.exists(os.path.join(folder, "VIEWS", "v2.toml")), str(bad))
+
+        base3 = half.json["result"]["ids"][0]          # 가장 새 기준선(보고서에는 이것을 보낸다 — 검사가 정상이어야 한다)
+        r = c.post(f"{api}/report/new", json={"name": "fc", "title": "12월 전망"})
+        a1 = c.post(f"{api}/report/add", json={"report": "fc", "record": oil, "rows": ["Y", "P"], "show": "yoy", "title": "성장과 물가", "digits": 1})
+        a2 = c.post(f"{api}/report/add", json={"report": "fc", "record": base3, "annual": True, "chart": True, "under": "본문"})
+        text = read("reports", "fc.md")
+        listed = c.get(f"{api}/reports").json["reports"]
+        bad = [c.post(f"{api}/report/add", json=j).status_code for j in ({"report": "../x", "record": oil}, {"report": "fc", "record": "nope"}, {"report": "fc", "record": oil, "digits": 99},
+                                                                        {"report": "fc", "record": oil, "show": "annual"}, {"report": "none", "record": oil})]
+        check("O10 보고서로 보내기 — 새 보고서(틀) → 기록의 표를 고른 모양으로 한 구역씩(어느 기록에서 왔는지 적힌다), 차트 자료는 옆 폴더로",
+              r.status_code == 200 and a1.status_code == 200 and a2.status_code == 200 and text.startswith("# 12월 전망") and f"<!-- equion:report {oil} " in text and f"<!-- equion:report {base3} " in text
+              and "성장과 물가" in text and a1.json["result"]["command"].startswith("equion report add fc sim:") and "--show yoy" in a1.json["result"]["command"] and "--chart" in a2.json["result"]["command"]
+              and listed == [{**listed[0], "name": "fc", "path": "reports/fc.md", "title": "12월 전망", "regions": 2}] and os.path.isdir(os.path.join(folder, "reports", "fc_data"))
+              and c.get(f"{api}/overview").json["overview"]["reports"] == 1 and bad == [400, 400, 400, 400, 422]
+              and c.post(f"{api}/report/new", json={"name": "fc"}).status_code == 422 and c.post(f"{api}/report/new", json={"name": "a/b"}).status_code == 400, str(bad) + text[:160])
+        ok = c.get(f"{api}/report/check?report=fc").json
+        newer = c.post(f"{api}/sim/run", json={"scenarios": ["oil20"], "model": "main"}).json["result"]["id"]
+        chk = c.get(f"{api}/report/check?report=fc").json
+        dry = c.post(f"{api}/report/update", json={"report": "fc", "dry": True}).json
+        untouched = read("reports", "fc.md") == text
+        done = c.post(f"{api}/report/update", json={"report": "fc"}).json["result"]
+        text2 = read("reports", "fc.md")
+        check("O11 보고서 검사 → 새 기록으로 바꾸기 — 더 새 기록이 있는 구역을 알리고, 먼저 차이만 보이고(파일은 그대로), 바꾸면 그 구역만 바뀐다(글은 그대로)",
+              [x["status"] for x in ok["items"]] == ["정상", "정상"] and chk["items"][0] == {**chk["items"][0], "record": oil, "to": newer, "status": "더 새 기록"} and chk["items"][1]["to"] is None
+              and untouched and dry["action"] == "update --dry-run" and dry["change"] is None and dry["items"][0]["status"].startswith("바뀜") and dry["items"][0]["diff"]
+              and dry["command"] == "equion report update fc" and done["change"] and f"<!-- equion:report {newer} " in text2 and f"<!-- equion:report {oil} " not in text2
+              and text2.startswith("# 12월 전망") and [x["status"] for x in c.get(f"{api}/report/check?report=fc").json["items"]] == ["정상", "정상"], str(chk["items"][0]) + str(dry["items"][0]["status"]))
+        lines = text2.split("\n")
+        k = next(i for i, ln in enumerate(lines) if ln.startswith("| Y |"))
+        lines[k] = "| Y | 손으로 | 고친 줄 |"
+        with open(os.path.join(folder, "reports", "fc.md"), "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("\n".join(lines))
+        hand = c.get(f"{api}/report/check?report=fc").json["items"]
+        kept = c.post(f"{api}/report/update", json={"report": "fc", "region": 1, "dry": True}).json["items"][0]
+        plain = c.post(f"{api}/report/update", json={"report": "fc", "region": 1}).json["result"]
+        still = "손으로 | 고친 줄" in read("reports", "fc.md")
+        forced = c.post(f"{api}/report/update", json={"report": "fc", "region": 1, "force": True}).json["result"]
+        check("O12 손으로 고친 구역 — 검사가 알리고, 고친 곳을 보이며 바꾸지 않는다 · 덮겠다고 할 때만(force) 다시 만든다 · 없는 구역·보고서",
+              "손으로 고침" in hand[0]["status"] and kept["status"].startswith("손으로 고침") and "손으로" in kept["diff"] and plain["change"] is None and still
+              and forced["change"] and "손으로 고친 것을 덮음" in forced["items"][0]["status"] and "손으로 | 고친 줄" not in read("reports", "fc.md")
+              and c.post(f"{api}/report/update", json={"report": "fc", "region": 9}).status_code == 422 and c.post(f"{api}/report/update", json={"report": "fc", "region": 0}).status_code == 400
+              and c.get(f"{api}/report/check?report=none").status_code == 422 and c.get(f"{api}/report/check?report=..%2Fx").status_code == 400, str(hand[0]) + str(plain)[:100])
+
+        hs = c.post(f"{api}/hs/run", json={"target": "main"}).json["result"]["id"]
+        x = c.post(f"{api}/export", json={"records": [newer, hs], "name": "fc_2026-12"})
+        path = os.path.join(folder, "exports", "fc_2026-12.xlsx")
+        bad = [c.post(f"{api}/export", json=j).status_code for j in ({"records": [newer], "name": "../x"}, {"records": [], "name": "a"}, {"records": ["nope"], "name": "a"},
+                                                                    {"records": [newer]}, {"records": ["sim:nope"], "name": "a"})]
+        check("O13 엑셀로 — 기록들의 값·값의 종류·출처 시트를 exports/ 에(같은 일을 하는 명령과 함께) · 이름·기록 모양이 틀리면 400, 없는 기록은 422",
+              x.status_code == 200 and x.json["result"]["path"] == "exports/fc_2026-12.xlsx" and os.path.getsize(path) > 2000 and len(x.json["result"]["sheets"]) >= 4
+              and x.json["result"]["command"] == f"equion export {newer} {hs} --xlsx exports/fc_2026-12.xlsx" and bad == [400, 400, 400, 400, 422], str(bad) + str(x.json)[:200])
+        a3 = c.post(f"{api}/report/add", json={"report": "fc", "record": hs, "rows": ["Y"]})
+        check("O14 과거 재현 기록도 보고서로 — 보고서 목록의 구역 수가 는다", a3.status_code == 200 and c.get(f"{api}/reports").json["reports"][0]["regions"] == 3, str(a3.json)[:200])
+    finally:
+        state.close()
+
+
 def section_instance(tmp: str, folder: str) -> None:
     print("I. 창은 하나 — 또 실행하면 폴더를 떠 있는 창에 넘긴다")
     from equion_desk import instance
@@ -1106,6 +1256,7 @@ def run() -> int:
         section_data(tmp)
         section_import(tmp)
         section_model(tmp)
+        section_forecast(tmp)
         section_instance(tmp, folder)
     bad = [n for n, ok, _ in RESULTS if not ok]
     print(f"\nEquion Desk 앱 시험 {len(RESULTS) - len(bad)}/{len(RESULTS)}")

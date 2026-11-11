@@ -87,6 +87,7 @@ class ProjectSession:
         self.feed.add("job", p=self.id, job=job, state="done", op=op, label=label, seconds=time.monotonic() - began,
                       record=rid if records.split_id(rid) else None)        # 기록 이름 모양일 때만(화면이 그것으로 카드를 연다)
         self.watcher.poke()
+        out["job"] = job           # 화면이 '이 일은 끝났다'를 알림 줄보다 먼저 안다(이어서 시키는 일이 바쁨에 걸리지 않게)
         return out
 
     def overview(self) -> dict[str, Any]:

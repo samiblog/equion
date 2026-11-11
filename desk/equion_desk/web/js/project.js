@@ -12,12 +12,14 @@ import { cardView } from './views/card.js';
 import { dataView } from './views/data.js';
 import { fileView } from './views/file.js';
 import { flowView } from './views/flow.js';
+import { forecastView } from './views/forecast.js';
 import { homeView } from './views/home.js';
 import { importView } from './views/importer.js';
 import { changesView, recordsView } from './views/lists.js';
 import { modelView } from './views/model.js';
+import { reportsView } from './views/reports.js';
 
-const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView, model: modelView, flow: flowView };
+const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView, model: modelView, flow: flowView, forecast: forecastView, reports: reportsView };
 const MAX_TABS = 24;       // 가운데 탭 — 넘으면 가장 오래된 것부터 닫는다(작업대가 늘어 14에서 올렸다)
 const FILE_ICON = { md: 'doc', csv: 'table', toml: 'code', txt: 'equation', eqs: 'play', json: 'code', xlsx: 'table' };
 
@@ -40,6 +42,7 @@ export class Project {
     this.dirs = new Map();       // 폴더 → 항목
     this.job = null;
     this.pending = 0;
+    this.finished = new Set();   // 응답을 받은 일(job) — 알림 줄의 '끝남'이 오기 전에도 다음 일을 시킬 수 있게
     this.free = 0;
     this.ready = false;
     this.dataInfo = null;        // 자료의 세 층(원자료·시리즈·회차) — 자료 작업대를 처음 열 때 읽는다
@@ -52,7 +55,8 @@ export class Project {
     this.build();
   }
 
-  get busy() { return this.pending > 0 || this.job?.state === 'start' || this.job?.state === 'progress'; }
+  /** 계산이 도는 중인가 — 이 화면이 시킨 일은 응답이 오면 끝난 것이다(알림 줄의 '끝남'은 조금 늦게 온다) */
+  get busy() { return this.pending > 0 || ((this.job?.state === 'start' || this.job?.state === 'progress') && !this.finished.has(this.job.job)); }
 
   get(path) { return getJSON(papi(this.id, path)); }
 
@@ -224,6 +228,7 @@ export class Project {
     this.emit({ type: 'job' });
     try {
       const res = await this.post(op, body);
+      if (res.job) { if (this.finished.size > 40) this.finished.clear(); this.finished.add(res.job); }
       const id = res.result?.id;
       if (id) this.seen(id);
       if (!quiet && id) this.openTab({ type: 'record', id });
@@ -370,15 +375,20 @@ export class Project {
     const last = this.lastEst();
     const sec = (title, count, rows) => h('div', { class: 'sec' }, h('div', { class: 'sec-head' }, title, h('span', { class: 'count' }, count)), rows);
 
-    // 작업대 — 식은 아래 블록에서 고르고, 자료와 분석은 여기서 연다
+    // 작업대 — 식은 아래 블록에서, 모형(조립·과거 재현)은 아래 모형에서 고르고, 자료·분석·전망·보고서는 여기서 연다
     const note = this.dataNote();
     const nAn = this.records.filter((r) => r.kind === 'an').length;
+    const nSim = this.records.filter((r) => r.kind === 'sim').length;
     box.append(sec('작업대', '', [
       h('button', { class: 'row-item', type: 'button', 'data-key': 'data', title: note ? `자료 — ${note.text}` : '자료 — 원자료 · 시리즈 · 회차', onclick: () => this.openTab({ type: 'data' }) },
         icon('data'), h('span', { class: 'label' }, '자료'), h('span', { class: 'desc mono' }, o.vintage?.id || (o.data_file || '').split('/').pop() || ''),
         h('span', { class: 'tail' }, note && note.level !== 'ok' ? h('span', { class: `dot ${note.level}` }) : null)),
       h('button', { class: 'row-item', type: 'button', 'data-key': 'analysis', title: '분석 — 요약·단위근·공적분·계절조정·ECM·VAR…', onclick: () => this.openTab({ type: 'analysis' }) },
         icon('flask'), h('span', { class: 'label' }, '분석'), h('span', { class: 'desc' }, ''), h('span', { class: 'tail' }, nAn || null)),
+      h('button', { class: 'row-item', type: 'button', 'data-key': 'forecast', title: '전망 — 가정을 적고 기준선과 시나리오를 푼다', onclick: () => this.openTab({ type: 'forecast' }) },
+        icon('forward'), h('span', { class: 'label' }, '전망'), h('span', { class: 'desc mono' }, o.forecast?.model || ''), h('span', { class: 'tail' }, nSim || null)),
+      h('button', { class: 'row-item', type: 'button', 'data-key': 'reports', title: '보고서 — 글 사이에 기록에서 보낸 표·차트. 새 기록으로 바꾼다', onclick: () => this.openTab({ type: 'reports' }) },
+        icon('doc'), h('span', { class: 'label' }, '보고서'), h('span', { class: 'desc' }, ''), h('span', { class: 'tail' }, o.reports || null)),
     ]));
 
     box.append(sec('모형', o.models.length, o.models.map((m) => h('button', {

@@ -116,6 +116,18 @@ def main() -> int:
                   (code, code2, code3) == (200, 200, 200) and data.get("mode") == "defs" and bool(data.get("current")) and len(data.get("sources", [])) == 2
                   and len(data.get("series", [])) >= 10 and len(one.get("values", [])) >= 100 and str(an.get("result", {}).get("id", "")).startswith("an:"),
                   f"{code} {code2} {code3} {str(data)[:150]} {str(an)[:150]}")
+            code, asm = http(f"/api/p/{pid}/assembly?model=main")
+            code2, fc = http(f"/api/p/{pid}/forecast")
+            code3, ran = http(f"/api/p/{pid}/sim/run", {"scenarios": ["base", "oil20"], "model": "main"})
+            asm, fc, ran = (x if isinstance(x, dict) else {} for x in (asm, fc, ran))
+            ids = ran.get("result", {}).get("ids", [])
+            code4, _ = http(f"/api/p/{pid}/report/new", {"name": "smoke", "title": "기동 시험"})
+            code5, sent = http(f"/api/p/{pid}/report/add", {"report": "smoke", "record": ids[-1] if ids else "sim:x", "rows": ["Y", "P"], "show": "yoy"})
+            code6, xl = http(f"/api/p/{pid}/export", {"records": ids or ["sim:x"], "name": "smoke"})
+            check("9-2 모형 작업대·전망·보고서 — 조립 보기, 전망 한눈에, 기준선과 시나리오 풀기, 보고서로 보내기, 엑셀로(openpyxl)",
+                  (code, code2, code3, code4, code5, code6) == (200,) * 6 and asm.get("report", {}).get("ok") is True and len(fc.get("periods", [])) == 8
+                  and len(ids) == 2 and os.path.isfile(os.path.join(project, "reports", "smoke.md")) and os.path.getsize(os.path.join(project, "exports", "smoke.xlsx")) > 2000,
+                  f"{code} {code2} {code3} {code4} {code5} {code6} {str(ran)[:200]} {str(sent)[:120]} {str(xl)[:120]}")
         finally:
             server.terminate()
             try:

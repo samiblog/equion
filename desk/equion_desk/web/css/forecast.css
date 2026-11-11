@@ -1,0 +1,118 @@
+/* 전망 작업대(가정 표 · 풀기 · 결과) · 보고서 · 보내기 대화상자(D4). 색은 tokens.css. */
+
+.view.forecast, .view.reports { max-width: 1240px; }
+.view.forecast .an-form { margin-bottom: 12px; }
+.chip-set.scen { min-height: 32px; align-items: center; }
+button.pc.big { height: 28px; padding: 0 12px; font-family: var(--font-ui); font-size: var(--fs-s); }
+.pc-flat.bad { background: var(--bad-soft); color: var(--bad); }
+.mini-select.wide { width: 100%; }
+.flow-card.go .ft svg.ic { width: 11px; height: 11px; color: var(--ink-4); }
+.flow-card.go:hover .ft svg.ic { color: var(--accent-ink); }
+
+/* ---- ① 가정 표 ------------------------------------------------------------------------------- */
+.asm-box { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--paper); }
+.asm-box .raw-cap .link { font-size: var(--fs-xs); color: var(--ink-3); }
+.asm-box .raw-cap .link:hover { color: var(--accent-ink); }
+.asm-box .raw-scroll { max-height: 330px; }
+.asm-box > .muted { padding: 6px 14px 8px; }
+table.asm-grid { border-collapse: separate; border-spacing: 0; min-width: 100%; font: calc(11.5px * var(--scale))/1.3 var(--font-mono); font-variant-numeric: tabular-nums; }
+table.asm-grid th, table.asm-grid td { height: 26px; padding: 0 9px; border-bottom: 1px solid var(--line-2); border-right: 1px solid var(--line-2); white-space: nowrap; text-align: right; }
+table.asm-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--raised); color: var(--ink-2); font-weight: 600; border-bottom-color: var(--line-strong); }
+table.asm-grid tbody th { position: sticky; left: 0; z-index: 1; min-width: 68px; background: var(--raised); color: var(--ink-3); font-weight: 500; }
+table.asm-grid thead th:first-child { left: 0; z-index: 3; }
+table.asm-grid tr.hist td { color: var(--ink-3); background: var(--raised); }
+table.asm-grid tr.first th, table.asm-grid tr.first td { border-top: 2px solid var(--accent-line); }
+table.asm-grid td:has(.cell) { padding: 0; min-width: 84px; }
+table.asm-grid .cell { display: block; width: 100%; height: 26px; padding: 0 9px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: right; }
+table.asm-grid .cell::placeholder { color: var(--ink-4); font-family: var(--font-ui); font-size: var(--fs-xs); }
+table.asm-grid .cell:hover { background: var(--raised); }
+table.asm-grid .cell:focus { outline: 0; background: var(--paper); box-shadow: inset 0 0 0 2px var(--accent); }
+table.asm-grid .cell.typed { background: color-mix(in srgb, var(--k-sim) 9%, transparent); font-weight: 600; }
+.asm-note { padding: 7px 14px; border-top: 1px solid var(--line-2); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-s); }
+.add-box { display: flex; align-items: center; gap: 5px 9px; flex-wrap: wrap; margin-top: 8px; padding: 6px 8px 6px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raised); font-size: var(--fs-s); }
+.add-box b { font-size: var(--fs-s); }
+
+/* ---- ③ 결과 --------------------------------------------------------------------------------- */
+.fc-result { margin-top: 4px; }
+.fc-result .result-head { margin: 16px 0 8px; gap: 6px 10px; }
+.fc-result .result-head .meta { order: 3; flex-basis: 100%; }
+.fc-tools { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 10px 0 8px; }
+.fc-tools .chip-set { flex: 1 1 240px; }
+.raw-scroll.tall { max-height: 420px; border: 1px solid var(--line); border-radius: var(--radius); }
+table.fc-table { border-collapse: separate; border-spacing: 0; min-width: 100%; font: calc(11.5px * var(--scale))/1.3 var(--font-mono); font-variant-numeric: tabular-nums; }
+table.fc-table th, table.fc-table td { height: 25px; padding: 0 10px; border-bottom: 1px solid var(--line-2); white-space: nowrap; text-align: right; }
+table.fc-table thead th { position: sticky; top: 0; z-index: 2; padding: 0; background: var(--raised); color: var(--ink-2); font-weight: 600; border-bottom: 1px solid var(--line-strong); }
+table.fc-table thead th:first-child { left: 0; z-index: 3; padding: 0 10px; text-align: left; }
+table.fc-table thead th button { width: 100%; height: 26px; padding: 0 10px; border: 0; background: none; color: inherit; font: inherit; text-align: right; }
+table.fc-table thead th button:hover, table.fc-table thead th.col button { background: var(--accent-soft); color: var(--accent-ink); }
+table.fc-table tbody th { position: sticky; left: 0; z-index: 1; min-width: 68px; background: var(--raised); color: var(--ink-3); font-weight: 500; text-align: left; }
+table.fc-table td small { margin-left: 1px; color: var(--ink-4); font-size: 9.5px; }
+table.fc-table td .sub { color: var(--ink-3); font-size: calc(10.5px * var(--scale)); line-height: 1.2; padding-bottom: 3px; }
+table.fc-table td:has(.sub) { height: auto; padding-top: 4px; }
+table.fc-table td.name { text-align: left; color: var(--ink-2); font-weight: 600; }
+table.fc-table tr.hist td { color: var(--ink-3); }
+table.fc-table tr.first th, table.fc-table tr.first td { border-top: 2px solid var(--accent-line); }
+table.fc-table td.col { box-shadow: inset 1px 0 0 var(--accent-line), inset -1px 0 0 var(--accent-line); }
+/* 값의 종류 — 실측(바탕 그대로) · 해(청록) · 가정(주황) · 채움(주황, 옅게 빗금 대신 점선 밑줄) */
+table.fc-table td.f-sol { background: color-mix(in srgb, var(--c-fitted) 8%, transparent); }
+table.fc-table td.f-asm { background: color-mix(in srgb, var(--k-sim) 13%, transparent); }
+table.fc-table td.f-fill { background: color-mix(in srgb, var(--k-sim) 5%, transparent); color: var(--ink-2); }
+table.fc-table td.f-miss { background: var(--bad-soft); color: var(--bad); }
+.fc-legend { display: flex; align-items: center; gap: 4px 14px; flex-wrap: wrap; margin: 7px 2px 0; color: var(--ink-3); font-size: var(--fs-xs); }
+.fc-legend .key { display: inline-flex; align-items: center; gap: 5px; }
+.fc-legend .key::before { content: ""; width: 11px; height: 11px; border-radius: 2px; border: 1px solid var(--line); }
+.fc-legend .key.f-sol::before { background: color-mix(in srgb, var(--c-fitted) 16%, transparent); }
+.fc-legend .key.f-asm::before { background: color-mix(in srgb, var(--k-sim) 24%, transparent); }
+.fc-legend .key.f-fill::before { background: color-mix(in srgb, var(--k-sim) 8%, transparent); }
+
+/* ---- 보고서 ---------------------------------------------------------------------------------- */
+.report-list { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.report-chip { display: grid; gap: 2px; min-width: 150px; max-width: 260px; padding: 8px 12px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); text-align: left; }
+.report-chip:hover { border-color: var(--accent-line); background: var(--raised); }
+.report-chip[aria-selected="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.report-chip b { font-size: calc(12px * var(--scale)); }
+.report-chip .ttl { color: var(--ink-2); font-size: var(--fs-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-chip small { color: var(--ink-3); font-size: var(--fs-xs); }
+.report-body .result-head { margin: 14px 0 10px; }
+.report-body .result-head > svg.ic { width: 15px; height: 15px; color: var(--ink-3); }
+.region-box { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-bottom: 14px; }
+.region-row { display: flex; align-items: center; gap: 4px 9px; flex-wrap: wrap; min-height: 34px; padding: 5px 10px 5px 14px; border-bottom: 1px solid var(--line-2); font-size: var(--fs-s); }
+.region-row:last-child { border-bottom: 0; }
+.region-row .n { min-width: 22px; color: var(--ink-3); font-weight: 600; font-variant-numeric: tabular-nums; }
+.region-row .to { white-space: nowrap; color: var(--ink-2); }
+.region-row .to .arrow { margin: 0 7px 0 0; }
+.region-row .muted { flex: 1 1 200px; }
+.tag.info { background: var(--info-soft); color: var(--info); border-color: transparent; }
+.arrow { margin: 0 6px; color: var(--ink-4); }
+.report-doc { padding: 4px 2px 0; }
+.region-plan { margin: 10px 0 0; }
+.region-plan .diff { margin-top: 6px; max-height: 220px; overflow: auto; }
+.region-line { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; font-size: var(--fs-s); }
+.cmd-note { margin-top: 12px; padding: 6px 10px; border-radius: var(--radius-s); background: var(--canvas); color: var(--ink-2); font-size: calc(11.5px * var(--scale)); overflow-wrap: anywhere; }
+
+/* ---- 보내기 대화상자 -------------------------------------------------------------------------- */
+.new-report { display: grid; gap: 8px; padding: 8px 0 2px 12px; border-left: 2px solid var(--accent-line); margin-left: 4px; }
+.new-report[hidden] { display: none; }
+.inline-opts { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; }
+.inline-opts .mini-input.num { width: 58px; }
+
+/* ---- 다듬기: 접는 가정 표 · 시리즈 줄 ------------------------------------------------------------ */
+.raw-cap .fold { display: inline-flex; align-items: center; gap: 5px; height: 24px; margin-left: -6px; padding: 0 6px 0 2px; border: 0; border-radius: var(--radius-s); background: none; color: var(--ink); font-size: var(--fs-s); }
+.raw-cap .fold:hover { background: var(--canvas-2); }
+.raw-cap .fold svg.ic { width: 13px; height: 13px; color: var(--ink-3); transition: transform .12s; }
+.raw-cap .fold[aria-expanded="true"] svg.ic { transform: rotate(90deg); }
+.asm-box.shut .raw-cap { border-bottom: 0; }
+.asm-sum { display: inline-flex; gap: 5px; flex-wrap: wrap; }
+.asm-sum .pc-flat { gap: 5px; }
+.asm-sum .pc-flat small { color: var(--ink-3); font: 500 var(--fs-xs)/1 var(--font-ui); }
+.pc-flat.asm { background: color-mix(in srgb, var(--k-sim) 13%, transparent); }
+.fc-tools { margin: 12px 0 8px; }
+.chip-set.fc-series { margin: 0 0 9px; }
+button.pc.exo:not([aria-pressed="true"]) { border-style: dashed; }
+table.fc-table thead th { padding: 0 10px; height: 26px; }
+table.fc-table thead th:has(button) { padding: 0; }
+table.fc-table td.f-sol { background: color-mix(in srgb, var(--c-fitted) 11%, transparent); }
+table.asm-grid .cell.gap { background: var(--bad-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 55%, transparent); }
+table.asm-grid .cell.gap::placeholder { color: var(--bad); }
+.asm-note.bad { background: var(--bad-soft); color: var(--bad); }
+.raw-cap .cap-tools { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }

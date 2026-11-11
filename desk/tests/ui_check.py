@@ -556,6 +556,109 @@ def run(shots: str | None) -> int:
                 page.wait_for_timeout(300)
                 shot(page, "03j-flow")
 
+                print("T. 전망 작업대 · 보고서(D4)")
+                n_jobs = page.locator("#job .job").count()
+                page.click(f"{active} .side .row-item[data-key='forecast']")
+                page.wait_for_selector(f"{pane} .fc-table tbody tr")
+                sims = page.locator(f"{pane} tr[data-sim]").count()
+                check("T1 전망 작업대 — 푼 전망이 있으면 가정 표는 접고(한 줄 요약) 결과를 먼저 보인다. 여는 것만으로는 풀지 않는다",
+                      sims >= 2 and page.locator(f"{pane} .asm-box.shut .asm-sum .pc-flat").count() == 3 and page.locator(f"{pane} .asm-grid").count() == 0
+                      and page.inner_text(f"{pane} .an-form .cmdline .cmd") == "equion sim base --model main" and page.locator(f"{pane} .fc-legend .key").count() == 4
+                      and page.locator(f"{pane} .fc-table td.f-sol").count() >= 8 and page.locator("#job .job").count() == n_jobs, page.inner_text(f"{pane} .asm-box"))
+                page.click(f"{pane} [data-act='fold-assume']")
+                page.wait_for_selector(f"{pane} .asm-grid .cell")
+                cells = page.locator(f"{pane} .asm-grid .cell")
+                n_cells = cells.count()
+                cells.nth(8).fill("3.3")                       # 셋째 기간의 R — 첫째·둘째 기간은 비어 있다: 값 사이의 빈칸
+                gap = page.locator(f"{pane} .asm-grid .cell.gap").count()
+                said = page.inner_text(f"{pane} .asm-note.bad")
+                cells.nth(2).fill("3.1")
+                cells.nth(5).fill("3.2")
+                check("T2 가정 표 — 외생 × 전망 구간의 칸에 적는다. 값 사이의 빈칸은 붉게 알리고(채우기는 마지막 값 뒤만), 적으면 '저장' 이 살아난다",
+                      n_cells == 24 and gap == 2 and "값 사이의 빈칸" in said and page.locator(f"{pane} .asm-grid .cell.gap").count() == 0
+                      and page.locator(f"{pane} .asm-grid .cell.typed").count() >= 3 and page.is_enabled(f"{pane} [data-act='save-assume']")
+                      and page.is_visible(f"{pane} .asm-note:not(.bad)"), said)
+                page.wait_for_timeout(250)
+                shot(page, "03k-assume")
+                page.click(f"{pane} [data-scenario='oil20']")
+                cmd = page.inner_text(f"{pane} .an-form .cmdline .cmd")
+                page.click(f"{pane} [data-act='solve']")
+                page.wait_for_selector(f"{pane} .asm-box.shut", timeout=90000)
+                page.wait_for_selector(f"{pane} [data-mode='diff']", timeout=30000)
+                with open(os.path.join(folder, "ASSUMPTIONS", "base.csv"), encoding="utf-8") as f:
+                    saved = f.read()
+                check("T3 풀기 — 저장하지 않은 가정을 먼저 저장하고 기준선과 시나리오를 차례로(작업 하나). 함께 푼 것은 나란히 견주게 고른다",
+                      cmd == "equion sim base oil20 --model main" and ",3.1" in saved and ",3.3" in saved and page.locator(f"{pane} tr[data-sim]").count() >= min(6, sims + 2)
+                      and "oil20" in page.inner_text(f"{pane} tr[data-sim].on") and page.locator(f"{pane} tr[data-sim].vs").count() == 1
+                      and "시나리오 oil20" in page.inner_text(f"{pane} .fc-result .result-head") and "sim:" in page.inner_text("#job .job.done"), cmd)
+                page.click(f"{pane} [data-series='R']")
+                asm = page.locator(f"{pane} .fc-table td.f-asm").count()
+                fill = page.locator(f"{pane} .fc-table td.f-fill").count()
+                page.click(f"{pane} [data-mode='annual']")
+                head = page.locator(f"{pane} .fc-table thead th").all_inner_texts()
+                page.click(f"{pane} [data-mode='diff']")
+                page.wait_for_selector(f"{pane} .fc-table td .sub")
+                diff_rows = page.locator(f"{pane} .fc-table tbody tr").count()
+                page.click(f"{pane} [data-mode='level']")
+                page.click(f"{pane} [data-col='P']")
+                page.wait_for_selector(f"{pane} .var-detail svg path")
+                check("T4 결과 — 값의 종류를 칸의 색으로(가정·채움·해), 연간은 고른 전망을 나란히, 기준선 대비, 열 이름을 누르면 실측에 이은 전망 차트(견주는 것과 함께)",
+                      asm == 3 and fill == 5 and len(head) == 4 and "oil20" in head[2] and "base" in head[3] and diff_rows == 8
+                      and page.locator(f"{pane} .var-detail .legend .key").count() == 3, f"{asm} {fill} {head}")
+                page.wait_for_timeout(300)
+                shot(page, "03l-forecast")
+                page.click(f"{pane} [data-act='views']")
+                page.click(".menu .menu-item:has-text('이 보기 저장')")
+                page.wait_for_selector(".dialog")
+                page.fill(".dialog input[aria-label='보기 이름']", "core")
+                page.fill(".dialog input[aria-label='제목']", "핵심 지표")
+                page.click(".dialog-foot .btn.primary")
+                page.wait_for_selector("#flash:has-text('VIEWS/core.toml')")
+                page.wait_for_timeout(700)
+                page.click(f"{pane} [data-series='M2']")
+                page.click(f"{pane} [data-act='views']")
+                page.click(".menu .menu-item:has-text('핵심 지표')")
+                page.wait_for_timeout(200)
+                check("T5 보기 — 지금 고른 시리즈와 모양을 이름으로 저장하고(VIEWS/core.toml), 다시 고르면 같은 표로 돌아온다",
+                      os.path.isfile(os.path.join(folder, "VIEWS", "core.toml")) and page.get_attribute(f"{pane} [data-series='M2']", "aria-pressed") == "true"
+                      and page.get_attribute(f"{pane} [data-mode='level']", "aria-pressed") == "true" and page.locator(f"{active} .notice[data-change]").count() == 0)
+                page.click(f"{pane} [data-act='to-report']")
+                page.wait_for_selector(".dialog select[aria-label='보고서']")
+                dialog = page.inner_text(".dialog")
+                places = page.locator(".dialog select[aria-label='보낼 곳'] option").count()
+                page.fill(".dialog input[aria-label='표 제목']", "유가 시나리오")
+                page.click(".dialog-foot .btn.primary")
+                page.wait_for_selector(f"{pane} .region-row >> nth=2", timeout=30000)
+                rows = page.locator(f"{pane} .region-row").count()
+                check("T6 보고서로 — 지금 보는 시리즈·모양 그대로 보고서의 한 구역으로. 보낸 뒤 보고서 탭이 열리고 구역 검사가 더 새 기록이 있는 구역을 알린다",
+                      "보고서의 한 구역으로" in dialog and places >= 2 and rows == 3 and "보고서" in page.inner_text(f"{active} .tabbar .tab[aria-selected='true']")
+                      and "유가 시나리오" in page.inner_text(f"{pane} .report-doc") and page.locator(f"{pane} .region-row:has(.tag.warn)").count() == 1
+                      and page.locator(f"{pane} .region-row:has(.tag.ok)").count() == 2 and page.locator(f"{pane} [data-act='update']").count() == 1, page.inner_text(f"{pane} .region-box"))
+                page.wait_for_timeout(250)
+                shot(page, "03m-report")
+                page.click(f"{pane} [data-act='update']")
+                page.wait_for_selector(".dialog .region-plan .diff")
+                plan = page.inner_text(".dialog")
+                page.click(".dialog-foot .btn.primary")
+                page.wait_for_selector(f"{pane} .region-row .tag.ok >> nth=2", timeout=30000)
+                check("T7 새 기록으로 바꾸기 — 구역마다 무엇이 달라지는지 먼저 보이고, 바꾸면 그 구역만 새 기록으로(모두 정상)",
+                      "equion report update" in plan and "구역 1개 바꾸기" in plan and page.locator(f"{pane} .region-row .tag.warn").count() == 0
+                      and page.locator(f"{pane} [data-act='update']").count() == 0 and page.locator(f"{active} .notice[data-change]").count() == 0, plan[:300])
+                page.click(f"{active} .tabbar .tab:has-text('전망')")
+                page.click(f"{pane} [data-act='to-xlsx']")
+                page.wait_for_selector(".dialog input[aria-label='파일 이름']")
+                page.fill(".dialog input[aria-label='파일 이름']", "ui_check")
+                page.click(".dialog-foot .btn.primary")
+                page.wait_for_selector(f"{active} .notice:has-text('exports/ui_check.xlsx')", timeout=30000)
+                check("T8 엑셀로 — 보는 전망과 견주는 전망을 한 권으로(값·값의 종류·출처), 같은 일을 하는 명령과 함께 알린다",
+                      os.path.getsize(os.path.join(folder, "exports", "ui_check.xlsx")) > 2000 and "equion export sim:" in page.inner_text(f"{active} .notice:has-text('exports/ui_check.xlsx')"))
+                page.click(f"{active} .notice:has-text('exports/ui_check.xlsx') .icon-btn")
+                page.click(f"{pane} .fc-result .result-head .rid")
+                page.wait_for_selector(f"{pane} .of-record")
+                check("T9 전망 기록의 카드 — '전망 작업대에서'·'보고서로'·'엑셀로' 가 있다",
+                      page.locator(f"{pane} .view-head .tools .btn:has-text('전망 작업대에서')").count() == 1 and page.locator(f"{pane} [data-act='to-report']").count() == 1
+                      and page.locator(f"{pane} [data-act='to-xlsx']").count() == 1)
+
                 print("W. 터미널에서 친 명령의 기록이 띠에 뜨고 카드로 열린다(D1 완료 기준)")
                 typed = page.locator(f"{active} .term-body .xterm").count() > 0
                 before = page.locator("#strip .chip").count()
@@ -584,11 +687,16 @@ def run(shots: str | None) -> int:
 
                 print("X. 작업 줄 · 바뀜 알림")
                 page.click(f"{active} .tabbar .tab >> nth=0")
-                page.click(f"{pane} .card >> nth=1 >> .foot .btn:has-text('전망')")        # 모형 main 의 '전망'
+                page.click(f"{pane} .card >> nth=1 >> .foot .btn:has-text('전망')")        # 모형 main 의 '전망' — 전망 작업대를 연다
+                page.wait_for_selector(f"{pane} [data-act='solve']")
+                page.click(f"{pane} [data-scenario='oil20']")                                   # 기준선만
+                page.click(f"{pane} [data-act='solve']")
                 page.wait_for_selector("#job .job")
                 page.wait_for_selector("#job .job.done", timeout=60000)
-                page.wait_for_selector(f"{active} .tabbar .tab[aria-selected='true'] .title:has-text('sim:')")
-                check("X1 '전망' 단추 — 작업 줄에 도는 일과 끝난 일(기록 이름), 결과 카드가 열린다", "sim:" in page.inner_text("#job .job.done"))
+                page.wait_for_selector(f"{pane} tr[data-sim].on:has-text('_base')", timeout=30000)
+                check("X1 개요의 '전망' 단추는 전망 작업대를 열고, '풀기' — 작업 줄에 도는 일과 끝난 일(기록 이름), 푼 전망이 목록 맨 위에 보인다",
+                      "sim:" in page.inner_text("#job .job.done") and "전망" in page.inner_text(f"{active} .tabbar .tab[aria-selected='true']")
+                      and "_base" in page.inner_text(f"{pane} tr[data-sim].on"))
                 with open(os.path.join(folder, "EQUATIONS", "price.txt"), "a", encoding="utf-8", newline="\n") as f:
                     f.write("\n# 밖에서 고친 줄\n")
                 page.wait_for_selector(f"{active} .notice[data-change]", timeout=20000)

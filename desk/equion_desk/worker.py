@@ -23,7 +23,7 @@ import threading
 import time
 from typing import Any
 
-from . import dataops, jobs, modelops, runtime
+from . import dataops, jobs, modelops, runtime, simops
 from .records import read_series
 
 START_WAIT = 60.0     # 프로세스가 뜨고 equion을 불러올 때까지 기다리는 시간(초) — 느린 디스크·보안 프로그램
@@ -123,7 +123,8 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
                        for m in cfg.models.values()],
             "hs": dict(cfg.hs or {}), "forecast": dict(cfg.forecast or {}), "criteria": bool(cfg.criteria),
             "scenarios": _names(project.root, "SCENARIOS", (".toml",)), "assumptions": _names(project.root, "ASSUMPTIONS", (".csv",)),
-            "scripts": _names(project.root, "FLOWS", (".eqs",)), "warnings": list(cfg.warnings or []),
+            "scripts": _names(project.root, "FLOWS", (".eqs",)), "reports": len(_names(project.root, "reports", (".md",))),
+            "warnings": list(cfg.warnings or []),
         }
 
     def est(target: str, method: str | None = None, smpl: str | None = None, sim: bool = False, cov: str | None = None,
@@ -319,6 +320,45 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
     def reestimate(name: str | None = None, adopt: str = "never", parts: list | None = None) -> dict:
         return modelops.reestimate(holder.get(), name, adopt, parts)
 
+    # ---- 전망 작업대 · 보고서(simops.py) ----------------------------------------------------------
+    def forecast(model: str | None = None) -> dict:
+        return simops.forecast(holder.get(), model)
+
+    def assume(name: str, columns: list, rows: dict) -> dict:
+        return simops.assume_write(holder.get(), name, columns, rows)
+
+    def sim_run(scenarios: list | None = None, model: str | None = None, range_: str | None = None, vintage: str | None = None,
+                vs: str | None = None) -> dict:
+        return simops.sim_run(holder.get(), scenarios, model, range_, vintage, vs, notify)
+
+    def sim_view(record: str) -> dict:
+        return simops.sim_view(holder.get(), record)
+
+    def views() -> dict:
+        return simops.views(holder.get())
+
+    def view_define(name: str, series: list, show: str = "level", title: str | None = None) -> dict:
+        return simops.view_define(holder.get(), name, series, show, title)
+
+    def reports() -> dict:
+        return simops.reports(holder.get())
+
+    def report_new(name: str, title: str | None = None, from_report: str | None = None) -> dict:
+        return simops.report_new(holder.get(), name, title, from_report)
+
+    def report_add(report: str, record: str, rows: list | None = None, show: str = "level", annual: bool = False, digits: int | None = None,
+                   title: str | None = None, chart: bool = False, under: str | None = None) -> dict:
+        return simops.report_add(holder.get(), report, record, rows, show, annual, digits, title, chart, under)
+
+    def report_check(report: str) -> dict:
+        return simops.report_check(holder.get(), report)
+
+    def report_update(report: str, region: int | None = None, dry: bool = False, force: bool = False) -> dict:
+        return simops.report_update(holder.get(), report, region, dry, force)
+
+    def export(records: list, name: str) -> dict:
+        return simops.export(holder.get(), records, name)
+
     def scan() -> dict | None:
         """명령 밖에서 고친 정의 파일을 '바깥' 바뀜으로 적는다(K7). 바뀐 것이 없으면 None."""
         change = holder.get().history.scan()
@@ -331,7 +371,10 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
             "analyses": analyses, "an": an, "an_keep": an_keep,
             "assembly": assembly, "model_define": model_define, "block_define": block_define, "check_text": check_text, "write_text": write_text,
             "hs_replay": hs_replay, "hs_view": hs_view, "hs_series": hs_series, "trace": trace, "scripts": scripts, "script_plan": script_plan,
-            "script_run": script_run, "run_view": run_view, "script_new": script_new, "todo": todo, "reestimate": reestimate}
+            "script_run": script_run, "run_view": run_view, "script_new": script_new, "todo": todo, "reestimate": reestimate,
+            "forecast": forecast, "assume": assume, "sim_run": sim_run, "sim_view": sim_view, "views": views, "view_define": view_define,
+            "reports": reports, "report_new": report_new, "report_add": report_add, "report_check": report_check, "report_update": report_update,
+            "export": export}
 
 
 def _plain(value: Any) -> Any:

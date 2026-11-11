@@ -697,6 +697,120 @@ def create_app(state: AppState) -> Flask:
         name = pick(data, "name", NAME)
         return run(pid, "reestimate", t("다시 추정 {name}", name=name or "").strip(), name=name, adopt="never")
 
+    # ---- 프로젝트: 전망 작업대 · 보기 · 보고서 · 엑셀 ---------------------------------------------------
+
+    SIM_RECORD = re.compile(r"sim:[A-Za-z0-9][A-Za-z0-9_\-.]{0,120}")
+    ANY_RECORD = re.compile(r"(?:est|hs|sim|an|data):[A-Za-z0-9][A-Za-z0-9_\-.]{0,160}")
+    RANGE = re.compile(r"[A-Za-z0-9+\-]{0,20}:[A-Za-z0-9+\-]{0,20}")
+    SHOWS = frozenset({"level", "qoq", "yoy", "annual", "diff"})
+    NUMBER = re.compile(r"[-+0-9.,eE ]{0,40}")
+
+    @app.get("/api/p/<pid>/forecast")
+    def api_forecast(pid: str) -> Any:
+        """전망 한눈에 — 모형과 전망 구간, 가정 표(외생 × 구간), 보정항 규칙, 시나리오, 전망 기록, 보기. 계산하지 않는다."""
+        model = request.args.get("model") or None
+        if model is not None and not NAME.fullmatch(model):
+            abort(400)
+        return ask(pid, "forecast", model=model)
+
+    @app.post("/api/p/<pid>/assume")
+    def api_assume(pid: str) -> Any:
+        """{name, columns, rows: {기간: {변수: 글}}} — 가정 표를 쓴다(`ASSUMPTIONS/<이름>.csv`). 바뀜 기록에 'Desk'로 남는다."""
+        data = body()
+        name, rows = pick(data, "name", NAME), data.get("rows")
+        columns = names_arg(data, "columns", SERIES, 400)
+        if name is None or not columns or not isinstance(rows, dict) or len(rows) > 600:
+            abort(400)
+        for period, cells in rows.items():
+            if not isinstance(period, str) or not PERIOD.fullmatch(period) or not isinstance(cells, dict) or len(cells) > 400:
+                abort(400)
+            for col, value in cells.items():
+                if not isinstance(col, str) or not SERIES.fullmatch(col) or not isinstance(value, str) or not NUMBER.fullmatch(value):
+                    abort(400, description=t("{period} {name}: 숫자가 아닙니다", period=str(period)[:20], name=str(col)[:40]))
+        return run(pid, "assume", t("가정 표 {name}", name=name), name=name, columns=columns, rows=rows)
+
+    @app.post("/api/p/<pid>/sim/run")
+    def api_sim_run(pid: str) -> Any:
+        """{scenarios?, model?, range?, vintage?, vs?} — 전망·시나리오(`equion sim`): 고른 것을 차례로(작업 하나). 기록(sim:)을 남긴다."""
+        data = body()
+        scenarios = names_arg(data, "scenarios", NAME, 12) or ["base"]
+        return run(pid, "sim_run", t("전망 {scenario}", scenario=" · ".join(scenarios)), scenarios=scenarios, model=pick(data, "model", NAME),
+                   range_=pick(data, "range", RANGE), vintage=pick(data, "vintage", VINTAGE), vs=pick(data, "vs", SIM_RECORD))
+
+    @app.get("/api/p/<pid>/sim/view")
+    def api_sim_view(pid: str) -> Any:
+        """전망 기록 하나 — 수준·값의 종류·전기비·전년동기비·연간·기준선 대비."""
+        record = request.args.get("id", "")
+        if not SIM_RECORD.fullmatch(record):
+            abort(400)
+        return ask(pid, "sim_view", record=record)
+
+    @app.get("/api/p/<pid>/views")
+    def api_views(pid: str) -> Any:
+        return ask(pid, "views")
+
+    @app.post("/api/p/<pid>/view/define")
+    def api_view_define(pid: str) -> Any:
+        """{name, series, show?, title?} — 이 보기 저장(`equion view define`): `VIEWS/<이름>.toml`."""
+        data = body()
+        name, series = pick(data, "name", NAME), names_arg(data, "series", SERIES, 200)
+        if name is None or not series:
+            abort(400, description=t("보기 이름(영문·숫자·_)과 시리즈가 있어야 합니다"))
+        return run(pid, "view_define", t("보기 {name}", name=name), name=name, series=series, show=pick(data, "show", allowed=SHOWS) or "level",
+                   title=text_arg(data, "title", 120))
+
+    @app.get("/api/p/<pid>/reports")
+    def api_reports(pid: str) -> Any:
+        return ask(pid, "reports")
+
+    @app.post("/api/p/<pid>/report/new")
+    def api_report_new(pid: str) -> Any:
+        """{name, title?, from?} — 새 보고서(`equion report new`). from 은 지난 보고서(그 구역들을 새 기록으로 바꿔 낄 틀)."""
+        data = body()
+        name = pick(data, "name", NAME)
+        if name is None:
+            abort(400, description=t("보고서 이름이 있어야 합니다(영문·숫자·_·-)"))
+        return run(pid, "report_new", t("새 보고서 {name}", name=name), name=name, title=text_arg(data, "title", 160), from_report=pick(data, "from", NAME))
+
+    @app.post("/api/p/<pid>/report/add")
+    def api_report_add(pid: str) -> Any:
+        """{report, record, rows?, show?, annual?, digits?, title?, chart?, under?} — 보고서로 보내기(`equion report add`)."""
+        data = body()
+        report, record = pick(data, "report", NAME), pick(data, "record", ANY_RECORD)
+        digits = data.get("digits")
+        if report is None or record is None or (digits is not None and (not isinstance(digits, int) or isinstance(digits, bool) or not 0 <= digits <= 8)):
+            abort(400)
+        return run(pid, "report_add", t("보고서로 {report}", report=report), report=report, record=record, rows=names_arg(data, "rows", SERIES, 200),
+                   show=pick(data, "show", allowed=SHOWS - {"annual"}) or "level", annual=data.get("annual") is True, digits=digits,
+                   title=text_arg(data, "title", 160), chart=data.get("chart") is True, under=text_arg(data, "under", 160))
+
+    @app.get("/api/p/<pid>/report/check")
+    def api_report_check(pid: str) -> Any:
+        """보고서 검사 — 구역마다 없는 기록 · 더 새 기록 · 낡음 · 손으로 고침. 고치지 않는다."""
+        report = request.args.get("report", "")
+        if not NAME.fullmatch(report):
+            abort(400)
+        return ask(pid, "report_check", report=report)
+
+    @app.post("/api/p/<pid>/report/update")
+    def api_report_update(pid: str) -> Any:
+        """{report, region?, dry?, force?} — 새 기록으로 바꾸기(`equion report update`). dry 면 바꾸지 않고 구역마다의 차이만."""
+        data = body()
+        report, region = pick(data, "report", NAME), data.get("region")
+        if report is None or (region is not None and (not isinstance(region, int) or isinstance(region, bool) or not 1 <= region <= 500)):
+            abort(400)
+        if data.get("dry") is True:
+            return ask(pid, "report_update", report=report, region=region, dry=True, force=data.get("force") is True)
+        return run(pid, "report_update", t("보고서 고침 {report}", report=report), report=report, region=region, force=data.get("force") is True)
+
+    @app.post("/api/p/<pid>/export")
+    def api_export(pid: str) -> Any:
+        """{records, name} — 엑셀로(`equion export … --xlsx`): 값·값의 종류·출처 시트를 `exports/<이름>.xlsx`로."""
+        data = body()
+        name, records = pick(data, "name", NAME), names_arg(data, "records", ANY_RECORD, 40)
+        if name is None or not records:
+            abort(400, description=t("파일 이름(영문·숫자·_·-)과 기록이 있어야 합니다"))
+        return run(pid, "export", t("엑셀로 {name}", name=name), name=name, records=records)
 
     @app.post("/api/p/<pid>/sim")
     def api_sim(pid: str) -> Any:
