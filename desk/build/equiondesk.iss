@@ -32,6 +32,8 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
 ShowLanguageDialog=auto
+SetupIconFile=..\equion_desk\assets\equion-desk.ico
+UninstallDisplayIcon={app}\equion-desk.ico
 
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
@@ -62,18 +64,22 @@ Type: filesandordirs; Name: "{app}\runtime"
 [Files]
 Source: "{#SourceDir}\runtime\*"; DestDir: "{app}\runtime"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceDir}\runtime.json"; DestDir: "{app}"; Flags: ignoreversion
+; 바로 가기·우클릭 메뉴·제거 목록의 아이콘 — 실행기가 pythonw.exe 라 따로 준다(창의 아이콘은 앱이 뜨면서 단다)
+Source: "..\equion_desk\assets\equion-desk.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "..\..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; DestName: "THIRD-PARTY-NOTICES-equion.md"; Flags: ignoreversion
 Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Equion Desk"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-I -m equion_desk"; WorkingDir: "{app}"; Comment: "{cm:AppComment}"; AppUserModelID: "Equion.Desk"
-Name: "{autodesktop}\Equion Desk"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-I -m equion_desk"; WorkingDir: "{app}"; Comment: "{cm:AppComment}"; AppUserModelID: "Equion.Desk"; Tasks: desktopicon
+Name: "{autoprograms}\Equion Desk"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-I -m equion_desk"; WorkingDir: "{app}"; Comment: "{cm:AppComment}"; AppUserModelID: "Equion.Desk"; IconFilename: "{app}\equion-desk.ico"
+Name: "{autodesktop}\Equion Desk"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "-I -m equion_desk"; WorkingDir: "{app}"; Comment: "{cm:AppComment}"; AppUserModelID: "Equion.Desk"; IconFilename: "{app}\equion-desk.ico"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\EquionDesk"; ValueType: string; ValueName: ""; ValueData: "{cm:OpenWith}"; Flags: uninsdeletekey; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\EquionDesk"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\equion-desk.ico"; Tasks: contextmenu
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\EquionDesk\command"; ValueType: string; ValueName: ""; ValueData: """{app}\runtime\pythonw.exe"" -I -m equion_desk ""%1"""; Tasks: contextmenu
 Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\EquionDesk"; ValueType: string; ValueName: ""; ValueData: "{cm:OpenWith}"; Flags: uninsdeletekey; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\EquionDesk"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\equion-desk.ico"; Tasks: contextmenu
 Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\EquionDesk\command"; ValueType: string; ValueName: ""; ValueData: """{app}\runtime\pythonw.exe"" -I -m equion_desk ""%V"""; Tasks: contextmenu
 
 [Run]

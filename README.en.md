@@ -9,7 +9,7 @@ the engine is built to accept equation sets that change often — the model is a
 - Use it as a **library** (`import equion as eqn`) or from the **command line** (`equion run script.py`).
 - Synthetic example data sets ship with the package (`eqn.datasets`: `toy_q`, `toy_a`, `toy_m`, `klein_like`), generated
   from known models, so every example and test runs anywhere and estimates can be compared with the truth.
-- A Windows desktop app, **Equion Desk**, is planned once the package has matured.
+- A Windows desktop app, **Equion Desk**, is under development in [`desk/`](desk/README.md) (Korean UI; skeleton stage).
 - Most documentation is in Korean ([`docs/README.md`](docs/README.md)). In English: [getting started](docs/en/README.md),
   [your first model](docs/en/first-model.md), a [cheat sheet](docs/en/cheatsheet.md), and the generated API reference
   [`docs/reference/api.md`](docs/reference/api.md), which lists every public function and method with its signature.

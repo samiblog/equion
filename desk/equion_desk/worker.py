@@ -22,7 +22,8 @@ import threading
 import time
 from typing import Any
 
-from . import runtime
+from . import jobs, runtime
+from .records import read_series
 
 START_WAIT = 60.0     # 프로세스가 뜨고 equion을 불러올 때까지 기다리는 시간(초) — 느린 디스크·보안 프로그램
 CALL_WAIT = 600.0     # 요청 하나를 기다리는 시간(초)
@@ -39,60 +40,105 @@ class WorkerError(RuntimeError):
 
 # ---- 작업 프로세스 쪽 ---------------------------------------------------------------------------
 
-def _series(path: str) -> dict[str, list]:
-    """기록 폴더의 `series.csv`(기간·실측·적합·잔차) → 열마다 목록. 화면의 차트가 쓴다."""
-    import csv
+class _Project:
+    """작업 프로세스가 쥔 프로젝트. 정의 파일이 바뀌었으면 다음 요청 전에 다시 연다 — 화면이 옛 식으로 계산하지 않게."""
 
-    out: dict[str, list] = {}
-    file = os.path.join(path, "series.csv")
-    if not os.path.isfile(file):
-        return out
-    with open(file, encoding="utf-8", newline="") as f:
-        rows = list(csv.reader(f))
-    if not rows:
-        return out
-    for i, name in enumerate(rows[0]):
-        col: list = []
-        for row in rows[1:]:
-            cell = row[i] if i < len(row) else ""
-            if i == 0:
-                col.append(cell)
-            else:
-                try:
-                    col.append(float(cell))
-                except ValueError:
-                    col.append(None)
-        out[name] = col
-    return out
+    def __init__(self, root: str) -> None:
+        self.root = root
+        self._stamp: Any = None
+        self._project: Any = None
+
+    def get(self) -> Any:
+        import equion as eqn
+
+        from .watch import definitions
+
+        stamp = definitions(self.root)
+        if self._project is None or stamp != self._stamp:
+            self._project = eqn.project(self.root)
+            self._stamp = stamp
+        return self._project
 
 
-def _ops(project: Any) -> dict[str, Any]:
+def _part(p: Any, adopted: dict[str, str]) -> dict:
+    return {"id": p.id, "block": p.block, "target": p.target, "kind": p.kind, "text": p.text, "desc": p.desc, "where": p.where,
+            "adopted": adopted.get(p.id)}
+
+
+def _command(*words: str | None) -> str:
+    """기록에 적는 명령 — 같은 일을 터미널에서 할 때 치는 글 그대로(`equion est demand:CN`)."""
+    import shlex
+
+    return shlex.join(["equion", *[w for w in words if w]])
+
+
+def _names(root: str, folder: str, suffixes: tuple[str, ...]) -> list[str]:
+    try:
+        files = sorted(os.listdir(os.path.join(root, folder)))
+    except OSError:
+        return []
+    return [os.path.splitext(f)[0] for f in files if f.lower().endswith(suffixes)]
+
+
+def _ops(holder: _Project) -> dict[str, Any]:
     """요청 이름 → 하는 일. 화면이 부를 수 있는 것의 허용 목록이다 — 여기 없는 이름은 거절한다."""
 
     def ping() -> dict:
         import equion
 
+        project = holder.get()
         return {"equion": equion.__version__, "python": sys.version.split()[0], "executable": sys.executable,
                 "project": project.name, "root": str(project.root)}
 
     def parts() -> list[dict]:
-        return [{"id": p.id, "block": p.block, "target": p.target, "kind": p.kind, "text": p.text, "desc": p.desc, "where": p.where} for p in project.parts()]
+        project = holder.get()
+        adopted = project.adopted
+        return [_part(p, adopted) for p in project.parts()]
+
+    def overview() -> dict:
+        """프로젝트 한눈에 — 블록과 부품·모형·자료 회차·시나리오. 계산은 하지 않는다(파일을 읽기만)."""
+        import equion
+
+        project = holder.get()
+        cfg = project.config
+        adopted = project.adopted
+        by_block: dict[str, list[dict]] = {}
+        for p in project.parts():
+            by_block.setdefault(p.block, []).append(_part(p, adopted))
+        vintage = None
+        if cfg.series_file:
+            vintage = next((v for v in project.data_list() if v.get("current")), None) or {"id": project.vintage}
+        return {
+            "project": project.name, "root": str(project.root), "equion": equion.__version__, "python": sys.version.split()[0],
+            "executable": sys.executable, "freq": cfg.freq, "vintage": vintage, "data_file": cfg.data_file,
+            "blocks": [{"name": b.name, "file": b.file, "desc": b.desc, "parts": by_block.get(b.name, [])} for b in cfg.blocks.values()],
+            "models": [{"name": m.name, "desc": m.desc, "blocks": list(m.blocks), "include": list(m.include), "exclude": list(m.exclude)}
+                       for m in cfg.models.values()],
+            "hs": dict(cfg.hs or {}), "forecast": dict(cfg.forecast or {}), "criteria": bool(cfg.criteria),
+            "scenarios": _names(project.root, "SCENARIOS", (".toml",)), "assumptions": _names(project.root, "ASSUMPTIONS", (".csv",)),
+            "scripts": _names(project.root, "FLOWS", (".eqs",)), "warnings": list(cfg.warnings or []),
+        }
 
     def est(target: str, method: str | None = None, smpl: str | None = None) -> dict:
-        rec = project.est(target, method=method, smpl=smpl, who="desk", command=f"est {target}")
+        rec = holder.get().est(target, method=method, smpl=smpl, who="desk", command=_command("est", target))
         out = rec.to_dict()
-        out["series"] = _series(out.get("path", ""))
+        out["series"] = read_series(os.path.join(holder.root, out.get("path", "")))
         return out
 
     def hs(model: str | None = None) -> dict:
-        rec = project.hs(model, record=True, who="desk", command=f"hs {model or ''}".strip())
+        rec = holder.get().hs(model, record=True, who="desk", command=_command("hs", model))
         return rec.to_dict()
 
-    def sim(scenario: str = "base") -> dict:
-        rec = project.sim(scenario, who="desk", command=f"sim {scenario}")
+    def sim(scenario: str = "base", model: str | None = None) -> dict:
+        rec = holder.get().sim(scenario, model=model, who="desk", command=_command("sim", scenario, *(["--model", model] if model else [])))
         return rec.to_dict()
 
-    return {"ping": ping, "parts": parts, "est": est, "hs": hs, "sim": sim}
+    def scan() -> dict | None:
+        """명령 밖에서 고친 정의 파일을 '바깥' 바뀜으로 적는다(K7). 바뀐 것이 없으면 None."""
+        change = holder.get().history.scan()
+        return {"id": change.id, "files": list(change.files)} if change is not None else None
+
+    return {"ping": ping, "parts": parts, "overview": overview, "est": est, "hs": hs, "sim": sim, "scan": scan}
 
 
 def _plain(value: Any) -> Any:
@@ -122,11 +168,11 @@ def serve(root: str) -> int:
 
     began = time.perf_counter()
     try:
-        import equion as eqn
-        from equion.projects.config import ProjectError
+        from equion.projects.config import ProjectError      # equion 을 여기서 한 번 불러온다(1초 남짓)
 
-        project = eqn.project(root)
-        ops = _ops(project)
+        holder = _Project(root)
+        holder.get()                      # 프로젝트가 아니면 여기서 알린다
+        ops = _ops(holder)
     except Exception as exc:  # 프로젝트가 아니거나 equion을 불러오지 못함 — 앱에 알리고 끝낸다
         send({"ready": False, "error": str(exc), "kind": "input"})
         return 3
@@ -181,6 +227,7 @@ class Worker:
         self._cancelled = False
         self.started_seconds: float | None = None   # 뜨는 데 걸린 시간(프로세스 시작 + import + 프로젝트 열기)
         self.busy_op: str | None = None             # 지금 하는 일(없으면 None)
+        self.busy_since: float | None = None        # 그 일을 시작한 때(time.monotonic)
 
     @property
     def alive(self) -> bool:
@@ -194,6 +241,7 @@ class Worker:
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             cwd=self.root, env=runtime.clean_env(), creationflags=flags,
         )
+        jobs.adopt(self._proc)      # 앱이 끝나면(강제로 끝내도) 함께 끝난다
         hello = self._read(START_WAIT)
         if not hello.get("ready"):
             self.stop()
@@ -231,7 +279,7 @@ class Worker:
             self._seq += 1
             rid = self._seq
             began = time.perf_counter()
-            self.busy_op = op
+            self.busy_op, self.busy_since = op, time.monotonic()
             try:
                 proc.stdin.write((json.dumps({"id": rid, "op": op, "args": args}, ensure_ascii=False) + "\n").encode("utf-8"))
                 proc.stdin.flush()
@@ -243,7 +291,7 @@ class Worker:
                 self.stop()
                 raise WorkerError(f"작업 프로세스와 끊겼습니다: {exc}", "gone") from exc
             finally:
-                self.busy_op = None
+                self.busy_op = self.busy_since = None
             if not resp.get("ok"):
                 raise WorkerError(resp.get("error", ""), resp.get("kind", "internal"), resp.get("detail", ""))
             return {"result": resp.get("result"), "seconds": resp.get("seconds"), "said": resp.get("said", ""),

@@ -4,6 +4,8 @@
 #   lowest    pyproject의 하한(numpy 2.1·pandas 2.2.2·scipy 1.14·openpyxl 3.1, Python 3.12)
 #   latest    나온 최신판(Python 3.14) — 주간 일정에서는 사전 공개판(--prerelease allow)까지
 #   desk      앱 Equion Desk(desk/ — 별도 패키지) 시험 · Windows·Linux
+#   desk-ui   화면 점검 — 진짜 브라우저(Edge)로 화면을 몰아 D1 의 완료 기준까지 · Windows
+#   desk-installer  설치 파일 만들기 → 조용히 설치 → 설치 폴더의 런타임만으로 기동 시험 → 제거 · Windows (설치 파일은 작업 결과물로)
 #   audit     잠근 의존성의 알려진 취약점(pip-audit) — 앱 의존성 포함
 name: CI
 
@@ -113,6 +115,76 @@ jobs:
           enable-cache: true
       - name: 앱 시험(equion-desk)
         run: uv run --locked --package equion-desk pytest desk
+
+  desk-ui:
+    name: desk · 화면 점검(Edge)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: 화면 점검(playwright — 실행기에 있는 Edge 를 몬다)
+        env:
+          PYTHONIOENCODING: utf-8
+        run: uv run --locked --package equion-desk --group ui python desk/tests/ui_check.py --shots ui-shots
+      - name: 화면 그림 남기기
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desk-ui-shots
+          path: ui-shots/
+          retention-days: 14
+
+  desk-installer:
+    name: desk · 설치본 빌드·기동 시험
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Inno Setup(한국어 설치 화면이 든 최신판)
+        run: choco upgrade innosetup -y --no-progress
+      - name: 설치 파일 만들기(런타임 묶기 → Inno Setup)
+        env:
+          PYTHONIOENCODING: utf-8
+        run: uv run --locked python desk/build/make.py
+      - name: 조용히 설치(관리자 권한 없이 — 사용자별)
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem desk/dist/EquionDesk-*-setup.exe)[0]
+          "{0} ({1:N0} MB)" -f $setup.Name, ($setup.Length / 1MB)
+          $dir = Join-Path $env:RUNNER_TEMP "EquionDesk"
+          Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$dir`"" -Wait
+          if (-not (Test-Path (Join-Path $dir "runtime/python.exe"))) { throw "설치되지 않았습니다: $dir" }
+          "EQUION_DESK_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: 기동 시험(설치 폴더의 런타임만으로 — 서버·작업 프로세스·추정·과거 재현·전망)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: uv run --locked python desk/build/smoke.py "$env:EQUION_DESK_DIR"
+      - name: 창 띄우기(창은 하나) — 실행기에 WebView2·화면이 없으면 실패할 수 있어 알리기만 한다
+        continue-on-error: true
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: uv run --locked python desk/build/smoke.py "$env:EQUION_DESK_DIR" --window
+      - name: 제거(설치 폴더의 런타임이 사라지는지)
+        shell: pwsh
+        run: |
+          Start-Process -FilePath (Join-Path $env:EQUION_DESK_DIR "unins000.exe") -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          Start-Sleep -Seconds 3
+          if (Test-Path (Join-Path $env:EQUION_DESK_DIR "runtime")) { throw "제거한 뒤에도 런타임이 남았습니다" }
+      - name: 설치 파일 남기기(다른 PC 점검용 — 저장소에는 넣지 않는다)
+        uses: actions/upload-artifact@v4
+        with:
+          name: EquionDesk-setup
+          path: desk/dist/EquionDesk-*-setup.exe
+          retention-days: 14
+          compression-level: 0
 
   lowest:
     name: lowest · 하한 버전 · py3.12

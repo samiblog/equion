@@ -2,7 +2,7 @@
 
     uv run --package equion-desk python desk/tests/bench_s1.py [식 수=300]
 
-앱과 같은 길로 잰다: 로컬 서버(`/api/est`·`/api/hs`) → 띄워 둔 작업 프로세스 → `eqn.project`. 자료는 코드로 만든 합성 자료다.
+앱과 같은 길로 잰다: 로컬 서버(`/api/p/<탭>/est`·`hs`) → 띄워 둔 작업 프로세스 → `eqn.project`. 자료는 코드로 만든 합성 자료다.
 """
 from __future__ import annotations
 
@@ -58,23 +58,26 @@ def make_big(folder: str, n_eq: int = 300, n_obs: int = 200, block: int = 5, see
 
 def bench(folder: str, target: str, repeat: int = 5) -> dict:
     """서버를 거쳐 추정을 `repeat`번, 과거 재현을 두 번 하고 걸린 시간(초)을 돌려준다."""
-    from equion_desk.server import AppState, create_app
+    from equion_desk.config import Config
+    from equion_desk.projects import AppState
+    from equion_desk.server import create_app
 
-    state = AppState(folder, mode="browser")
+    state = AppState(Config(os.path.join(os.path.dirname(folder), "cfg", "config.json")), mode="browser")    # 사용자의 설정을 건드리지 않는다
+    api = f"/api/p/{state.open(folder).id}"
     client = create_app(state).test_client()
     try:
         t = time.perf_counter()
-        r = client.get("/api/project")
+        r = client.get(f"{api}/overview")
         assert r.status_code == 200, r.json
-        out = {"parts": len(r.json["parts"]), "start": time.perf_counter() - t, "est": [], "hs": []}
+        out = {"parts": sum(len(b["parts"]) for b in r.json["overview"]["blocks"]), "start": time.perf_counter() - t, "est": [], "hs": []}
         for _ in range(repeat):
             t = time.perf_counter()
-            r = client.post("/api/est", json={"target": target})
+            r = client.post(f"{api}/est", json={"target": target})
             assert r.status_code == 200, r.json
             out["est"].append(time.perf_counter() - t)
         for _ in range(2):
             t = time.perf_counter()
-            r = client.post("/api/hs", json={})
+            r = client.post(f"{api}/hs", json={})
             assert r.status_code == 200, r.json
             out["hs"].append(time.perf_counter() - t)
         return out

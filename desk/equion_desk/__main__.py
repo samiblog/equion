@@ -5,6 +5,9 @@
     equion-desk --debug 폴더      창 + 개발자 도구
     equion-desk --version
 
+지난 실행에 열어 둔 프로젝트 탭들을 되살리고, 폴더를 주면 그 폴더를 탭으로 더해 고른다. 창이 이미 떠 있으면 새 창을 띄우지 않고
+그 창에 폴더를 탭으로 넘긴다(`instance.py`). `--browser`·`--debug` 실행은 따로 뜬다(개발용).
+
 서버(`HttpServer`)는 Lectern 0.69.1(`cd7fb26`)의 `app.py`에서 가져왔다(desk/THIRD-PARTY-NOTICES.md).
 """
 from __future__ import annotations
@@ -55,6 +58,55 @@ def versions() -> str:
     return f"Equion Desk {__version__} / equion {equion.__version__} / Python {sys.version.split()[0]}"
 
 
+def window_size(saved: Any) -> tuple[int, int]:
+    """설정의 창 크기. 형식이 틀렸으면 기본값, 최소 크기보다 작으면 최소 크기."""
+    try:
+        width, height = int(saved["width"]), int(saved["height"])
+    except (TypeError, KeyError, ValueError):
+        return WINDOW
+    return max(width, MIN_WINDOW[0]), max(height, MIN_WINDOW[1])
+
+
+def icon_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "equion-desk.ico")
+
+
+def set_window_icon(window: Any) -> None:
+    """창과 작업 표시줄의 아이콘 — 실행기가 바로 가기(pythonw.exe)라 그대로 두면 Python 아이콘이 보인다(D40)."""
+    if sys.platform != "win32" or not os.path.isfile(icon_path()):
+        return
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        user32.LoadImageW.restype = ctypes.c_void_p
+        user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
+        hwnd = int(window.native.Handle.ToInt64())
+        IMAGE_ICON, LR_LOADFROMFILE, WM_SETICON = 1, 0x10, 0x80
+        for which, size in ((0, 16), (1, 32)):         # ICON_SMALL(제목줄) · ICON_BIG(작업 표시줄·Alt+Tab)
+            scale = max(1, user32.GetDpiForWindow(hwnd) // 96) if hasattr(user32, "GetDpiForWindow") else 1
+            handle = user32.LoadImageW(None, icon_path(), IMAGE_ICON, size * scale, size * scale, LR_LOADFROMFILE)
+            if handle:
+                user32.SendMessageW(hwnd, WM_SETICON, which, handle)
+    except Exception:  # 아이콘을 못 달아도 앱은 돈다
+        pass
+
+
+def title_of(session: Any) -> str:
+    return "Equion Desk" + (f" — {session.name}" if session is not None else "")
+
+
+def open_folder(state: Any, folder: str) -> None:
+    """실행 인자로 받은 폴더를 탭으로 연다. 열지 못하면 화면에 알린다(창 모드에서는 콘솔이 보이지 않는다)."""
+    from .projects import NotAProject, TooManyTabs
+
+    try:
+        state.open(folder)
+    except (NotAProject, TooManyTabs, OSError) as exc:
+        print(f"equion-desk: {exc}", file=sys.stderr)
+        state.notify(str(exc), "error")
+
+
 def run_browser(state: Any, port: int) -> None:
     from .server import create_app
 
@@ -66,7 +118,7 @@ def run_browser(state: Any, port: int) -> None:
         pass
 
 
-def run_window(state: Any, port: int, debug: bool, query: str = "") -> None:
+def run_window(state: Any, port: int, debug: bool, receiver: Any = None, query: str = "") -> None:
     import webview
 
     from .server import create_app
@@ -82,17 +134,50 @@ def run_window(state: Any, port: int, debug: bool, query: str = "") -> None:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Equion.Desk")
         except (AttributeError, OSError):
             pass
-    title = "Equion Desk" + (f" — {os.path.basename(state.root)}" if state.root else "")
-    window = webview.create_window(title, f"http://127.0.0.1:{server.server_port}/{query}", width=WINDOW[0], height=WINDOW[1],
-                                   min_size=MIN_WINDOW, text_select=True, zoomable=True)
+    width, height = window_size(state.config.get("window"))
+    window = webview.create_window(title_of(state.session(state.active)), f"http://127.0.0.1:{server.server_port}/{query}",
+                                   width=width, height=height, min_size=MIN_WINDOW, text_select=True, zoomable=True)
 
     def pick_folder() -> str | None:
         dialog = getattr(getattr(webview, "FileDialog", None), "FOLDER", None) or webview.FOLDER_DIALOG
         chosen = window.create_file_dialog(dialog)
         return str(chosen[0]) if chosen else None
 
+    def set_title(session: Any) -> None:
+        try:
+            window.set_title(title_of(session))
+        except Exception:  # 창이 아직 없거나 닫히는 중
+            pass
+
     state.pick_folder = pick_folder
-    state.on_open = lambda root: window.set_title(f"Equion Desk — {os.path.basename(root)}")
+    state.on_active = set_title
+
+    # 최소화·최대화한 채로 닫으면 그때 크기를 저장하지 않는다(다음에 아주 작거나 화면만 한 창이 되지 않게 — Lectern)
+    shown = {"state": "normal"}
+    window.events.minimized += lambda: shown.update(state="minimized")
+    window.events.maximized += lambda: shown.update(state="maximized")
+    window.events.restored += lambda: shown.update(state="normal")
+    window.events.shown += lambda: set_window_icon(window)
+
+    def on_closing() -> None:
+        if shown["state"] == "normal":
+            try:
+                state.config.set_window(window.width, window.height)
+            except Exception:  # 창 크기 저장 실패는 무시
+                pass
+
+    window.events.closing += on_closing
+
+    def bring_forward(folder: str | None) -> None:
+        """다음 실행(탐색기 우클릭 등)이 넘긴 폴더를 탭으로 열고 창을 앞으로. 화면은 알림 줄의 tabs 로 새 탭을 알아챈다."""
+        if folder:
+            open_folder(state, folder)
+        if shown["state"] == "minimized":
+            window.restore()
+        window.show()
+
+    if receiver:
+        receiver.start(bring_forward)
     try:
         webview.start(debug=debug)
     finally:
@@ -114,20 +199,35 @@ def main(argv: list[str] | None = None) -> int:
     if not (args.browser or args.debug):
         logging.getLogger("waitress").setLevel(logging.ERROR)
 
-    from .server import AppState
+    from . import instance
+    from .config import Config
+    from .projects import AppState
 
     folder = os.path.abspath(os.path.expanduser(args.folder)) if args.folder else None
     if folder and not os.path.isdir(folder):
         print(f"equion-desk: not a folder: {folder}", file=sys.stderr)
         return 3
-    state = AppState(folder, mode="browser" if args.browser else "app")
+    config = Config()
+    # 창은 하나, 프로젝트는 탭: 이미 떠 있으면 폴더를 그 창에 넘기고 끝낸다(--browser·--debug 는 따로 뜬다 — 개발용)
+    receiver = None
+    if not (args.browser or args.debug):
+        pipe = instance.pipe_name(config.path.parent)
+        if instance.forward(pipe, folder):
+            return 0
+        receiver = instance.listen(pipe)
+    if config.load_error:
+        print(f"equion-desk: {config.load_error}", file=sys.stderr)
+    state = AppState(config, mode="browser" if args.browser else "app")
+    state.restore()
+    if folder:
+        open_folder(state, folder)
     try:
         if args.browser:
             run_browser(state, args.port)
         else:
             from urllib.parse import urlencode
 
-            run_window(state, args.port, args.debug, "?" + urlencode({"est": args.est}) if args.est else "")
+            run_window(state, args.port, args.debug, receiver, "?" + urlencode({"est": args.est}) if args.est else "")
     finally:
         state.close()
     return 0

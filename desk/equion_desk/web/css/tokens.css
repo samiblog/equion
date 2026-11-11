@@ -1,0 +1,107 @@
+/* Equion Desk 의 색·글꼴·치수. 화면의 모든 색은 여기 이름으로만 쓴다 — 밝은 바탕과 어두운 바탕을 한 곳에서 바꾼다.
+   뼈대(툴바·프로젝트 탭·사이드바·가운데 탭·오른쪽 터미널·상태줄)는 Lectern 을 따르고, 색은 따로 잡았다:
+   종이(따뜻한 흰색)와 잉크, 강조는 청록 — Lectern(파랑)과 나란히 띄워도 한눈에 가려진다. */
+
+:root {
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "D2Coding", "Malgun Gothic", monospace;
+  --scale: 1;                                   /* 글자 크기 설정(80~140%) */
+  --fs: calc(13px * var(--scale));
+  --fs-s: calc(12px * var(--scale));
+  --fs-xs: calc(11px * var(--scale));
+  --fs-l: calc(14.5px * var(--scale));
+
+  /* 종이와 잉크 */
+  --paper: #ffffff;        /* 본문 */
+  --canvas: #f5f4f1;       /* 틀(제목줄·사이드바·띠) */
+  --canvas-2: #ebe9e4;     /* 틀 위에서 눌린 것 */
+  --raised: #faf9f7;       /* 본문 위의 옅은 판(표 머리·입력칸 바탕) */
+  --ink: #1b1f24;
+  --ink-2: #48515b;
+  --ink-3: #77818b;
+  --ink-4: #a7aeb6;
+  --line: #e2dfd9;
+  --line-2: #eeece8;
+  --line-strong: #cdc9c1;
+
+  /* 강조 — 청록 */
+  --accent: #0b7a75;
+  --accent-ink: #086560;
+  --accent-soft: #e1f1ef;
+  --accent-line: #a6d4cf;
+  --on-accent: #ffffff;
+
+  /* 상태 */
+  --ok: #1f7a45;      --ok-soft: #e3f3e9;
+  --warn: #9a5b06;    --warn-soft: #fbf0d9;
+  --bad: #bd362c;     --bad-soft: #fbe8e5;
+  --info: #2a69ac;    --info-soft: #e5eef9;
+
+  /* 기록 종류 */
+  --k-est: #0b7a75;   --k-hs: #4653c2;   --k-sim: #ad5617;   --k-an: #8548b0;
+  --k-run: #4f6e33;   --k-data: #2c74a8; --k-prop: #ad3672;
+  --w-claude: #bd5a37;
+
+  /* 차트 */
+  --c-actual: #1b1f24;
+  --c-fitted: #0b7a75;
+  --c-resid: #ad5617;
+  --c-grid: #ebe8e3;
+  --c-band: rgba(173, 86, 23, .10);
+
+  --shadow-1: 0 1px 2px rgba(27, 31, 36, .07), 0 0 0 1px rgba(27, 31, 36, .04);
+  --shadow-2: 0 10px 30px rgba(27, 31, 36, .14), 0 2px 8px rgba(27, 31, 36, .08);
+  --radius: 8px;
+  --radius-s: 5px;
+
+  /* 터미널은 어느 바탕에서나 어둡다 — 그 안에서 도는 프로그램(Claude Code 등)의 색이 어두운 바탕에 맞춰져 있다 */
+  --term-bg: #15191c;
+  --term-fg: #d5dade;
+  --term-line: #262c31;
+
+  --side-w: 264px;
+  --term-w: 38%;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --paper: #1b1e22;
+  --canvas: #141619;
+  --canvas-2: #23272c;
+  --raised: #20242a;
+  --ink: #e8ebee;
+  --ink-2: #b6bec7;
+  --ink-3: #87919b;
+  --ink-4: #5b646e;
+  --line: #2c3138;
+  --line-2: #25292f;
+  --line-strong: #3b424b;
+
+  --accent: #4bc0b4;
+  --accent-ink: #7fd9cf;
+  --accent-soft: #14302e;
+  --accent-line: #235550;
+  --on-accent: #05201e;
+
+  --ok: #5fcb8c;      --ok-soft: #152f1f;
+  --warn: #e3aa4f;    --warn-soft: #33270f;
+  --bad: #f17c70;     --bad-soft: #3b1b18;
+  --info: #72aae8;    --info-soft: #162a41;
+
+  --k-est: #4bc0b4;   --k-hs: #8d98f0;   --k-sim: #e59a5c;   --k-an: #c08ee6;
+  --k-run: #9bc071;   --k-data: #6db4e4; --k-prop: #e87fb3;
+  --w-claude: #e58a66;
+
+  --c-actual: #e8ebee;
+  --c-fitted: #4bc0b4;
+  --c-resid: #e59a5c;
+  --c-grid: #2a2f36;
+  --c-band: rgba(229, 154, 92, .13);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .4), 0 0 0 1px rgba(255, 255, 255, .04);
+  --shadow-2: 0 12px 34px rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .06);
+  --term-bg: #101316;
+  --term-line: #22282d;
+  color-scheme: dark;
+}

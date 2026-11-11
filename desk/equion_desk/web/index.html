@@ -1,83 +1,46 @@
 <!doctype html>
-<html lang="ko" data-mode="{{MODE}}" data-version="{{VERSION}}" data-term="{{TERM}}">
+<html lang="ko" data-mode="{{MODE}}" data-version="{{VERSION}}" data-term="{{TERM}}" data-theme-setting="{{THEME}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Equion Desk</title>
+<link rel="icon" href="/web/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/web/css/tokens.css">
 <link rel="stylesheet" href="/web/vendor/xterm/xterm.css">
 <link rel="stylesheet" href="/web/css/app.css">
+<link rel="stylesheet" href="/web/css/views.css">
+<script src="/web/js/boot.js"></script>
 </head>
 <body>
-<header id="top">
-  <span class="brand">Equion Desk</span>
-  <span id="project" class="muted">프로젝트를 여는 중…</span>
-  <span class="grow"></span>
-  <span id="vintage" class="chip" hidden></span>
-  <span id="worker" class="chip" title="작업 프로세스">작업 프로세스 —</span>
-  <span id="versions" class="muted"></span>
-</header>
-<main id="layout">
-  <nav id="side" aria-label="부품">
-    <h2>부품</h2>
-    <ul id="parts"></ul>
-    <h2>모형</h2>
-    <div class="side-actions">
-      <button id="btn-hs" type="button">과거 재현</button>
-      <button id="btn-sim" type="button">전망(base)</button>
+<div id="app">
+  <header id="titlebar">
+    <div class="brand"><span class="mark"></span><b>Equion Desk</b></div>
+    <nav id="ptabs" role="tablist" aria-label="프로젝트"></nav>
+    <button id="btn-new" class="icon-btn" type="button" title="프로젝트 열기" aria-label="프로젝트 열기"></button>
+    <span class="grow"></span>
+    <div class="tools">
+      <button id="btn-changes" class="icon-btn" type="button" title="바뀜 기록 — 정의 파일이 언제 누구에 의해 바뀌었나" aria-label="바뀜 기록"></button>
+      <button id="btn-side" class="icon-btn" type="button" title="사이드바 보이기·숨기기" aria-label="사이드바" aria-pressed="true"></button>
+      <button id="btn-term" class="icon-btn" type="button" title="터미널 보이기·숨기기 (Ctrl+`)" aria-label="터미널" aria-pressed="true"></button>
+      <button id="btn-settings" class="icon-btn" type="button" title="설정" aria-label="설정"></button>
     </div>
-    <div id="model-out" class="muted small"></div>
-  </nav>
-  <section id="bench" aria-label="식 작업대">
-    <form id="est-form" autocomplete="off">
-      <label for="eq">식 <span class="muted small">— 부품 이름(<code>demand:CN</code>)이나 식 글자. Ctrl+Enter로 추정</span></label>
-      <textarea id="eq" rows="2" spellcheck="false"></textarea>
-      <div class="row">
-        <button id="btn-est" type="submit" class="primary">추정</button>
-        <button id="btn-cancel" type="button" hidden>취소</button>
-        <span id="timing" class="muted small"></span>
-      </div>
-    </form>
-    <div id="welcome" hidden>
-      <h3>프로젝트 열기</h3>
-      <p>Equion 프로젝트 폴더(<code>equion.toml</code>이 있는 곳)를 열거나, 바로 써 볼 수 있는 예제 프로젝트를 만듭니다.</p>
-      <div class="row">
-        <button id="btn-open" type="button" class="primary">폴더 열기…</button>
-        <button id="btn-example" type="button">예제 프로젝트 만들기</button>
-      </div>
-      <p class="muted small">예제는 문서 폴더의 <code>Equion/example1</code>에 만듭니다(가상 분기 모형 — 실제 자료가 아닙니다).</p>
-    </div>
-    <div id="message" role="status"></div>
-    <div id="result" hidden>
-      <div id="headline"></div>
-      <div class="cols">
-        <div>
-          <h3>계수</h3>
-          <table id="coefs"><thead><tr><th>항</th><th>계수</th><th>표준오차</th><th>t</th><th>p</th></tr></thead><tbody></tbody></table>
-          <h3>적합</h3>
-          <table id="stats"><tbody></tbody></table>
-        </div>
-        <div>
-          <h3>진단</h3>
-          <table id="diag"><thead><tr><th>검정</th><th>통계량</th><th>p</th></tr></thead><tbody></tbody></table>
-          <h3>판단 기준</h3>
-          <div id="criteria"></div>
-          <h3>알아서 한 것</h3>
-          <ul id="implicit" class="small"></ul>
-        </div>
-      </div>
-      <h3>실측 · 적합 · 잔차</h3>
-      <div id="chart"></div>
-    </div>
-  </section>
-  <div id="split" role="separator" aria-orientation="vertical"></div>
-  <aside id="term-pane" aria-label="터미널">
-    <div id="term-head"><span id="term-title">터미널</span><span class="grow"></span><button id="term-restart" type="button" title="셸을 끝내고 다시 띄운다">다시 시작</button></div>
-    <div id="term"></div>
-  </aside>
-</main>
+  </header>
+  <main id="stage">
+    <div id="welcome" hidden></div>
+  </main>
+  <footer id="activity" hidden>
+    <span class="lead">작업 기록</span>
+    <div id="job"></div>
+    <div id="strip" aria-label="작업 기록 띠"></div>
+    <button id="btn-records" class="btn small quiet" type="button">모두 보기</button>
+  </footer>
+  <footer id="status"></footer>
+</div>
 <script src="/web/vendor/xterm/xterm.js"></script>
 <script src="/web/vendor/xterm/addon-fit.js"></script>
 <script src="/web/vendor/xterm/addon-unicode11.js"></script>
+<script src="/web/vendor/markdown-it/markdown-it.min.js"></script>
+<script src="/web/vendor/dompurify/purify.min.js"></script>
 <script type="module" src="/web/js/main.js"></script>
 </body>
 </html>

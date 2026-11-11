@@ -23,6 +23,8 @@ equion-desk = "equion_desk.__main__:main"
 [dependency-groups]
 # 앱 시험용 — `uv run --package equion-desk pytest desk`가 이것을 설치한다(최상위의 dev 그룹은 패키지 equion의 것)
 dev = ["pytest>=8"]
+# 화면 점검(desk/tests/ui_check.py)용 — PC에 있는 Edge 를 몬다(브라우저를 따로 받지 않는다): uv run --package equion-desk --group ui python desk/tests/ui_check.py
+ui = ["playwright>=1.55"]
 
 [tool.uv.sources]
 equion = { workspace = true }

@@ -49,6 +49,14 @@ def section_boundary() -> None:
     with open(os.path.join(ROOT, "uv.lock"), encoding="utf-8") as f:
         head = f.read(200)
     check("A7 잠금 파일의 Python 범위가 줄지 않았다", f'requires-python = "{root["project"]["requires-python"]}"' in head, head[:80])
+    # 앱 프로세스는 equion을 불러오지 않는다(무겁다) — 그래서 정의 파일 목록을 따로 들고 있고, 패키지의 것과 같아야 한다
+    from equion.work.history import PATTERNS
+    from equion_desk.watch import DEFINITIONS
+
+    check("A8 감시하는 정의 파일 목록이 패키지의 바뀜 기록 목록과 같다", tuple(DEFINITIONS) == tuple(PATTERNS))
+    code = "import sys, equion_desk.server, equion_desk.projects, equion_desk.config, equion_desk.watch; print('equion' in sys.modules, 'pandas' in sys.modules)"
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8")
+    check("A9 앱 프로세스(서버)는 equion·pandas를 불러오지 않는다 — 계산은 작업 프로세스가", r.stdout.split() == ["False", "False"], r.stdout + r.stderr[-300:])
 
 
 def section_skeleton() -> None:
@@ -62,6 +70,17 @@ def section_skeleton() -> None:
     r = subprocess.run([sys.executable, "-m", "equion_desk", "--version"], capture_output=True, text=True, encoding="utf-8", env=env)
     check("B2 python -m equion_desk --version", r.returncode == 0 and equion_desk.__version__ in r.stdout and equion.__version__ in r.stdout,
           r.stdout + r.stderr)
+    r = subprocess.run([sys.executable, os.path.join(DESK, "build", "icon.py"), "--check"], capture_output=True, text=True, encoding="utf-8", env=env)
+    check("B3 아이콘 파일이 그리는 코드(desk/build/icon.py)와 같다", r.returncode == 0, r.stdout + r.stderr)
+    with open(os.path.join(DESK, "equion_desk", "web", "js", "icons.js"), encoding="utf-8") as f:
+        logo = re.search(r"export const LOGO = `(.*?)`;", f.read(), re.S).group(1).replace(' aria-hidden="true"', "")
+    with open(os.path.join(DESK, "equion_desk", "web", "img", "icon.svg"), encoding="utf-8") as f:
+        check("B4 화면의 상표와 아이콘 그림(img/icon.svg)이 같다", f.read().strip() == logo.strip())
+    web = os.path.join(DESK, "equion_desk", "web")
+    notices = open(os.path.join(DESK, "THIRD-PARTY-NOTICES.md"), encoding="utf-8").read()
+    vendors = sorted(d for d in os.listdir(os.path.join(web, "vendor")) if d != "licenses")
+    names = {"xterm": "xterm.js", "vega": "Vega", "markdown-it": "markdown-it", "dompurify": "DOMPurify"}
+    check("B5 넣은 화면 라이브러리마다 고지가 있다", all(names.get(v, v) in notices for v in vendors), str(vendors))
 
 
 def run() -> int:
