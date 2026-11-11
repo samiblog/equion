@@ -112,7 +112,7 @@ export function changesView(project, desc) {
     key: 'changes', type: 'changes', title: '바뀜 기록', icon: 'history', el, flush: true,
     desc: () => ({ type: 'changes', id: selected }),
     show() { if (!loaded) load(); },
-    open(id) { selected = id; if (loaded) load(); },
+    open(next) { if (next.id) { selected = next.id; if (loaded) load(); } },
     event(e) { if (e.type === 'change') { if (el.isConnected && loaded) { selected = e.change.id; load(); } else loaded = false; } },
     dispose() {},
   };

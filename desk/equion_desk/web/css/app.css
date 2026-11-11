@@ -54,7 +54,7 @@ svg.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor
 .icon-btn[aria-pressed="true"] { color: var(--accent); }
 .icon-btn .badge {
   position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
-  background: var(--warn); color: #fff; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center;
+  background: var(--warn); color: var(--paper); font-size: 10px; font-weight: 700; line-height: 15px; text-align: center;
 }
 
 /* ---- 제목줄: 상표 · 프로젝트 탭 · 도구 -------------------------------------------------------- */
@@ -192,15 +192,15 @@ svg.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor
 .term { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--term-bg); color: var(--term-fg); }
 .term-head {
   display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px 0 14px; flex: none;
-  border-bottom: 1px solid var(--term-line); font-size: var(--fs-s); color: #aab3bb;
+  border-bottom: 1px solid var(--term-line); font-size: var(--fs-s); color: var(--term-soft);
 }
-.term-head .lamp { width: 7px; height: 7px; border-radius: 50%; background: #4bc0b4; box-shadow: 0 0 0 3px rgba(75, 192, 180, .16); }
-.term-head .lamp.off { background: #5b646e; box-shadow: none; }
-.term-head b { font-weight: 600; color: #dfe4e8; }
-.term-head .icon-btn { color: #8a949d; width: 26px; height: 26px; }
-.term-head .icon-btn:hover { background: #242a2f; color: #e8ebee; }
+.term-head .lamp { width: 7px; height: 7px; border-radius: 50%; background: var(--term-lamp); box-shadow: 0 0 0 3px color-mix(in srgb, var(--term-lamp) 18%, transparent); }
+.term-head .lamp.off { background: var(--term-dim); box-shadow: none; opacity: .6; }
+.term-head b { font-weight: 600; color: var(--term-fg); }
+.term-head .icon-btn { color: var(--term-dim); width: 26px; height: 26px; }
+.term-head .icon-btn:hover { background: var(--term-line); color: var(--term-fg); }
 .term-body { flex: 1; min-height: 0; padding: 8px 0 4px 10px; }
-.term-body .note { padding: 12px 6px; color: #8a949d; font-size: var(--fs-s); line-height: 1.6; }
+.term-body .note { padding: 12px 6px; color: var(--term-dim); font-size: var(--fs-s); line-height: 1.6; }
 
 /* ---- 작업 줄 + 작업 기록 띠 ------------------------------------------------------------------ */
 #activity {
@@ -221,7 +221,7 @@ svg.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor
 .job.done { background: var(--ok-soft); color: var(--ok); padding-right: 10px; }
 .job.failed { background: var(--bad-soft); color: var(--bad); padding-right: 10px; }
 .job.done button.link, .job.failed button.link { border: 0; background: none; color: inherit; padding: 0; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
-#strip { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
+#strip { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(90deg, black calc(100% - 40px), transparent); }
 #strip::-webkit-scrollbar { display: none; }
 #strip .empty { color: var(--ink-4); font-size: var(--fs-s); }
 .chip {

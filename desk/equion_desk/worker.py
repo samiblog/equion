@@ -60,9 +60,15 @@ class _Project:
         return self._project
 
 
-def _part(p: Any, adopted: dict[str, str]) -> dict:
-    return {"id": p.id, "block": p.block, "target": p.target, "kind": p.kind, "text": p.text, "desc": p.desc, "where": p.where,
-            "adopted": adopted.get(p.id)}
+def _part(p: Any, adopted: dict[str, str], project: Any = None) -> dict:
+    out = {"id": p.id, "block": p.block, "target": p.target, "kind": p.kind, "text": p.text, "desc": p.desc, "where": p.where,
+           "adopted": adopted.get(p.id)}
+    if project is not None:
+        try:
+            out["models"] = list(project.used_by(p.id))       # 이 부품을 쓰는 모형 — '이 후보로 과거 재현'이 고른다
+        except Exception:
+            out["models"] = []
+    return out
 
 
 def _command(*words: str | None) -> str:
@@ -104,7 +110,7 @@ def _ops(holder: _Project) -> dict[str, Any]:
         adopted = project.adopted
         by_block: dict[str, list[dict]] = {}
         for p in project.parts():
-            by_block.setdefault(p.block, []).append(_part(p, adopted))
+            by_block.setdefault(p.block, []).append(_part(p, adopted, project))
         vintage = None
         if cfg.series_file:
             vintage = next((v for v in project.data_list() if v.get("current")), None) or {"id": project.vintage}
@@ -119,15 +125,108 @@ def _ops(holder: _Project) -> dict[str, Any]:
             "scripts": _names(project.root, "FLOWS", (".eqs",)), "warnings": list(cfg.warnings or []),
         }
 
-    def est(target: str, method: str | None = None, smpl: str | None = None) -> dict:
-        rec = holder.get().est(target, method=method, smpl=smpl, who="desk", command=_command("est", target))
+    def est(target: str, method: str | None = None, smpl: str | None = None, sim: bool = False, cov: str | None = None,
+            name: str | None = None, part: str | None = None) -> dict:
+        """식 하나를 추정해 기록을 남긴다. target 은 부품(블록 파일의 그 줄) 또는 식 글자(part 의 후보)."""
+        words = ["est", target, *(["--for", part] if part else []), *(["--smpl", smpl] if smpl else []), *(["--sim"] if sim else []),
+                 *(["--cov", cov] if cov else []), *(["--method", method] if method and method != "auto" else []),
+                 *(["--as", name] if name else [])]
+        rec = holder.get().est(target, method=method, smpl=smpl, as_name=name, part=part, sim=bool(sim), cov=cov, who="desk",
+                               command=_command(*words))
         out = rec.to_dict()
         out["series"] = read_series(os.path.join(holder.root, out.get("path", "")))
         return out
 
+    def check(text: str, part: str | None = None) -> dict:
+        """식 글자를 읽어만 본다(추정하지 않는다) — 치는 동안의 문법 검사(기획안 §2.4-1의 예외: 계산이 아니라 검사).
+
+        `{ok, kind, target, variables, unknown}` 또는 `{ok: False, error}`. unknown 은 자료에 없는 변수 이름.
+        """
+        from equion.projects.parts import parse_line
+
+        project = holder.get()
+        text = (text or "").strip()
+        if not text:
+            return {"ok": False, "empty": True}
+        data = project.workfile._data
+        try:
+            info = parse_line(text, data)
+        except Exception as exc:        # 문법 오류·모르는 함수 — 까닭을 그대로 알린다
+            return {"ok": False, "error": str(exc)}
+        columns = {str(c).upper() for c in data.data.columns}
+        names = sorted(str(v) for v in info["data_vars"])
+        out = {"ok": True, "kind": info["kind"], "target": info["target"], "variables": names,
+               "unknown": [v for v in names if v.upper() not in columns]}
+        if part:
+            try:
+                out["part_target"] = project.part(part).target
+            except Exception:           # 지워진 부품 — 검사는 식만으로
+                pass
+        return out
+
+    def ident(part: str) -> dict:
+        """항등식을 실측으로 검사한다(좌변·우변을 계산해 견준다). 기록은 남기지 않는다 — `equion ident 부품 --check` 와 같다."""
+        found = holder.get().ident(part)
+        out = found.to_dict()
+        table = found.table
+        if table is not None and len(table):
+            cols = list(table.columns)
+            out["series"] = {"period": [str(i) for i in table.index], "lhs": table[cols[0]].tolist(), "rhs": table[cols[1]].tolist(),
+                             "diff": table[cols[2]].tolist()}
+        out["command"] = _command("ident", part, "--check")
+        return out
+
+    def adopt(record: str, part: str | None = None) -> dict:
+        """추정 기록을 부품의 채택 계수로 — 블록 파일의 그 줄과 채택표가 바뀌고 바뀜 기록에 남는다(D35)."""
+        done = holder.get().adopt(record, part=part, who="desk", command=_command("adopt", record, *(["--part", part] if part else [])))
+        return done.to_dict()
+
     def hs(model: str | None = None) -> dict:
         rec = holder.get().hs(model, record=True, who="desk", command=_command("hs", model))
         return rec.to_dict()
+
+    def hs_swap(part: str, record: str, model: str | None = None) -> dict:
+        """'이 후보로 HS' — 부품을 추정 기록의 식·계수로 바꿔 끼워 모형을 풀고(파일은 그대로) 지금 파일로 푼 것과 견준다.
+
+        견줄 기준은 지금 정의 파일·자료 그대로 푼 과거 재현 기록이다. 있으면 그것을 쓰고, 없으면 먼저 푼다(그것도 기록으로 남는다).
+        """
+        import json
+
+        from equion.projects import records as R
+        from equion.projects.config import ProjectError
+
+        project = holder.get()
+        users = project.used_by(part)
+        default = (project.config.hs or {}).get("model")
+        model = model or (default if default in users else (users[0] if users else None))
+        if not model or model not in users:
+            raise ProjectError(f"{part} 를 쓰는 모형이 없습니다" if not users else f"모형 {model} 은(는) {part} 를 쓰지 않습니다(쓰는 모형: {', '.join(users)})")
+        files, data = R.definition_hashes(project), R.data_spec(project)
+        base = None
+        for rec in reversed(project.work.records("hs")):
+            m = rec.meta
+            if m.get("model") != model or m.get("swaps") or m.get("replay"):
+                continue
+            try:
+                with open(rec.file("assembly.json"), encoding="utf-8") as f:
+                    spec = json.load(f)
+            except (OSError, ValueError):
+                continue
+            fresh = spec.get("files") == files and (spec.get("data") or {}).get("content_sha256") == data.get("content_sha256")
+            if fresh and not spec.get("options"):
+                base = rec.id
+            break                        # 가장 최근의 기준 풀이만 본다 — 낡았으면 새로 푼다
+        made = base is None
+        if made:
+            base = project.hs(model, record=True, who="desk", command=_command("hs", model)).id
+        rec = project.hs(model, swap={part: record}, vs=base, record=True, who="desk",
+                         command=_command("hs", model, "--swap", f"{part}={record}", "--vs", base))
+        return {**rec.to_dict(), "baseline": base, "baseline_new": made}
+
+    def an_diag(target: str) -> dict:
+        """식 진단(계열상관·이분산·정규성·RESET·CUSUM) — 부품 또는 추정 기록. 분석 기록(an:)을 남긴다."""
+        rec = holder.get().an("diag", target, who="desk", command=_command("an", "diag", target))
+        return rec.to_dict() if hasattr(rec, "to_dict") else {**dict(rec.meta), "id": rec.id}
 
     def sim(scenario: str = "base", model: str | None = None) -> dict:
         rec = holder.get().sim(scenario, model=model, who="desk", command=_command("sim", scenario, *(["--model", model] if model else [])))
@@ -138,7 +237,8 @@ def _ops(holder: _Project) -> dict[str, Any]:
         change = holder.get().history.scan()
         return {"id": change.id, "files": list(change.files)} if change is not None else None
 
-    return {"ping": ping, "parts": parts, "overview": overview, "est": est, "hs": hs, "sim": sim, "scan": scan}
+    return {"ping": ping, "parts": parts, "overview": overview, "est": est, "check": check, "ident": ident, "adopt": adopt,
+            "hs": hs, "hs_swap": hs_swap, "an_diag": an_diag, "sim": sim, "scan": scan}
 
 
 def _plain(value: Any) -> Any:
@@ -264,38 +364,47 @@ class Worker:
                               "cancelled" if self._cancelled else "gone")
         return json.loads(box[0].decode("utf-8"))
 
-    def call(self, op: str, timeout: float = CALL_WAIT, **args: Any) -> dict:
+    def call(self, op: str, timeout: float = CALL_WAIT, wait: bool = True, **args: Any) -> dict:
         """요청 하나를 하고 `{"result", "seconds", "said", "round_trip"}`을 돌려준다.
 
+        wait=False 면 다른 일을 하는 중일 때 줄을 서지 않고 바로 `busy` 오류를 낸다(치는 동안의 문법 검사처럼 기다릴 값이 없는 부름).
+
         오류
-            WorkerError: 작업 프로세스가 오류를 알렸거나(`kind` input·internal), 끝났거나(gone), 취소됨(cancelled)
+            WorkerError: 작업 프로세스가 오류를 알렸거나(`kind` input·internal), 끝났거나(gone), 취소됨(cancelled), 바쁨(busy)
         """
-        with self._lock:
-            self._cancelled = False
-            if not self.alive:
-                self._start()
-            proc = self._proc
-            assert proc is not None and proc.stdin is not None
-            self._seq += 1
-            rid = self._seq
-            began = time.perf_counter()
-            self.busy_op, self.busy_since = op, time.monotonic()
-            try:
-                proc.stdin.write((json.dumps({"id": rid, "op": op, "args": args}, ensure_ascii=False) + "\n").encode("utf-8"))
-                proc.stdin.flush()
-                while True:
-                    resp = self._read(timeout)
-                    if resp.get("id") == rid:
-                        break
-            except (OSError, ValueError) as exc:
-                self.stop()
-                raise WorkerError(f"작업 프로세스와 끊겼습니다: {exc}", "gone") from exc
-            finally:
-                self.busy_op = self.busy_since = None
-            if not resp.get("ok"):
-                raise WorkerError(resp.get("error", ""), resp.get("kind", "internal"), resp.get("detail", ""))
-            return {"result": resp.get("result"), "seconds": resp.get("seconds"), "said": resp.get("said", ""),
-                    "round_trip": time.perf_counter() - began}
+        if not self._lock.acquire(blocking=wait):
+            raise WorkerError("다른 계산이 도는 중입니다", "busy")
+        try:
+            return self._call(op, timeout, args)
+        finally:
+            self._lock.release()
+
+    def _call(self, op: str, timeout: float, args: dict[str, Any]) -> dict:
+        self._cancelled = False
+        if not self.alive:
+            self._start()
+        proc = self._proc
+        assert proc is not None and proc.stdin is not None
+        self._seq += 1
+        rid = self._seq
+        began = time.perf_counter()
+        self.busy_op, self.busy_since = op, time.monotonic()
+        try:
+            proc.stdin.write((json.dumps({"id": rid, "op": op, "args": args}, ensure_ascii=False) + "\n").encode("utf-8"))
+            proc.stdin.flush()
+            while True:
+                resp = self._read(timeout)
+                if resp.get("id") == rid:
+                    break
+        except (OSError, ValueError) as exc:
+            self.stop()
+            raise WorkerError(f"작업 프로세스와 끊겼습니다: {exc}", "gone") from exc
+        finally:
+            self.busy_op = self.busy_since = None
+        if not resp.get("ok"):
+            raise WorkerError(resp.get("error", ""), resp.get("kind", "internal"), resp.get("detail", ""))
+        return {"result": resp.get("result"), "seconds": resp.get("seconds"), "said": resp.get("said", ""),
+                "round_trip": time.perf_counter() - began}
 
     def cancel(self) -> bool:
         """지금 하는 일을 그만둔다 — 프로세스를 끝낸다(다음 부름에서 다시 뜬다). 하던 일이 있었으면 True."""

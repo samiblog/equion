@@ -59,6 +59,9 @@
   --term-bg: #15191c;
   --term-fg: #d5dade;
   --term-line: #262c31;
+  --term-soft: #aab3bb;
+  --term-dim: #8a949d;
+  --term-lamp: #4bc0b4;
 
   --side-w: 264px;
   --term-w: 38%;

@@ -59,6 +59,17 @@ def section_boundary() -> None:
     check("A9 앱 프로세스(서버)는 equion·pandas를 불러오지 않는다 — 계산은 작업 프로세스가", r.stdout.split() == ["False", "False"], r.stdout + r.stderr[-300:])
 
 
+def _raw_colors(web: str, sheets: list[str]) -> list[str]:
+    """스타일시트에 직접 적은 색(#rrggbb)."""
+    out = []
+    for rel in sheets:
+        with open(os.path.join(web, rel), encoding="utf-8") as f:
+            for n, line in enumerate(f, 1):
+                for m in re.finditer(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b", line):
+                    out.append(f"{rel}:{n} {m.group(0)}")
+    return out
+
+
 def section_skeleton() -> None:
     print("B. 뼈대")
     import equion
@@ -81,6 +92,28 @@ def section_skeleton() -> None:
     vendors = sorted(d for d in os.listdir(os.path.join(web, "vendor")) if d != "licenses")
     names = {"xterm": "xterm.js", "vega": "Vega", "markdown-it": "markdown-it", "dompurify": "DOMPurify"}
     check("B5 넣은 화면 라이브러리마다 고지가 있다", all(names.get(v, v) in notices for v in vendors), str(vendors))
+    import shutil
+
+    node = shutil.which("node")
+    if node:
+        bad = []
+        for base, _dirs, files in os.walk(os.path.join(web, "js")):
+            for fn in sorted(files):
+                if fn.endswith(".js"):
+                    path = os.path.join(base, fn)
+                    with open(path, "rb") as f:
+                        r = subprocess.run([node, "--input-type=" + ("commonjs" if fn == "boot.js" else "module"), "--check"], stdin=f, capture_output=True)
+                    if r.returncode != 0:
+                        bad.append(f"{os.path.relpath(path, web)}: {r.stderr.decode('utf-8', 'replace').strip().splitlines()[-1:]}")
+        check("B6 화면 스크립트가 모두 문법에 맞다(node --check)", not bad, " | ".join(bad))
+    else:
+        print("  - B6 건너뜀: node 가 없다(화면 점검 ui_check.py 가 같은 것을 브라우저로 본다)")
+    with open(os.path.join(web, "index.html"), encoding="utf-8") as f:
+        page = f.read()
+    sheets = re.findall(r'href="/web/(css/[^"]+)"', page)
+    raw = _raw_colors(web, [p for p in sheets if not p.endswith("tokens.css")])
+    check("B7 스타일시트가 모두 있고, 색은 tokens.css 의 이름으로만 쓴다(밝은·어두운 바탕이 한 곳에서 바뀌게)",
+          len(sheets) >= 4 and all(os.path.isfile(os.path.join(web, p)) for p in sheets) and not raw, str(raw)[:300])
 
 
 def run() -> int:

@@ -8,6 +8,24 @@
 .view-head .sub { margin-top: 5px; color: var(--ink-3); font-size: var(--fs-s); display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
 .view-head .sub .sep { color: var(--line-strong); }
 .view-head .tools { display: flex; gap: 6px; margin-left: auto; flex: none; }
+.view-head > :first-child { flex: 1 1 260px; min-width: 0; }
+/* 기록을 만든 명령 — 그대로 보이고, 누르면 복사 */
+.cmdline { display: flex; align-items: flex-start; gap: 9px; width: 100%; margin: -4px 0 16px; padding: 8px 10px 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--raised); text-align: left; font: calc(12px * var(--scale))/1.55 var(--font-mono); color: var(--ink-2); }
+.cmdline:hover { border-color: var(--line-strong); color: var(--ink); }
+.cmdline .prompt { color: var(--accent); font-weight: 700; user-select: none; }
+.cmdline .cmd { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cmdline svg.ic { width: 14px; height: 14px; margin-top: 2px; color: var(--ink-4); }
+/* 전후 비교(바꿔 끼워 푼 과거 재현) */
+.vs { margin: 0 0 14px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.vs-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 14px; background: var(--raised); border-bottom: 1px solid var(--line-2); font-size: var(--fs-s); flex-wrap: wrap; }
+.vs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); overflow: hidden; }
+.vs-cell { padding: 9px 14px 10px; box-shadow: 1px 0 0 var(--line-2), 0 1px 0 var(--line-2); min-width: 0; }
+.vs-cell .k { font-size: var(--fs-s); font-weight: 700; }
+.vs-cell .v { margin-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vs-cell .d { margin-top: 1px; font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.vs-cell.good .d { color: var(--ok); font-weight: 600; }
+.vs-cell.poor .d { color: var(--bad); font-weight: 600; }
+.banner .swap { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 0 4px; flex-wrap: wrap; }
 h2.sect { margin: 30px 0 10px; font-size: var(--fs-xs); font-weight: 700; color: var(--ink-3); letter-spacing: .05em; display: flex; align-items: center; gap: 8px; }
 h2.sect::after { content: ""; flex: 1; height: 1px; background: var(--line-2); }
 h2.sect .count { font-weight: 500; color: var(--ink-4); letter-spacing: 0; }

@@ -9,6 +9,7 @@ import csv
 import json
 import os
 import re
+import tomllib
 from typing import Any
 
 RECORD_ID = re.compile(r"^([a-z]{2,8}):([A-Za-z0-9][A-Za-z0-9_\-]{0,120})$")
@@ -94,6 +95,61 @@ def _json(path: str) -> dict[str, Any]:
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def read_adopted(root: str) -> dict[str, str]:
+    """채택표(`EQUATIONS/adopted.toml`) — {부품: 추정 기록}. 없거나 읽지 못하면 빈 사전."""
+    try:
+        with open(os.path.join(root, "EQUATIONS", "adopted.toml"), "rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    return {str(k): str(v) for k, v in data.items() if isinstance(v, str)}
+
+
+_CANDIDATES: dict[tuple[str, str], dict[str, Any]] = {}     # 기록은 고치지 않는 파일이라 한 번 읽은 요약을 들고 있는다
+
+
+def _candidate(root: str, rid: str) -> dict[str, Any] | None:
+    """추정 기록 하나의 요약 — 후보 목록의 한 줄."""
+    key = (root, rid)
+    if key in _CANDIDATES:
+        return _CANDIDATES[key]
+    base = record_dir(root, rid)
+    m = _json(os.path.join(base, "record.json")) if base else {}
+    if not m:
+        return None
+    stats = m.get("stats") if isinstance(m.get("stats"), dict) else {}
+    crit = m.get("criteria") if isinstance(m.get("criteria"), dict) else None
+    diag = m.get("diagnostics") if isinstance(m.get("diagnostics"), dict) else {}
+    cov = m.get("cov") if isinstance(m.get("cov"), dict) else None
+    row = {
+        "id": rid, "name": rid.split(":", 1)[1], "who": m.get("who"), "created": m.get("created"), "command": m.get("command"),
+        "text": m.get("text"), "method": m.get("method"), "dependent": m.get("dependent"), "sample": m.get("sample"), "n": m.get("n"),
+        "stats": {k: stats.get(k) for k in ("adj_r_squared", "r_squared", "se_regression", "durbin_watson", "aic", "bic")},
+        "diag": {k: (v or {}).get("p") for k, v in diag.items() if isinstance(v, dict)},
+        "pass": crit.get("pass") if crit else None, "reasons": (crit or {}).get("reasons") or [], "signs": (crit or {}).get("signs") or [],
+        "alpha": (crit or {}).get("alpha"), "sim": (m.get("sim") or {}).get("rmspe") if isinstance(m.get("sim"), dict) else None,
+        "cov": cov.get("type") if cov else None, "cov_label": cov.get("label") if cov else None,
+        "data": (m.get("data") or {}).get("id") if isinstance(m.get("data"), dict) else None,
+        "coefs": [{k: c.get(k) for k in ("name", "coef", "t", "p")} for c in m.get("coefs") or [] if isinstance(c, dict)],
+    }
+    if len(_CANDIDATES) > 4000:
+        _CANDIDATES.clear()
+    _CANDIDATES[key] = row
+    return row
+
+
+def read_candidates(root: str, part: Any, limit: int = 500) -> dict[str, Any]:
+    """부품의 후보 — 그 부품에 묶인 추정 기록들(만든 순)과 채택한 기록. 사람이 했든 Claude 가 했든 같은 목록이다."""
+    rows: list[dict[str, Any]] = []
+    if isinstance(part, str) and part:
+        for line in read_log(root, limit=20000):
+            if line.get("kind") == "est" and line.get("part") == part:
+                row = _candidate(root, line["id"])
+                if row:
+                    rows.append(row)
+    return {"part": part, "adopted": read_adopted(root).get(part) if isinstance(part, str) else None, "rows": rows[-limit:]}
 
 
 def read_record(root: str, rid: Any) -> dict[str, Any] | None:

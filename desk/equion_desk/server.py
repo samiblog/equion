@@ -9,10 +9,11 @@
 - 프로젝트 파일은 그 폴더 안의 것만 읽는다(`ProjectSession.resolve`). 화면은 파일을 고치지 않는다 — 고치는 것은 작업 프로세스의 명령뿐이다.
 
 경로: `/api/state`·`/api/open`·`/api/example`·`/api/tabs/*`·`/api/settings`·`/api/events`(알림 긴 폴링) ·
-프로젝트마다 `/api/p/<탭 id>/overview·est·hs·sim·cancel·records·record·changes·change·tree·file·raw·view` · `/api/term/*`.
+프로젝트마다 `/api/p/<탭 id>/overview·est·check·candidates·ident·adopt·hs·diag·sim·cancel·records·record·changes·change·tree·file·raw·view` · `/api/term/*`.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -212,20 +213,95 @@ def create_app(state: AppState) -> Flask:
         except WorkerError as exc:
             return worker_error(exc)
 
+    COV = frozenset({"white", "hac", "hc0", "hc1", "hc2", "hc3"})
+    METHODS = frozenset({"auto", "ls", "tsls"})
+    NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_\-]{0,60}")
+    PART = re.compile(r"[^\s:]{1,60}:[^\s:]{1,60}")
+    RECORD = re.compile(r"est:[A-Za-z0-9][A-Za-z0-9_\-]{0,120}")
+
+    def pick(data: dict[str, Any], key: str, pattern: Any = None, allowed: Any = None, limit: int = 200) -> str | None:
+        """글 값 하나 — 모양(pattern)이나 허용 목록(allowed)에 맞아야 한다. 없으면 None, 틀리면 400."""
+        value = text_arg(data, key, limit)
+        if value is None:
+            return None
+        if (pattern is not None and not pattern.fullmatch(value)) or (allowed is not None and value not in allowed):
+            abort(400, description=t("받을 수 없는 값입니다: {key}", key=key))
+        return value
+
     @app.post("/api/p/<pid>/est")
     def api_est(pid: str) -> Any:
-        """{target, method?, smpl?} — 부품(`demand:CN`)이나 식 글자를 추정하고 기록을 남긴다."""
+        """{target, part?, smpl?, sim?, cov?, method?, name?} — 부품(`demand:CN`)이나 식 글자를 추정하고 기록을 남긴다.
+
+        식 글자에 part 를 주면 그 부품의 후보로 묶인다. sim 은 식 하나의 동태 모의, cov 는 계수 공분산(white·hac…), name 은 기록 이름.
+        """
         data = body()
         target = text_arg(data, "target", 4000)
         if target is None:
             abort(400)
-        opts = {k: v for k in ("method", "smpl") if (v := text_arg(data, k))}
-        return run(pid, "est", t("추정 {target}", target=target if len(target) <= 40 else target[:38] + "…"), target=target, **opts)
+        opts = {"part": pick(data, "part", PART), "smpl": text_arg(data, "smpl", 60), "cov": pick(data, "cov", allowed=COV),
+                "method": pick(data, "method", allowed=METHODS), "name": pick(data, "name", NAME), "sim": data.get("sim") is True}
+        return run(pid, "est", t("추정 {target}", target=target if len(target) <= 40 else target[:38] + "…"), target=target,
+                   **{k: v for k, v in opts.items() if v})
+
+    @app.post("/api/p/<pid>/check")
+    def api_check(pid: str) -> Any:
+        """{text, part?} — 식 글자를 읽어만 본다(추정하지 않는다). 다른 계산이 도는 중이면 기다리지 않고 `{busy: true}`."""
+        data = body()
+        text = data.get("text")
+        if not isinstance(text, str) or len(text) > 4000:
+            abort(400)
+        try:
+            return jsonify(session(pid).worker.call("check", wait=False, text=text, part=pick(data, "part", PART))["result"])
+        except WorkerError as exc:
+            if exc.kind == "busy":
+                return jsonify(ok=None, busy=True)
+            return worker_error(exc)
+
+    @app.get("/api/p/<pid>/candidates")
+    def api_candidates(pid: str) -> Any:
+        """부품의 후보 — 그 부품에 묶인 추정 기록들의 요약과 채택한 기록(파일을 읽기만 한다)."""
+        part = request.args.get("part", "")
+        if not PART.fullmatch(part):
+            abort(400)
+        return jsonify(session(pid).candidates(part))
+
+    @app.post("/api/p/<pid>/ident")
+    def api_ident(pid: str) -> Any:
+        """{part} — 항등식을 실측으로 검사한다(기록은 남기지 않는다)."""
+        part = pick(body(), "part", PART)
+        if part is None:
+            abort(400)
+        return run(pid, "ident", t("항등식 검사 {part}", part=part), part=part)
+
+    @app.post("/api/p/<pid>/adopt")
+    def api_adopt(pid: str) -> Any:
+        """{record, part?} — 추정 기록을 채택한다. 블록 파일의 그 줄과 채택표가 바뀌고 바뀜 기록에 남는다."""
+        data = body()
+        record = pick(data, "record", RECORD)
+        if record is None:
+            abort(400)
+        return run(pid, "adopt", t("채택 {record}", record=record), record=record, part=pick(data, "part", PART))
 
     @app.post("/api/p/<pid>/hs")
     def api_hs(pid: str) -> Any:
-        model = text_arg(body(), "model")
+        """{model?} 과거 재현. {part, record, model?} 면 '이 후보로' — 그 부품을 기록의 식·계수로 바꿔 끼워 풀고 지금 파일로 푼 것과 견준다."""
+        data = body()
+        model = pick(data, "model", NAME)
+        record, part = pick(data, "record", RECORD), pick(data, "part", PART)
+        if record or part:
+            if not (record and part):
+                abort(400)
+            return run(pid, "hs_swap", t("이 후보로 과거 재현 {record}", record=record), part=part, record=record, model=model)
         return run(pid, "hs", t("과거 재현 {model}", model=model or "").strip(), model=model)
+
+    @app.post("/api/p/<pid>/diag")
+    def api_diag(pid: str) -> Any:
+        """{target} — 식 진단(CUSUM 포함). 부품이나 추정 기록. 분석 기록(an:)을 남긴다."""
+        data = body()
+        target = pick(data, "target", RECORD) if str(data.get("target", "")).startswith("est:") else pick(data, "target", PART)
+        if target is None:
+            abort(400)
+        return run(pid, "an_diag", t("식 진단 {target}", target=target), target=target)
 
     @app.post("/api/p/<pid>/sim")
     def api_sim(pid: str) -> Any:

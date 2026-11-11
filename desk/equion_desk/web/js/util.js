@@ -38,6 +38,9 @@ export function icon(name, cls = '') {
 
 export function clear(node) { node.textContent = ''; return node; }
 
+/** 요소에 자식들을 붙인다 — null·false 는 건너뛴다(그냥 append 는 'null' 이라는 글을 붙인다) */
+export function put(node, ...children) { add(node, children); return node; }
+
 // ---- 표기 --------------------------------------------------------------------------------------
 
 export function num(v, digits = 4) {

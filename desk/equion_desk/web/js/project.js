@@ -217,7 +217,7 @@ export class Project {
       this.tabbar.append(button);
       tab = { view, pane, button };
       this.tabs.set(key, tab);
-    } else if (desc.type === 'changes' && desc.id) tab.view.open(desc.id);
+    } else if (typeof tab.view.open === 'function') tab.view.open(desc);      // 이미 연 탭 — 무엇을 보일지만 넘긴다(쓰던 것은 그대로)
     if (activate) this.selectTab(key, { save: false });
     if (save) this.saveView();
     return tab.view;
@@ -444,8 +444,11 @@ export class Project {
       this.app.renderActivity();
     } else if (e.type === 'change') {
       this.offlineIds ||= new Set();
-      this.changed(e.change, this.offlineIds.has(e.change.id));
-      this.app.countChange(this);
+      // 방금 이 화면에서 한 일(채택 등)은 알림 카드를 띄우지 않는다 — 한 사람이 이미 안다. 바뀜 기록에는 똑같이 남는다
+      if (e.change.who !== 'desk') {
+        this.changed(e.change, this.offlineIds.has(e.change.id));
+        this.app.countChange(this);
+      }
       this.emit(e);
     } else if (e.type === 'offline') {
       (this.offlineIds ||= new Set()).add(e.change);

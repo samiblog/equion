@@ -116,8 +116,10 @@ class ProjectSession:
                     break
                 except WorkerError as exc:
                     # 방금 쓴 파일을 다른 프로그램(백신·색인)이 잠깐 쥐고 있으면 기록 폴더를 옮기지 못한다 — 조금 뒤에 다시
+                    if self._closed or exc.kind == "cancelled":
+                        return
                     print(f"equion-desk: scan: {exc.kind}: {exc}", file=sys.stderr, flush=True)
-                    if wait is None or self._closed or exc.kind == "cancelled":
+                    if wait is None:
                         return
                     time.sleep(wait)
             if found and offline:
@@ -197,6 +199,9 @@ class ProjectSession:
 
     def record(self, rid: Any) -> dict[str, Any] | None:
         return records.read_record(self.root, rid)
+
+    def candidates(self, part: Any) -> dict[str, Any]:
+        return records.read_candidates(self.root, part)
 
     def changes(self, limit: int = 100) -> list[dict[str, Any]]:
         out = [read_change(self.root, cid) for cid in history_ids(self.root)[-limit:]]

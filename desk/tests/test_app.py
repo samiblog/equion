@@ -1,4 +1,4 @@
-"""Equion Desk 시험 — 로컬 서버·작업 프로세스·터미널·프로젝트 탭·기록 읽기·감시(D0·D1). `uv run --package equion-desk pytest desk`.
+"""Equion Desk 시험 — 로컬 서버·작업 프로세스·터미널·프로젝트 탭·기록 읽기·감시·식 작업대(D0·D1·D2a). `uv run --package equion-desk pytest desk`.
 
 예제 프로젝트(`equion new p --template desk`)를 임시 폴더에 만들어, 화면이 부르는 길 그대로(서버 → 작업 프로세스 → `eqn.project`) 돈다.
 설정 파일은 임시 폴더에 둔다(사용자의 설정을 건드리지 않는다). 터미널(E2~E4)과 단일 인스턴스(I)는 Windows에서만 돈다.
@@ -494,6 +494,110 @@ def section_watch(tmp: str, folder: str) -> None:
         state.close()
 
 
+def section_bench(tmp: str) -> None:
+    print("J. 식 작업대 — 문법 검사·옵션 있는 추정·후보 목록·항등식·바꿔 끼운 과거 재현·채택")
+    from equion_desk.server import create_app
+
+    folder = example(tmp, "bench")
+    state, pid = new_state(tmp, folder, "j.json")
+    api = f"/api/p/{pid}"
+    try:
+        c = create_app(state).test_client()
+        o = c.get(f"{api}/overview").json["overview"]
+        cn = next(p for b in o["blocks"] for p in b["parts"] if p["id"] == "demand:CN")
+        check("J1 개요의 부품에 그것을 쓰는 모형이 붙는다('이 후보로 과거 재현'이 고른다)", cn["models"] == ["core", "main", "main_fixrl"], str(cn))
+
+        def chk(text: str, part: str | None = "demand:CN") -> dict:
+            return c.post(f"{api}/check", json={"text": text, "part": part}).json
+
+        ok, unknown, broken = chk("CN c Y CN(-1)"), chk("CN c Y ZZZ"), chk("CN c Y (")
+        other, ident, empty, seas = chk("I c Y"), chk("Y = CN + I + G"), chk("  "), chk("log(CN) c log(Y) @seas @d(2009Q1)")
+        check("J2 문법 검사 — 종류·목표·변수, 자료에 없는 변수, 읽을 수 없는 식의 까닭",
+              ok == {"ok": True, "kind": "equation", "target": "CN", "variables": ["CN", "Y"], "unknown": [], "part_target": "CN"}
+              and unknown["unknown"] == ["ZZZ"] and broken["ok"] is False and "괄호" in broken["error"], f"{ok} {unknown} {broken}")
+        check("J3 문법 검사 — 목표가 다른 식·항등식·빈 칸·지시자(@seas·@d)를 가린다",
+              other["target"] == "I" and other["part_target"] == "CN" and ident["kind"] == "identity" and empty == {"ok": False, "empty": True}
+              and seas["ok"] and seas["unknown"] == [], f"{other} {ident} {empty} {seas}")
+        check("J4 문법 검사는 계산이 아니다 — 기록을 남기지 않는다", not os.path.isdir(os.path.join(folder, "work", "est")))
+        worker = state.sessions[pid].worker
+        worker._lock.acquire()                # 다른 계산이 도는 중인 척
+        try:
+            began = time.perf_counter()
+            busy = chk("CN c Y")
+            took = time.perf_counter() - began
+        finally:
+            worker._lock.release()
+        check("J5 다른 계산이 도는 중이면 문법 검사는 기다리지 않는다", busy == {"ok": None, "busy": True} and took < 0.5, f"{busy} {took:.2f}")
+
+        r = c.post(f"{api}/est", json={"target": "demand:CN", "sim": True}).json["result"]
+        check("J6 단독 모의와 함께 추정 — RMSPE 와 모의 시리즈가 온다",
+              r["sim"]["rmspe"] > 0 and "CN_sim" in r["series"] and r["cov"] is None and r["command"] == "equion est demand:CN --sim", str(r.get("sim")))
+        r2 = c.post(f"{api}/est", json={"target": "CN c Y CN(-1) CN(-2)", "part": "demand:CN", "sim": True, "cov": "hac", "smpl": "1990Q1:last",
+                                         "name": "cn_lag2"}).json["result"]
+        card = c.get(f"{api}/record?id=est:cn_lag2").json
+        check("J7 식 글자·표본·표준오차·이름을 주어 추정 — 부품의 후보로 묶이고 기록이 표준오차의 종류를 말한다",
+              r2["id"] == "est:cn_lag2" and r2["part"] == "demand:CN" and r2["sample"][0] == "1990Q1" and r2["cov"]["type"] == "hac"
+              and "계수 공분산" in card["summary"] and "--for demand:CN --smpl 1990Q1:last --sim --cov hac --as cn_lag2" in r2["command"], str(r2.get("command")))
+        bad = [c.post(f"{api}/est", json={"target": "CN c Y", **extra}).status_code
+               for extra in ({"cov": "bogus"}, {"name": "../x"}, {"part": "no colon"}, {"method": "magic"})]
+        dup = c.post(f"{api}/est", json={"target": "CN c Y CN(-1)", "part": "demand:CN", "name": "cn_lag2"})
+        check("J8 받을 수 없는 옵션은 400, 이미 있는 이름은 까닭과 함께 422", bad == [400, 400, 400, 400] and dup.status_code == 422 and "cn_lag2" in dup.json["error"], f"{bad} {dup.json}")
+
+        equion(folder, "est", "CN c Y", who="claude")
+        cand = c.get(f"{api}/candidates?part=demand:CN").json
+        rows = {x["id"]: x for x in cand["rows"]}
+        first = rows.get("est:cn_0001", {})
+        check("J9 후보 목록 — 사람·Claude 가 한 것이 한 목록에, 줄마다 적합·진단·기준·단독 모의·표준오차",
+              list(rows) == ["est:cn_0001", "est:cn_lag2", "est:cn_0002"] and cand["adopted"] is None and first["stats"]["adj_r_squared"] > 0.99
+              and first["diag"]["lm"] is not None and first["pass"] is False and first["reasons"] and first["sim"] > 0
+              and rows["est:cn_lag2"]["cov"] == "hac" and rows["est:cn_0002"]["who"] == "claude" and rows["est:cn_0002"]["sim"] is None, str(cand)[:400])
+        check("J10 후보 목록 — 없는 부품은 빈 목록, 모양이 틀린 이름은 400",
+              c.get(f"{api}/candidates?part=demand:ZZ").json["rows"] == [] and c.get(f"{api}/candidates?part=nope").status_code == 400)
+
+        before = len(c.get(f"{api}/records").json["records"])
+        idt = c.post(f"{api}/ident", json={"part": "demand:Y"}).json["result"]
+        check("J11 항등식을 실측으로 검사 — 맞는지·가장 큰 차이·기간별 차이(기록은 남기지 않는다)",
+              idt["ok"] is True and idt["n"] == 200 and len(idt["series"]["diff"]) == 200 and idt["command"] == "equion ident demand:Y --check"
+              and len(c.get(f"{api}/records").json["records"]) == before, str(idt)[:200])
+        check("J12 추정식을 항등식 검사에 주면 까닭을 알린다(422)", c.post(f"{api}/ident", json={"part": "demand:CN"}).status_code == 422)
+
+        with open(os.path.join(folder, "EQUATIONS", "demand.txt"), encoding="utf-8") as f:
+            block = f.read()
+        h1 = c.post(f"{api}/hs", json={"part": "demand:CN", "record": "est:cn_lag2"}).json["result"]
+        h2 = c.post(f"{api}/hs", json={"part": "demand:CN", "record": "est:cn_0001"}).json["result"]
+        with open(os.path.join(folder, "EQUATIONS", "demand.txt"), encoding="utf-8") as f:
+            same = f.read() == block
+        check("J13 이 후보로 과거 재현 — 지금 파일로 먼저 풀고(기준) 바꿔 끼워 풀어 변수마다 전후를 견준다. 파일은 그대로",
+              h1["baseline_new"] is True and h1["swaps"] == {"demand:CN": "est:cn_lag2"} and h1["vs"]["id"] == h1["baseline"]
+              and len(h1["vs"]["rmspe"]["CN"]) == 2 and f"--swap demand:CN=est:cn_lag2 --vs {h1['baseline']}" in h1["command"] and same, str(h1)[:300])
+        check("J14 기준 풀이는 정의·자료가 그대로면 다시 풀지 않고 그것을 쓴다", h2["baseline_new"] is False and h2["baseline"] == h1["baseline"])
+        check("J15 그 부품을 쓰지 않는 모형·모양이 틀린 요청은 거절",
+              c.post(f"{api}/hs", json={"part": "price:P", "record": "est:cn_0001", "model": "core"}).status_code == 422
+              and c.post(f"{api}/hs", json={"part": "demand:CN"}).status_code == 400)
+
+        since = state.feed.seq
+        done = c.post(f"{api}/adopt", json={"record": "est:cn_lag2", "part": "demand:CN"}).json["result"]
+        with open(os.path.join(folder, "EQUATIONS", "demand.txt"), encoding="utf-8") as f:
+            line = f.read().splitlines()[1]
+        events = wait_events(state, since, lambda e: e["type"] == "change")
+        change = next((e["change"] for e in events if e["type"] == "change"), {})
+        cn = next(p for b in c.get(f"{api}/overview").json["overview"]["blocks"] for p in b["parts"] if p["id"] == "demand:CN")
+        check("J16 채택 — 블록 파일의 그 줄과 채택표가 바뀌고(설명은 그대로) 바뀜 기록에 '누가 Desk · 명령 그대로'",
+              done["line_changed"] and line.startswith("CN c Y CN(-1) CN(-2)") and "# 소비" in line and cn["adopted"] == "est:cn_lag2"
+              and c.get(f"{api}/candidates?part=demand:CN").json["adopted"] == "est:cn_lag2"
+              and change.get("who") == "desk" and change.get("how") == "equion adopt est:cn_lag2 --part demand:CN"
+              and {f["path"] for f in change["files"]} == {"EQUATIONS/adopted.toml", "EQUATIONS/demand.txt"}, f"{done} {line} {change}")
+        h3 = c.post(f"{api}/hs", json={"part": "demand:CN", "record": "est:cn_0001"}).json["result"]
+        check("J17 채택한 뒤에는 정의가 바뀌었으므로 기준을 새로 푼다", h3["baseline_new"] is True and h3["baseline"] != h1["baseline"])
+        check("J18 채택 — 없는 기록·항등식 부품은 까닭과 함께 거절(422)",
+              c.post(f"{api}/adopt", json={"record": "est:nope"}).status_code == 422
+              and c.post(f"{api}/adopt", json={"record": "est:cn_0001", "part": "demand:Y"}).status_code == 422)
+        d = c.post(f"{api}/diag", json={"target": "est:cn_0001"})
+        check("J19 진단 더 보기 — 분석 기록(an:)으로 남는다", d.status_code == 200 and d.json["result"]["id"].startswith("an:diag"), str(d.json)[:200])
+    finally:
+        state.close()
+
+
 def section_instance(tmp: str, folder: str) -> None:
     print("I. 창은 하나 — 또 실행하면 폴더를 떠 있는 창에 넘긴다")
     from equion_desk import instance
@@ -524,6 +628,7 @@ def run() -> int:
         section_tabs(tmp, folder)
         section_reading(tmp, folder)
         section_watch(tmp, folder)
+        section_bench(tmp)
         section_instance(tmp, folder)
     bad = [n for n, ok, _ in RESULTS if not ok]
     print(f"\nEquion Desk 앱 시험 {len(RESULTS) - len(bad)}/{len(RESULTS)}")
