@@ -138,6 +138,26 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
     a.add_argument("--json", action="store_true", help="결과를 JSON으로")
 
+    mo = sub.add_parser("model", help="프로젝트의 모형 정의 — equion.toml의 [model.이름]을 더하거나 고친다")
+    msub = mo.add_subparsers(dest="define_command", metavar="동작")
+    msub.required = True
+    md = msub.add_parser("define", help="모형을 더하거나 고친다(블록·끼울 모형·뺄 식·설명) — 준 것만 바꾼다")
+    md.add_argument("name", help="모형 이름(없으면 새로 만든다)")
+    md.add_argument("--blocks", metavar="블록들", help="블록 이름들(쉼표로 — 빈 글이면 지운다)")
+    md.add_argument("--include", metavar="모형들", help="끼울 모형들(쉼표로)")
+    md.add_argument("--exclude", metavar="식들", help="뺄 식들(블록:목표, 쉼표로 — 그 목표는 외생이 된다)")
+    md.add_argument("--desc", metavar="글", help="설명")
+    bl = sub.add_parser("block", help="프로젝트의 블록 — equion.toml의 [block]에 블록(방정식 파일 하나)을 더하거나 고친다")
+    bsub = bl.add_subparsers(dest="define_command", metavar="동작")
+    bsub.required = True
+    bd = bsub.add_parser("define", help="블록을 더한다 — 파일이 없으면 빈 블록 파일을 함께 만든다")
+    bd.add_argument("name", help="블록 이름")
+    bd.add_argument("--file", metavar="파일", help="블록 파일(기본 EQUATIONS/<이름>.txt)")
+    bd.add_argument("--desc", metavar="글", help="설명")
+    for sp in (md, bd):
+        sp.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
+        sp.add_argument("--json", action="store_true", help="결과를 JSON으로")
+
     d = sub.add_parser("ident", help="프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다")
     d.add_argument("part", help="항등식 이름 블록:목표(예: demand:Y)")
     d.add_argument("--check", action="store_true", help="실측으로 좌변·우변을 계산해 견준다")
@@ -585,6 +605,25 @@ def cmd_assemble(args) -> int:
     return EXIT_OK if rep.ok else EXIT_INPUT
 
 
+def cmd_define(args) -> int:
+    """equion model define · equion block define — 설정(equion.toml)의 모형·블록을 쓴다."""
+    from ..projects import ProjectError
+    from ..work.store import detect_who
+    try:
+        p = _open_project(args.project)
+        who, cmdline = detect_who("terminal"), _cmdline(_ARGV)
+        if args.command == "model":
+            res = p.model_define(args.name, blocks=args.blocks, include=args.include, exclude=args.exclude, desc=args.desc,
+                                 who=who, command=cmdline)
+        else:
+            res = p.block_define(args.name, file=args.file, desc=args.desc, who=who, command=cmdline)
+    except (ProjectError, KeyError, ValueError) as e:
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
+        return EXIT_INPUT
+    print(json.dumps(res.to_dict(), ensure_ascii=False, indent=2) if args.json else res.text())
+    return EXIT_OK
+
+
 @_summary_quiet
 def cmd_ident(args) -> int:
     from ..projects import ProjectError
@@ -803,6 +842,8 @@ def _main(argv) -> int:
             return cmd_assemble(args)
         if args.command == "ident":
             return cmd_ident(args)
+        if args.command in ("model", "block"):
+            return cmd_define(args)
         if args.command == "data":
             return cmd_data(args)
         from .workcmds import COMMANDS, dispatch

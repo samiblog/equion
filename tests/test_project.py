@@ -365,6 +365,7 @@ def _main(tmp, t0):
     newf, badf = _data_tests(tmp, p, d, q)
     _span_cli_tests(tmp, p, d, newf, badf)
     _define_tests(tmp)
+    _config_define_tests(tmp)
 
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
@@ -796,6 +797,71 @@ def _define_tests(tmp):
     code3, _, err3 = run(["data", "define", "cli", "--series", "CGDP=GDP", "--set", "NOPE.unit=x"], d)
     check("data define: 없는 열·꼴이 틀린 --series·--set(3)", code == 3 and "원자료에 없는 열" in err and code2 == 3 and "이름=열" in err2
           and code3 == 3 and "이름.키=값" in err3, err[:200])
+
+
+def _config_define_tests(tmp):
+    print("=" * 80)
+    print("J. 모형·블록 정의 쓰기")
+    print("=" * 80)
+    P, d = new_project(tmp, "cfgdef")
+    cf = os.path.join(d, "equion.toml")
+    before = read(cf)
+    r = P.model_define("dp", blocks=["demand", "price"], desc="수요 + 물가", who="tester", command="equion model define dp …")
+    text = read(cf)
+    ch = P.history.get(r.change)
+    check("모형 정의: 새 모형 — 주석·순서는 그대로, 바뀜 기록에 남고 바로 조립된다",
+          r.kind == "model" and r.new and r.files == [] and "dp" in P.models and P.assemble("dp").ok and text.startswith(before[:300])
+          and "# 모형 안에 모형" in text and '[model.dp]\ndesc = "수요 + 물가"\nblocks = ["demand", "price"]' in text
+          and ch.who == "tester" and ch.how == "equion model define dp …" and list(ch.files) == ["equion.toml"], text[-200:])
+    r2 = P.model_define("dp", exclude=["demand:I"], include="core")
+    spec = P.config.models["dp"]
+    check("모형 정의: 준 키만 고친다(글로 준 목록은 쉼표·공백으로) — 빈 목록은 그 키를 지운다",
+          not r2.new and r2.change and (spec.blocks, spec.include, spec.exclude, spec.desc) == (["demand", "price"], ["core"], ["demand:I"], "수요 + 물가")
+          and P.model_define("dp", exclude=[], include=[]).change and "exclude" not in read(cf).split("[model.dp]")[1]
+          and P.config.models["dp"].include == [])
+    check("모형 정의: 바뀐 것이 없으면 바뀜 기록도 없다", P.model_define("dp", desc="수요 + 물가").change is None)
+    n, text = len(P.history.list()), read(cf)
+    probs = [problems_of(lambda kw=kw: P.model_define(**kw)) for kw in (
+        {"name": "x1", "blocks": ["nope"]}, {"name": "demand", "blocks": ["price"]}, {"name": "empty"}, {"name": "core", "include": ["main"]},
+        {"name": "x2", "blocks": ["price"], "include": ["nope"]})]
+    check("모형 정의: 없는 블록·블록과 같은 이름·빈 모형·include 순환·없는 모형 — 아무것도 쓰지 않는다",
+          "없는 블록 'nope'" in probs[0][0] and "블록이자 모형" in probs[1][0] and "blocks나 include" in probs[2][0]
+          and any("돌고 돕니다" in x for x in probs[3]) and "없는 모형 'nope'" in probs[4][0]
+          and raises(lambda: P.model_define("9x", blocks=["price"]), ProjectError, "영문으로 시작") and read(cf) == text and len(P.history.list()) == n,
+          str([x[:1] for x in probs]))
+    b = P.block_define("labor", desc="노동")
+    bf = os.path.join(d, "EQUATIONS", "labor.txt")
+    ch = P.history.get(b.change)
+    check("블록 정의: 새 블록 — 빈 블록 파일을 함께 만들고(바뀜 기록 하나에 두 파일) 프로젝트는 그대로 열린다",
+          b.kind == "block" and b.new and b.files == ["EQUATIONS/labor.txt"] and os.path.isfile(bf) and read(bf).startswith("# 노동 블록")
+          and "labor" in P.blocks and P.parts("labor") == [] and sorted(ch.files) == ["EQUATIONS/labor.txt", "equion.toml"]
+          and 'labor = {file = "EQUATIONS/labor.txt", desc = "노동"}' in read(cf) and '# 블록 = 방정식 파일 하나' in read(cf), read(cf)[:400])
+    write(bf, read(bf) + "N c Y LF   # 고용 — LF(경제활동인구)는 아직 자료에 없다\n")
+    P2 = quiet(Project.open, d)
+    m = P2.model_define("main_labor", include=["main"], blocks=["labor"])
+    rep = P2.assemble("main_labor")
+    check("블록 정의 → 식을 적고 → 모형에 넣는다: 새 블록의 식이 조립에 들어가고 모르는 변수는 조립 검사가 알린다",
+          m.new and "labor:N" in [x.id for x in P2.parts("main_labor")] and not rep.ok and any("LF" in x for x in rep.problems), str(rep.problems))
+    check("블록 정의: 설명만 고치기 · 같으면 그대로 · 있는 파일은 다시 만들지 않는다",
+          P2.block_define("labor", desc="노동 시장").change and P2.block_define("labor", desc="노동 시장").change is None
+          and "N c Y LF" in read(bf) and P2.block_define("labor").files == [])
+    check("블록 정의: 모형과 같은 이름·프로젝트 밖의 파일·.txt 가 아닌 파일·이름",
+          raises(lambda: P2.block_define("main"), ProjectError, "블록이자 모형") and raises(lambda: P2.block_define("b2", file="../x.txt"), ProjectError, "프로젝트 안")
+          and raises(lambda: P2.block_define("b3", file="EQUATIONS/b3.csv"), ProjectError, ".txt") and raises(lambda: P2.block_define("9b"), ProjectError, "영문으로 시작"))
+    from equion.projects.config import load_config
+    check("설정 검사: 글로도 검사한다(load_config(text=…)) — 파일은 그대로",
+          load_config(cf, text=read(cf).replace('desc = "수요 블록만"', 'desc = "바꿔 본 글"')).models["core"].desc == "바꿔 본 글"
+          and quiet(Project.open, d).config.models["core"].desc == "수요 블록만"
+          and raises(lambda: load_config(cf, text=read(cf) + '\n[model.zz]\nblocks = ["nope"]\n'), ProjectError, "없는 블록"))
+    code, out, _ = run(["model", "define", "m2", "--include", "core", "--blocks", "price,finance", "--desc", "명령줄로"], d)
+    check("model define(0)", code == 0 and "새 모형" in out and "equion assemble m2" in out and quiet(Project.open, d).config.models["m2"].blocks == ["price", "finance"])
+    code, out, _ = run(["block", "define", "ext", "--desc", "대외", "--json"], d)
+    j = json.loads(out) if code == 0 else {}
+    check("block define --json(0)", j.get("new") and j.get("files") == ["EQUATIONS/ext.txt"] and j.get("change")
+          and quiet(Project.open, d).history.get(j["change"]).how.startswith("equion block define ext"))
+    code, _, err = run(["model", "define", "m3", "--blocks", "nope"], d)
+    code2, _, _ = run(["model"], d)
+    check("model define: 없는 블록(3) · 동작 없음(3)", code == 3 and "없는 블록" in err and code2 == 3)
 
 
 def test_suite():

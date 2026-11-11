@@ -17,6 +17,11 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
   `equion data define 출처 --file 파일 --series 이름=열 --set 이름.키=값`)이 `series.toml`에 출처(불러오기 틀)와 시리즈를 더하거나 고칩니다 —
   쓰기 전에 새 내용 전체와 원자료의 열·변환을 검사하고(문제가 있으면 아무것도 쓰지 않음), 주석·순서는 그대로 두며, 바뀜 기록에 남깁니다.
   레시피 R59. `load_defs(…, series_text=…)`는 파일 대신 글을 검사합니다.
+- **모형·블록 정의 쓰기**: `p.model_define(이름, blocks=…, include=…, exclude=…, desc=…)`(명령줄 `equion model define 이름 --blocks a,b --include m
+  --exclude 블록:목표 --desc 글`)이 `equion.toml`의 `[model.이름]`을 더하거나 고칩니다 — 준 키만 바꾸고(빈 목록은 그 키를 지움), 쓰기 전에 새 설정 전체를
+  검사합니다(없는 블록·모형, include 순환, 블록과 같은 이름 — 문제가 있으면 아무것도 쓰지 않음). `p.block_define(이름, file=…, desc=…)`(명령줄
+  `equion block define 이름`)이 `[block]`에 블록을 더하고, 파일이 없으면 머리 주석만 있는 빈 블록 파일(`EQUATIONS/<이름>.txt`)을 함께 만듭니다.
+  둘 다 주석·순서를 지키고 바뀜 기록에 남깁니다. `load_config(…, text=…)`는 파일 대신 글을 검사합니다.
 
 ### 고침
 - **줄마다 칸 수가 다른 CSV**: 표 위에 제목 줄이 있는 통계표처럼 첫 줄의 칸 수가 아래 줄보다 적은 CSV는 원자료로 읽지 못했습니다

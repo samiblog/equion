@@ -18,7 +18,7 @@ import os
 import re
 import tomllib
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from ..data.periods import normalize_freq
 
@@ -158,13 +158,21 @@ def _check_name(name: str, what: str, problems: List[str]) -> bool:
     return True
 
 
-def load_config(path: str = ".") -> ProjectConfig:
-    """equion.toml을 읽고 검사해 ProjectConfig를 돌려준다. 문제가 있으면 모두 모아 ProjectError."""
+def load_config(path: str = ".", text: Optional[str] = None, new_files: tuple = ()) -> ProjectConfig:
+    """equion.toml을 읽고 검사해 ProjectConfig를 돌려준다. 문제가 있으면 모두 모아 ProjectError.
+
+    text를 주면 파일 대신 그 글을 검사한다(고친 내용을 쓰기 전에 보는 데 — 경로는 프로젝트 폴더를 정하는 데만 쓴다).
+    new_files는 그 글과 함께 새로 만들 파일(프로젝트 기준 경로)이다 — 아직 없어도 있는 것으로 본다.
+    """
     cfg_path = find_config(path)
     root = os.path.dirname(cfg_path)
+    new_paths = {os.path.normcase(os.path.normpath(os.path.join(root, f))) for f in new_files}
     try:
-        with open(cfg_path, "rb") as f:
-            raw = tomllib.load(f)
+        if text is not None:
+            raw = tomllib.loads(text)
+        else:
+            with open(cfg_path, "rb") as f:
+                raw = tomllib.load(f)
     except tomllib.TOMLDecodeError as e:
         raise ProjectError(f"{CONFIG_NAME} 문법 오류: {e}") from None
     problems: List[str] = []
@@ -244,7 +252,7 @@ def load_config(path: str = ".") -> ProjectConfig:
             problems.append(f"[block] {bname}: file이 없습니다")
             continue
         bpath = os.path.normpath(os.path.join(root, file))
-        if not os.path.isfile(bpath):
+        if not os.path.isfile(bpath) and os.path.normcase(bpath) not in new_paths:
             problems.append(f"[block] {bname}: 방정식 파일이 없습니다 — {file}")
         blocks[bname] = BlockSpec(bname, file, bpath, desc)
 
@@ -393,3 +401,103 @@ def _criteria(raw, problems: List[str]) -> dict:
             continue
         out["signs"][pid] = {str(k): v for k, v in terms.items()}
     return out
+
+
+# ---- 설정 고치기: 모형·블록(주석·순서는 그대로 — tomlkit) -----------------------------------------
+
+@dataclass
+class ConfigChange:
+    """프로젝트 설정(equion.toml) 고치기 결과 — 무엇이 생기거나 바뀌었나."""
+
+    kind: str                              # model · block
+    name: str
+    new: bool                              # 새로 만들었나(아니면 고침)
+    files: List[str] = field(default_factory=list)      # 함께 만든 파일(블록 파일)
+    change: Optional[str] = None           # 바뀜 기록(바뀐 것이 없으면 None)
+
+    def text(self) -> str:
+        """명령줄에 보이는 짧은 글."""
+        what = {"model": "모형", "block": "블록"}[self.kind]
+        L = [f"[{self.kind} define] [{self.kind}.{self.name}]" if self.kind == "model" else f"[block define] [block] {self.name}"]
+        L[0] += f" — 새 {what}" if self.new else (" — 고침" if self.change else " — 바뀐 것이 없습니다")
+        for f in self.files:
+            L.append(f"  새 파일    {f}")
+        if self.change:
+            L.append(f"  바뀜 기록  {self.change}")
+            L.append("  다음   equion assemble " + self.name if self.kind == "model" else f"  다음   {self.files[0] if self.files else '블록 파일'}에 식을 적고 모형에 넣는다(equion model define)")
+        return "\n".join(L)
+
+    def to_dict(self) -> dict:
+        """명령줄 --json과 같은 사전."""
+        return {"kind": self.kind, "name": self.name, "new": self.new, "files": self.files, "change": self.change}
+
+
+def model_text(cfg_path: str, name: str, blocks=None, include=None, exclude=None, desc: str = None) -> Tuple[str, bool]:
+    """equion.toml의 `[model.이름]`을 더하거나 고친 **새 내용**과 새 모형인지 — 준 키만 바꾸고(빈 목록·빈 글이면 그 키를 지움) 파일은 쓰지 않는다.
+    새 내용 전체를 검사한다(없는 블록·모형, include 순환, 블록과 같은 이름 … — 문제는 ProjectError)."""
+    import tomlkit
+    problems: List[str] = []
+    _check_name(name, "모형", problems)
+    if problems:
+        raise ProjectError(problems)
+    with open(cfg_path, encoding="utf-8") as f:
+        doc = tomlkit.parse(f.read())
+    if "model" not in doc:
+        doc["model"] = tomlkit.table(True)
+    models = doc["model"]
+    new = name not in models
+    tb = tomlkit.table() if new else models[name]
+    for key, value in (("desc", desc), ("include", include), ("blocks", blocks), ("exclude", exclude)):
+        if value is None:
+            continue
+        if key != "desc":
+            if isinstance(value, str):
+                value = [v for v in value.replace(",", " ").split() if v]
+            value = [str(v) for v in value]
+        if value in ("", []):
+            if key in tb:
+                del tb[key]
+        else:
+            tb[key] = value
+    if new:
+        models[name] = tb
+    text = tomlkit.dumps(doc)
+    load_config(cfg_path, text=text)
+    return text, new
+
+
+def block_text(cfg_path: str, name: str, file: str = None, desc: str = None) -> Tuple[str, bool, str, bool]:
+    """equion.toml의 `[block]`에 블록을 더하거나 그 설명·파일을 고친 **새 내용** — (새 내용, 새 블록인지, 블록 파일(프로젝트 기준), 그 파일을 새로 만들어야 하는지).
+    파일은 쓰지 않는다. 새 블록의 file이 없으면 `EQUATIONS/<이름>.txt`. 문제는 ProjectError."""
+    import tomlkit
+    problems: List[str] = []
+    _check_name(name, "블록", problems)
+    if problems:
+        raise ProjectError(problems)
+    root = os.path.dirname(cfg_path)
+    with open(cfg_path, encoding="utf-8") as f:
+        doc = tomlkit.parse(f.read())
+    if "block" not in doc:
+        doc["block"] = tomlkit.table()
+    blocks = doc["block"]
+    new = name not in blocks
+    cur = None if new else blocks[name]
+    old_file = None if new else (str(cur) if isinstance(cur, str) else str(cur.get("file", "")))
+    old_desc = "" if new or isinstance(cur, str) else str(cur.get("desc", ""))
+    rel = (file or old_file or f"EQUATIONS/{name}.txt").replace("\\", "/")
+    path = os.path.normpath(os.path.join(root, rel))
+    if os.path.isabs(rel) or not os.path.normcase(path).startswith(os.path.normcase(os.path.abspath(root)) + os.sep):
+        raise ProjectError(f"[block] {name}: 블록 파일은 프로젝트 안에 둡니다 — {file}")
+    if not rel.lower().endswith(".txt"):
+        raise ProjectError(f"[block] {name}: 블록 파일은 .txt입니다 — {rel}")
+    item = tomlkit.inline_table()
+    item["file"] = rel
+    text_desc = old_desc if desc is None else str(desc)
+    if text_desc:
+        item["desc"] = text_desc
+    if new or rel != old_file or text_desc != old_desc:
+        blocks[name] = item
+    create = not os.path.isfile(path)
+    text = tomlkit.dumps(doc)
+    load_config(cfg_path, text=text, new_files=(rel,) if create else ())
+    return text, new, rel, create

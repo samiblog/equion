@@ -493,6 +493,80 @@ class Project:
             problems.append(str(e))
         return problems
 
+    def model_define(self, name: str, blocks=None, include=None, exclude=None, desc: str = None, who: str = None,
+                     command: str = None) -> "ConfigChange":
+        """모형 정의 쓰기 — `equion.toml`의 `[model.이름]`을 더하거나 고친다(블록·끼울 모형·뺄 식·설명). 준 것만 바꾸고(None은 그대로,
+        빈 목록·빈 글은 그 키를 지움), 쓰기 전에 새 설정 전체를 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 주석·순서는 그대로 두고
+        바뀜 기록에 남긴다. 조립은 하지 않는다 — 이어서 `assemble`.
+
+        매개변수
+            name: 모형 이름(없으면 새로 — 그때 blocks나 include가 있어야 한다)
+            blocks: 블록 이름들(목록 또는 쉼표·공백으로 띄운 글)
+            include: 끼울 모형들
+            exclude: 뺄 식들(블록:목표 — 그 목표는 외생이 된다)
+            desc: 설명
+
+        돌려주는 것
+            ConfigChange — .kind('model') · .name · .new · .change(바뀜 기록)
+
+        오류
+            ProjectError: 이름·없는 블록·없는 모형·include 순환·블록과 같은 이름(문제 모두 — 아무것도 쓰지 않음)
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.model_define("demand_price", blocks=["demand", "price"], desc="수요 + 물가")
+            >>> r.new, sorted(p.models)[1], p.assemble("demand_price").ok
+            (True, 'demand_price', True)
+
+        관련
+            block_define · assemble · used_by
+        """
+        from .config import ConfigChange, model_text
+        from .records import history_of
+        text, new = model_text(self.config.path, name, blocks=blocks, include=include, exclude=exclude, desc=desc)
+        ch = history_of(self).write_files({"equion.toml": text}, who or detect_who("python"), command or f"model define {name}",
+                                          note=f"[model.{name}]" + (" 새 모형" if new else ""))
+        self._reset()
+        return ConfigChange("model", name, new, [], ch.id if ch else None)
+
+    def block_define(self, name: str, file: str = None, desc: str = None, who: str = None, command: str = None) -> "ConfigChange":
+        """블록 더하기 — `equion.toml`의 `[block]`에 블록(방정식 파일 하나)을 더하거나 설명을 고친다. 새 블록의 파일이 아직 없으면
+        머리 주석만 있는 빈 블록 파일을 함께 만든다(file을 주지 않으면 `EQUATIONS/<이름>.txt`). 바뀜 기록에 남긴다.
+        식은 그 파일에 한 줄에 하나씩 적고, 모형에는 `model_define`으로 넣는다.
+
+        매개변수
+            name: 블록 이름
+            file: 블록 파일(프로젝트 안의 .txt)
+            desc: 설명
+
+        돌려주는 것
+            ConfigChange — .kind('block') · .name · .new · .files(새로 만든 블록 파일) · .change
+
+        오류
+            ProjectError: 이름·모형과 같은 이름·프로젝트 밖의 파일
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.block_define("labor", desc="노동")
+            >>> r.new, r.files, "labor" in p.config.blocks
+            (True, ['EQUATIONS/labor.txt'], True)
+
+        관련
+            model_define · parts
+        """
+        from .config import ConfigChange, block_text
+        from .records import history_of
+        text, new, rel, create = block_text(self.config.path, name, file=file, desc=desc)
+        files = {"equion.toml": text}
+        if create:
+            files[rel] = f"# {desc or name} 블록 — 한 줄에 한 식(# 뒤는 설명). 문법: docs/explain/equations.md\n"
+        ch = history_of(self).write_files(files, who or detect_who("python"), command or f"block define {name}",
+                                          note=f"[block] {name}" + (" 새 블록" if new else ""))
+        self._reset()
+        return ConfigChange("block", name, new, [rel] if create else [], ch.id if ch else None)
+
     def _load(self):
         if self._parts is None:
             data = self.workfile._data

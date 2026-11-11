@@ -3780,6 +3780,8 @@ s[:4].round(6).tolist()
 | [`data_add`](#projectdata_add) | `(path, source=None, as_name=None, note=None, who=None, command=None)` | 원자료 넣기 — 파일을 DATA/raw/에 복사한다(받은 그대로, 같은 이름이면 날짜를 붙여 나란히). source를 주면 그 출처가 이 파일을 읽도록 series.toml을 고치되, 먼저 그 출처의 불러오기 틀로 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을 때만 넣고 고친다(틀 검사 — 맞지 않으면 아무것도 바꾸지 않고 `.problems`에 까닭). |
 | [`data_preview`](#projectdata_preview) | `(file, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, rows=30, series=None)` | 원자료 파일을 미리 본다 — 읽은 그대로의 앞쪽 줄과, 준 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위)로 읽어 본 결과. 아무것도 쓰지 않고 기록도 남기지 않는다. 틀이 맞지 않으면 예외가 아니라 `.ok`가 거짓이고 `.error`에 까닭(칸 위치와 함께). |
 | [`data_define`](#projectdata_define) | `(source, file=None, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, desc=None, series=None, replace=False, who=None, command=None)` | 자료 정의 쓰기 — `series.toml`에 출처(`[source.이름]` = 불러오기 틀)와 시리즈(`[series.이름]`)를 더하거나 고친다. 쓰기 전에 새 내용 전체와, 그 틀로 원자료를 읽어 시리즈가 쓰는 열이 다 있고 변환이 되는지 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 사람이 쓴 주석·순서는 그대로 두고(tomlkit) 바뀜 기록에 남긴다. 자료는 만들지 않는다 — 이어서 `data_build`, `data_use`. |
+| [`model_define`](#projectmodel_define) | `(name, blocks=None, include=None, exclude=None, desc=None, who=None, command=None)` | 모형 정의 쓰기 — `equion.toml`의 `[model.이름]`을 더하거나 고친다(블록·끼울 모형·뺄 식·설명). 준 것만 바꾸고(None은 그대로, 빈 목록·빈 글은 그 키를 지움), 쓰기 전에 새 설정 전체를 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 주석·순서는 그대로 두고 바뀜 기록에 남긴다. 조립은 하지 않는다 — 이어서 `assemble`. |
+| [`block_define`](#projectblock_define) | `(name, file=None, desc=None, who=None, command=None)` | 블록 더하기 — `equion.toml`의 `[block]`에 블록(방정식 파일 하나)을 더하거나 설명을 고친다. 새 블록의 파일이 아직 없으면 머리 주석만 있는 빈 블록 파일을 함께 만든다(file을 주지 않으면 `EQUATIONS/<이름>.txt`). 바뀜 기록에 남긴다. 식은 그 파일에 한 줄에 하나씩 적고, 모형에는 `model_define`으로 넣는다. |
 | [`parts`](#projectparts) | `(name=None)` | 부품(식·항등식) 목록 — name이 없으면 전부, 블록 이름이면 그 블록, 모형 이름이면 조립된 식들. |
 | [`part`](#projectpart) | `(pid)` | 부품 하나 — `블록:목표`(대소문자 무시). |
 | [`used_by`](#projectused_by) | `(name)` | 쓰는 곳 — 블록이나 부품(`블록:목표`)을 쓰는 모형 목록. 고치기 전에 영향 범위를 본다. |
@@ -4107,6 +4109,80 @@ r.added, r.new_source, r.change is not None
 관련  
 ```text
 data_preview · data_add · data_build · data_use
+```
+
+### Project.model_define
+
+`model_define(name, blocks=None, include=None, exclude=None, desc=None, who=None, command=None)`
+
+모형 정의 쓰기 — `equion.toml`의 `[model.이름]`을 더하거나 고친다(블록·끼울 모형·뺄 식·설명). 준 것만 바꾸고(None은 그대로, 빈 목록·빈 글은 그 키를 지움), 쓰기 전에 새 설정 전체를 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 주석·순서는 그대로 두고 바뀜 기록에 남긴다. 조립은 하지 않는다 — 이어서 `assemble`.
+
+**매개변수**
+
+- `name`: 모형 이름(없으면 새로 — 그때 blocks나 include가 있어야 한다)
+- `blocks`: 블록 이름들(목록 또는 쉼표·공백으로 띄운 글)
+- `include`: 끼울 모형들
+- `exclude`: 뺄 식들(블록:목표 — 그 목표는 외생이 된다)
+- `desc`: 설명
+
+**돌려주는 것**
+
+ConfigChange — .kind('model') · .name · .new · .change(바뀜 기록)  
+
+**오류**
+
+- `ProjectError`: 이름·없는 블록·없는 모형·include 순환·블록과 같은 이름(문제 모두 — 아무것도 쓰지 않음)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.model_define("demand_price", blocks=["demand", "price"], desc="수요 + 물가")
+r.new, sorted(p.models)[1], p.assemble("demand_price").ok
+# (True, 'demand_price', True)
+```
+
+관련  
+```text
+block_define · assemble · used_by
+```
+
+### Project.block_define
+
+`block_define(name, file=None, desc=None, who=None, command=None)`
+
+블록 더하기 — `equion.toml`의 `[block]`에 블록(방정식 파일 하나)을 더하거나 설명을 고친다. 새 블록의 파일이 아직 없으면 머리 주석만 있는 빈 블록 파일을 함께 만든다(file을 주지 않으면 `EQUATIONS/<이름>.txt`). 바뀜 기록에 남긴다. 식은 그 파일에 한 줄에 하나씩 적고, 모형에는 `model_define`으로 넣는다.
+
+**매개변수**
+
+- `name`: 블록 이름
+- `file`: 블록 파일(프로젝트 안의 .txt)
+- `desc`: 설명
+
+**돌려주는 것**
+
+ConfigChange — .kind('block') · .name · .new · .files(새로 만든 블록 파일) · .change  
+
+**오류**
+
+- `ProjectError`: 이름·모형과 같은 이름·프로젝트 밖의 파일
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.block_define("labor", desc="노동")
+r.new, r.files, "labor" in p.config.blocks
+# (True, ['EQUATIONS/labor.txt'], True)
+```
+
+관련  
+```text
+model_define · parts
 ```
 
 ### Project.parts
@@ -5297,6 +5373,8 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `convert` | --allow-pickle --help --name | 옛 저장 형식(레거시 pickle·.wt·.mmw)을 워크파일(.eqw)로 |
 | `new` | --bare --force --help --template | 새 프로젝트 폴더(예시 데이터·방정식·스크립트) |
 | `assemble` | --help --json --project | 프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수) |
+| `model` | --help | 프로젝트의 모형 정의 — equion.toml의 [model.이름]을 더하거나 고친다 |
+| `block` | --help | 프로젝트의 블록 — equion.toml의 [block]에 블록(방정식 파일 하나)을 더하거나 고친다 |
 | `ident` | --check --help --json --project --range --strict --tol | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |
 | `data` | --help | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 |
 | `est` | --adopt --adopted --as --cov --for --help --json --method --project --sim --smpl | 식 하나를 추정해 기록을 남긴다(부품 또는 식 글자 — 후보) |

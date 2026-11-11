@@ -40,6 +40,7 @@ Y = CN + I + G
 | `EQUATIONS/adopted.toml` | 채택표 | `adopt` · `est --adopted --adopt` · `propose apply` |
 | `DATA/raw/` · `DATA/raw/inbox/` | 원자료(받은 그대로) · 받은 상자 · 옆 파일 `*.source.toml` | `data add` · `data build --inbox` |
 | `DATA/series.toml` · `DATA/derived.txt` | 자료 정의 · 파생식 | 사람 · `data define` · `data add --source` · `an keep` |
+| `equion.toml`의 `[model.*]`·`[block]` | 모형 조립 · 블록 | 사람 · `model define` · `block define` |
 | `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` | 가정 CSV · 보정항 TOML · 시나리오 TOML | 사람 |
 | `FLOWS/*.eqs` | 스크립트 — `equion-script` | 사람 · `script new` |
 | `notes/*.md` · `reports/*.md`(+ `<보고서>_data/`) | 노트·보고서 — 글과 결과 구역 | 글은 사람·Claude · 구역은 `note run` · `report add·update` |
