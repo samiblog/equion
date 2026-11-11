@@ -3,6 +3,12 @@
 Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 [`docs/DECISIONS.md`](docs/DECISIONS.md)(D-번호), 검증은
 [`docs/explain/validation.md`](docs/explain/validation.md), 계획은 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+## 미공개
+
+### 고침
+- **기록 폴더 옮기기(Windows)**: 작업 기록·바뀜 기록은 임시 폴더에 쓴 뒤 제자리로 옮기는데, 방금 쓴 파일을 다른 프로그램(백신·색인·폴더 감시)이
+  잠깐 쥐고 있으면 옮기기가 거절돼 명령이 실패할 수 있었습니다. 잠깐씩 기다리며 다시 옮깁니다(`equion.work.store.move_into_place`).
+
 ## 0.8.0 — 2026-11-11
 
 ### 추가

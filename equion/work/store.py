@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List
@@ -32,6 +33,22 @@ KINDS = ("est", "hs", "sim", "an", "run")
 KIND_KO = {"est": "추정", "hs": "과거 재현", "sim": "전망", "an": "분석", "run": "스크립트 실행", "data": "자료 회차"}
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]*$")     # 기록 이름(sim:2026-11_base처럼 숫자로 시작해도 된다)
 WHO_KO = {"terminal": "터미널", "claude": "Claude", "desk": "Desk", "python": "Python", "script": "스크립트"}
+
+
+def move_into_place(tmp: str, final: str) -> None:
+    """임시 폴더(또는 파일)를 제자리로 옮긴다 — 기록이 반쯤 쓰인 채 보이지 않게 하는 마지막 걸음.
+
+    Windows에서는 방금 쓴 파일을 다른 프로그램(백신·색인·폴더 감시)이 잠깐 쥐고 있으면 옮기기가 거절된다(PermissionError).
+    잠깐씩 기다리며 몇 번 다시 하고, 끝내 안 되면 그 오류를 그대로 낸다.
+    """
+    for wait in (0.02, 0.05, 0.1, 0.2, 0.4, 0.8, None):
+        try:
+            os.replace(tmp, final)
+            return
+        except PermissionError:
+            if wait is None:
+                raise
+            time.sleep(wait)
 
 
 class RecordError(ValueError):
@@ -198,7 +215,7 @@ class WorkStore:
             with open(p, "w", encoding="utf-8", newline="\n") as f:
                 f.write(text)
         final = os.path.join(d, name)
-        os.replace(tmp, final)
+        move_into_place(tmp, final)
         line = {"id": meta["id"], "created": meta["created"], "who": meta.get("who"), "command": meta.get("command"),
                 "kind": kind, "target": meta.get("target"), "path": os.path.relpath(final, self.root).replace(os.sep, "/")}
         if meta.get("run"):
@@ -276,7 +293,7 @@ class WorkStore:
         tmp = self._marks_path() + ".tmp"
         with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             f.write(dumps(m))
-        os.replace(tmp, self._marks_path())
+        move_into_place(tmp, self._marks_path())
 
     def mark(self, rid: str, pinned: bool = None, memo: str = None) -> dict:
         """고정(pinned)·메모 — 기록 자체는 그대로, marks.json에만."""

@@ -19,7 +19,7 @@ import shutil
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from .store import WORK_DIR, dumps, now_iso
+from .store import WORK_DIR, dumps, move_into_place, now_iso
 
 HIST_DIR = os.path.join(WORK_DIR, "history")
 FORMAT = "equion-change"
@@ -168,7 +168,7 @@ class History:
             f.write(dumps(meta))
         with open(os.path.join(tmp, "diff.txt"), "w", encoding="utf-8", newline="\n") as f:
             f.write(ch.diff)
-        os.replace(tmp, os.path.join(self.base, cid))
+        move_into_place(tmp, os.path.join(self.base, cid))
         for rel in files:
             self._set_state(rel, after.get(rel))
         return ch
@@ -206,7 +206,7 @@ class History:
                 tmp = p + ".tmp-equion"
                 with open(tmp, "wb") as f:
                     f.write(data)
-                os.replace(tmp, p)
+                move_into_place(tmp, p)
         return self._write(before, after, who, how, note, reverts)
 
     # ---- 읽기·되돌리기 ---------------------------------------------------
