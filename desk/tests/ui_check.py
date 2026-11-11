@@ -1,4 +1,4 @@
-"""Equion Desk 화면 점검 — 진짜 브라우저(Edge)로 화면을 몰아 D1·D2a·D2b 의 완료 기준을 확인한다.
+"""Equion Desk 화면 점검 — 진짜 브라우저(Edge)로 화면을 몰아 D1·D2·D3 의 완료 기준을 확인한다.
 
     uv run --package equion-desk --group ui python desk/tests/ui_check.py            # 점검만
     uv run --package equion-desk --group ui python desk/tests/ui_check.py --shots 폴더   # 화면 그림도 남긴다(밝은·어두운 바탕)
@@ -9,7 +9,8 @@
 확인하는 것: 첫 화면 → 프로젝트 열기 → 부품을 눌러도 계산하지 않는다 → 추정이 1초 안에 화면에(S1) → 식 작업대(치는 동안의 검사 ·
 후보 목록 · 겹쳐 보기 · 기간 짚기 · **채택** · **이 후보로 과거 재현** · 항등식 검사 — D2a) → 자료 작업대(받은 상자 → **자료 만들기 → 견주기 →
 이 회차로 바꾸기**)와 분석 탭(등록부의 폼 · 명령 줄 · **미리보기 → 정의로 남기기** — D2b-1) → 불러오기(읽은 그대로의 표 · 틀을 권하는 단추 ·
-열 ↔ 시리즈 · **무엇이 적히는지 보고 저장** — D2b-2) → **터미널에서 친 명령의 기록이
+열 ↔ 시리즈 · **무엇이 적히는지 보고 저장** — D2b-2) → 회차 바꾼 뒤 할 일 · 모형 작업대(조립 · 새 모형 · **과거 재현 · 원인 따라가기** ·
+이 블록만 풀기) · 블록 파일 고치기 · 흐름 화면(**스크립트를 화면에서 실행** — D3) → **터미널에서 친 명령의 기록이
 띠에 뜨고 카드로 열린다** → 전망과 작업 줄 → 밖에서 고친 정의 파일의 바뀜 알림과 차이 → **닫았다 열면 이어진다** → 어두운 바탕.
 서버·작업 프로세스 시험은 `test_app.py`, 이 파일은 화면까지 이어 본다(pytest 가 모으지 않는다 — 브라우저가 있어야 한다).
 """
@@ -446,6 +447,115 @@ def run(shots: str | None) -> int:
                 check("M6 자료 작업대가 이어 받는다 — 새 시리즈는 '회차에 없음', '자료 만들기'를 권한다",
                       "회차에 없음" in page.inner_text(f"{pane} table.series tr.row:has(b:text-is('KCN'))") and page.locator(f"{pane} .banner.warn").count() == 1)
 
+                print("S. 회차 바꾼 뒤 할 일 · 모형 작업대 · 흐름 화면 · 정의 고치기(D3)")
+                page.click(f"{pane} .flow-card >> nth=2")
+                page.click(f"{pane} .vint[data-vintage='{second}'] [data-act='use']")
+                page.wait_for_selector(".dialog")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{pane} .todo .todo-row")
+                todo = page.inner_text(f"{pane} .todo")
+                page.click(f"{pane} [data-act='reest']")
+                page.wait_for_selector(f"{pane} .reest-table tbody tr")
+                check("S1 회차를 바꾸면 할 일이 뜬다 — 옛 자료로 추정한 채택 계수·옛 자료로 푼 과거 재현. '다시 추정해 견주기'는 기록만 남기고 옛·새를 나란히",
+                      "채택한 식" in todo and "과거 재현" in todo and first in todo and page.locator(f"{pane} .reest-table tbody tr").count() == 5
+                      and "→" in page.inner_text(f"{pane} .reest-table"), todo)
+                had = f"{pane} .reest-table tbody tr:not(:has(.tag:has-text('채택 없음')))"
+                page.check(f"{had} >> nth=0 >> input")
+                page.click(f"{pane} [data-act='adopt-new']")
+                page.wait_for_selector(".dialog .diff")
+                dialog = page.inner_text(".dialog")
+                shot(page, "03g-todo")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{pane} .reest", state="detached")
+                check("S2 고른 식만 새 계수로 채택 — 채택표의 바뀔 줄을 보이고 나서",
+                      '+ "demand:CN" = "est:' in dialog and "adopted.toml" in dialog and page.locator(f"{active} .notice[data-change]").count() == 0, dialog[:300])
+
+                page.click(f"{active} .side .row-item[data-key='model:main']")
+                page.wait_for_selector(f"{pane} .block-row.asm")
+                check("S3 모형 작업대 — 조립: 블록과 식·블록 사이의 연결·풀이 순서·외생, 문제가 없으면 그렇게 말한다",
+                      "조립에 문제가 없습니다" in page.inner_text(f"{pane} .banner.ok") and page.locator(f"{pane} .block-row.asm").count() == 3
+                      and page.locator(f"{pane} .link-row").count() == 3 and page.locator(f"{pane} .solve.sim").count() == 1 and page.locator(f"{pane} .exo").count() == 3
+                      and "core 에서" in page.inner_text(f"{pane} .block-row.asm >> nth=0"))
+                shot(page, "03h-assembly")
+                page.click(f"{pane} [data-act='new-model']")
+                page.wait_for_selector(".dialog")
+                page.fill(".dialog input[aria-label='모형 이름']", "dp")
+                page.click(".dialog [data-pick='blocks:demand']")
+                page.click(".dialog [data-pick='blocks:price']")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(".dialog .diff")
+                dialog = page.inner_text(".dialog")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{active} .tabbar .tab[aria-selected='true'] .title:has-text('dp')")
+                page.wait_for_selector(f"{pane} .block-row.asm")
+                check("S4 새 모형 — 블록을 고르고, equion.toml 에 적힐 줄과 명령을 본 뒤 저장하면 그 모형의 작업대가 열린다",
+                      "+[model.dp]" in dialog and "equion model define dp --blocks demand,price" in dialog and page.locator(f"{pane} .block-row.asm").count() == 2
+                      and page.locator(f"{active} .side .row-item[data-key='model:dp']").count() == 1
+                      and "[model.dp]" in open(os.path.join(folder, "equion.toml"), encoding="utf-8").read(), dialog[:200])
+
+                page.click(f"{active} .side .row-item[data-key='model:main']")
+                page.click(f"{pane} .flow-card >> nth=1")
+                page.wait_for_selector(f"{pane} [data-act='solve']")
+                had_runs = page.locator(f"{pane} .runs tr[data-run-id]").count()
+                page.click(f"{pane} [data-act='solve']")
+                page.wait_for_function(f"document.querySelectorAll('.project:not([hidden]) .pane:not([hidden]) .runs tr[data-run-id]').length > {had_runs}", timeout=60000)
+                page.wait_for_selector(f"{pane} .fit-table tr.row")
+                check("S5 과거 재현 — 풀면 기록이 목록에 생기고, 기간마다의 풀이 상태와 변수마다의 오차가 보인다",
+                      page.locator(f"{pane} .status-band .sq").count() >= 60 and page.locator(f"{pane} .fit-table tr.row").count() == 6
+                      and "정상" in page.inner_text(f"{pane} .status-head") and page.inner_text(f"{pane} .an-form .cmdline .cmd") == "equion hs main")
+                page.click(f"{pane} .fit-table tr[data-var='P']")
+                page.wait_for_selector(f"{pane} .trace .trace-in")
+                page.wait_for_selector(f"{pane} .var-detail .fit svg path >> nth=1")
+                trace = page.inner_text(f"{pane} .trace")
+                check("S6 변수를 누르면 실측과 해, 그리고 원인 따라가기 — 식의 입력마다 내생이면 이 풀이에서의 오차, 외생이면 실측",
+                      "price:P" in trace and "POIL" in trace and "외생" in trace and page.locator(f"{pane} .trace-in.endo").count() == 1, trace[:300])
+                page.wait_for_timeout(300)
+                shot(page, "03i-hs")
+                page.click(f"{pane} .trace-in.endo")               # 입력 Y 로 거슬러 올라간다
+                page.wait_for_selector(f"{pane} .trace:has-text('demand:Y')")
+                up = page.inner_text(f"{pane} .trace")
+                page.click(f"{pane} .var-detail .raw-cap .link")   # 지나온 길로 돌아간다
+                page.wait_for_selector(f"{pane} .trace:has-text('price:P')")
+                check("S7 입력을 눌러 거슬러 올라가고, 지나온 길로 돌아온다", "항등식" in up and "CN" in up and "price:P" in page.inner_text(f"{pane} .trace"))
+                had_runs = page.locator(f"{pane} .runs tr[data-run-id]").count()
+                page.click(f"{pane} [data-act='block']")           # 블록 price 만 풀기 — 방금 보던 풀이와 견준다
+                page.wait_for_selector(f"{pane} .fit-table th:has-text('달라짐')", timeout=60000)
+                page.wait_for_selector(f"{pane} .runs tr.on:has-text('블록 price')", timeout=20000)
+                check("S8 '이 블록만 풀기' — 나머지에 실측을 넣어 풀고 방금 보던 풀이와 전후를 견준다",
+                      "블록 price" in page.inner_text(f"{pane} .run-view .result-head") and page.locator(f"{pane} .runs tr.vs").count() == 1
+                      and page.locator(f"{pane} .fit-table tr.row").count() == 1 and "블록 price" in page.inner_text(f"{pane} .runs tr.on"),
+                      page.inner_text(f"{pane} .run-view .result-head"))
+
+                page.click(f"{pane} .flow-card >> nth=0")
+                page.click(f"{pane} .block-row.asm:has(.bn:has-text('price')) .side-acts .btn")
+                page.wait_for_selector(f"{pane} .edit-area")
+                original = page.input_value(f"{pane} .edit-area")
+                page.fill(f"{pane} .edit-area", original + "PX c P (\n")
+                page.wait_for_selector(f"{pane} .edit-problems")
+                problem = page.inner_text(f"{pane} .edit-problems")
+                page.fill(f"{pane} .edit-area", original.rstrip("\n") + "\n# 화면에서 적은 메모\n")
+                page.wait_for_selector(f"{pane} .edit-note .eq-status.ok")
+                page.keyboard.press("Control+s")
+                page.wait_for_selector(f"{pane} pre.code")
+                check("S9 블록 파일을 화면에서 고친다 — 치는 동안 읽을 수 없는 줄을 알리고, Ctrl+S 로 저장하면 바뀜 기록에 남는다(알림 카드 없이)",
+                      "괄호" in problem and "줄" in problem and "읽을 수 없는 곳 1" in problem, problem)
+                check("S9-1 저장한 글이 파일에 있다", "# 화면에서 적은 메모" in open(os.path.join(folder, "EQUATIONS", "price.txt"), encoding="utf-8").read()
+                      and page.locator(f"{active} .notice[data-change]").count() == 0 and "화면에서 적은 메모" in page.inner_text(f"{pane} pre.code"))
+
+                page.click(f"{active} .side .row-item[data-key='flow:FLOWS/monthly.eqs']")
+                page.wait_for_selector(f"{pane} .step-row")
+                check("S10 흐름 화면 — 스크립트가 단계 줄로(묶음 제목·무엇을 바꾸는지). 여는 것만으로는 실행하지 않는다",
+                      page.locator(f"{pane} .step-row").count() == 11 and page.locator(f"{pane} .step-sect").count() >= 4 and page.locator(f"{pane} .step-row .tag.warn").count() >= 3
+                      and page.locator(f"{pane} .step-row .mark.ok").count() == 0 and "equion run FLOWS/monthly.eqs" == page.inner_text(f"{pane} .flow-form .cmdline .cmd"))
+                page.click(f"{pane} [data-act='run']")
+                page.wait_for_selector(f"{pane} .banner:has-text('run:monthly_0001')", timeout=120000)
+                check("S11 실행 — 단계마다 끝난 모양과 남긴 기록. 이 화면에서 시킨 스크립트가 고친 것은 알림 카드를 쌓지 않는다",
+                      page.locator(f"{pane} .step-row .mark.ok").count() >= 9 and page.locator(f"{pane} .step-row .mark.bad").count() == 0
+                      and page.locator(f"{pane} .step-row .what .link").count() >= 5 and page.locator(f"{active} .notice[data-change]").count() == 0
+                      and "run:monthly_0001" in page.inner_text("#job"), page.inner_text(f"{pane} .banner")[:200])
+                page.wait_for_timeout(300)
+                shot(page, "03j-flow")
+
                 print("W. 터미널에서 친 명령의 기록이 띠에 뜨고 카드로 열린다(D1 완료 기준)")
                 typed = page.locator(f"{active} .term-body .xterm").count() > 0
                 before = page.locator("#strip .chip").count()
@@ -474,7 +584,7 @@ def run(shots: str | None) -> int:
 
                 print("X. 작업 줄 · 바뀜 알림")
                 page.click(f"{active} .tabbar .tab >> nth=0")
-                page.click(f"{pane} .card >> nth=1 >> .foot .btn >> nth=1")        # 모형 main 의 '전망'
+                page.click(f"{pane} .card >> nth=1 >> .foot .btn:has-text('전망')")        # 모형 main 의 '전망'
                 page.wait_for_selector("#job .job")
                 page.wait_for_selector("#job .job.done", timeout=60000)
                 page.wait_for_selector(f"{active} .tabbar .tab[aria-selected='true'] .title:has-text('sim:')")
@@ -525,13 +635,16 @@ def run(shots: str | None) -> int:
                 shot(page, "07-dark")
                 page.click(f"{active} .side-tabs [data-side='parts']")
                 page.click(f"{active} .side .row-item[data-key='data']")
+                page.wait_for_selector(f"{pane} .flow-card")
+                kept = page.get_attribute(f"{pane} .flow-card >> nth=2", "aria-pressed")       # 지난번 보던 칸(회차)으로 열린다
+                page.click(f"{pane} .flow-card >> nth=1")
                 page.wait_for_selector(f"{pane} table.series tr.row")
                 page.wait_for_timeout(300)
                 shot(page, "08-data-dark")
                 page.click(f"{active} .side .row-item[data-key='analysis']")
                 page.wait_for_selector(f"{pane} .an-form")
                 check("Y6 자료 작업대와 분석 탭도 이어진다 — 보던 분석 기록과 폼이 그대로",
-                      page.input_value(f"{pane} .an-target") == "CN" and page.locator(f"{pane} .an-out .result-head .rid").count() == 1)
+                      kept == "true" and page.input_value(f"{pane} .an-target") == "CN" and page.locator(f"{pane} .an-out .result-head .rid").count() == 1)
                 page.wait_for_timeout(300)
                 shot(page, "09-analysis-dark")
                 page.click(f"{active} .side-tabs [data-side='files']")

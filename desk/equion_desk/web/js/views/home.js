@@ -18,6 +18,7 @@ export function homeView(project) {
       h('div', { class: 'desc' }, model.desc || ''),
       made,
       h('div', { class: 'foot' },
+        h('button', { class: 'btn small', type: 'button', 'data-act': 'bench', title: '모형 작업대 — 조립(블록과 식·연결·문제)과 과거 재현(오차·풀이 상태·원인 따라가기)', onclick: () => project.openTab({ type: 'model', model: model.name }) }, icon('cube'), '모형 작업대'),
         h('button', { class: 'btn small', type: 'button', title: `equion hs ${model.name}`, onclick: () => project.compute('hs', { model: model.name }) }, icon('rewind'), '과거 재현'),
         h('button', { class: 'btn small', type: 'button', title: `equion sim base --model ${model.name}`, onclick: () => project.compute('sim', { scenario: 'base', model: model.name }) }, icon('forward'), '전망'),
         h('span', { class: 'grow' }),

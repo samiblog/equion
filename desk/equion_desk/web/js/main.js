@@ -108,7 +108,7 @@ const app = {
         onclick: () => this.select(p.id),
         onauxclick: (e) => { if (e.button === 1) { e.preventDefault(); this.closeProject(p.id); } },
         onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.select(p.id); } },
-      }, p.job?.state === 'start' ? h('span', { class: 'busy-dot', title: '계산 중' }) : null, h('span', { class: 'name' }, p.name),
+      }, p.job?.state === 'start' || p.job?.state === 'progress' ? h('span', { class: 'busy-dot', title: '계산 중' }) : null, h('span', { class: 'name' }, p.name),
       h('button', { class: 'x', type: 'button', title: '프로젝트 탭 닫기', 'aria-label': '닫기', onclick: (e) => { e.stopPropagation(); this.closeProject(p.id); } }, icon('x'))));
     }
   },
@@ -164,9 +164,10 @@ const app = {
     const jobBox = clear($('job'));
     clearInterval(this.jobTimer);
     const job = p.job || (p.pending ? { state: 'start', label: '계산', began: performance.now(), who: 'desk' } : null);
-    if (job?.state === 'start') {
+    if (job?.state === 'start' || job?.state === 'progress') {
       const time = h('span', { class: 'time' }, '0.0초');
-      jobBox.append(h('div', { class: 'job', role: 'status' }, h('span', { class: 'spin' }), h('span', {}, job.label || job.op), h('span', { class: 'who' }, 'Desk'), time,
+      const step = /^\[(\d+\/\d+)\]/.exec(job.line || '')?.[1];       // 스크립트: 끝난 단계 / 모두
+      jobBox.append(h('div', { class: 'job', role: 'status', title: job.line || '' }, h('span', { class: 'spin' }), h('span', {}, job.label || job.op), step ? h('b', { class: 'step' }, step) : null, h('span', { class: 'who' }, 'Desk'), time,
         h('button', { class: 'btn', type: 'button', onclick: () => p.cancel() }, '취소')));
       const tick = () => { time.textContent = seconds((performance.now() - job.began) / 1000); };
       this.jobTimer = setInterval(tick, 100);

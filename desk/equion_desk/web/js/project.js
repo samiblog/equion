@@ -11,12 +11,14 @@ import { benchView } from './views/bench.js';
 import { cardView } from './views/card.js';
 import { dataView } from './views/data.js';
 import { fileView } from './views/file.js';
+import { flowView } from './views/flow.js';
 import { homeView } from './views/home.js';
 import { importView } from './views/importer.js';
 import { changesView, recordsView } from './views/lists.js';
+import { modelView } from './views/model.js';
 
-const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView };
-const MAX_TABS = 14;
+const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView, model: modelView, flow: flowView };
+const MAX_TABS = 24;       // 가운데 탭 — 넘으면 가장 오래된 것부터 닫는다(작업대가 늘어 14에서 올렸다)
 const FILE_ICON = { md: 'doc', csv: 'table', toml: 'code', txt: 'equation', eqs: 'play', json: 'code', xlsx: 'table' };
 
 export class Project {
@@ -50,7 +52,7 @@ export class Project {
     this.build();
   }
 
-  get busy() { return this.pending > 0 || this.job?.state === 'start'; }
+  get busy() { return this.pending > 0 || this.job?.state === 'start' || this.job?.state === 'progress'; }
 
   get(path) { return getJSON(papi(this.id, path)); }
 
@@ -251,6 +253,8 @@ export class Project {
     if (desc.type === 'bench') return desc.part ? `bench:${desc.part}` : `bench:~${desc.free}`;
     if (desc.type === 'record') return `record:${desc.id}`;
     if (desc.type === 'file') return `file:${desc.path}`;
+    if (desc.type === 'model') return `model:${desc.model}`;
+    if (desc.type === 'flow') return `flow:${desc.path}`;
     return desc.type;
   }
 
@@ -378,7 +382,7 @@ export class Project {
     ]));
 
     box.append(sec('모형', o.models.length, o.models.map((m) => h('button', {
-      class: 'row-item', type: 'button', title: m.desc || m.name, onclick: () => this.openTab({ type: 'home' }),
+      class: 'row-item', type: 'button', 'data-key': `model:${m.name}`, title: `${m.desc || m.name} — 조립과 과거 재현`, onclick: () => this.openTab({ type: 'model', model: m.name }),
     }, h('span', { class: 'glyph model' }, 'M'), h('span', { class: 'label mono' }, m.name), h('span', { class: 'desc' }, m.desc || '')))));
 
     const blocks = o.blocks.map((b) => {
@@ -408,7 +412,8 @@ export class Project {
     const more = [
       ...o.assumptions.map((n) => fileRow(n, `ASSUMPTIONS/${n}.csv`, 'table')),
       ...o.scenarios.map((n) => fileRow(n, `SCENARIOS/${n}.toml`, 'layers')),
-      ...o.scripts.map((n) => fileRow(n, `FLOWS/${n}.eqs`, 'play')),
+      ...o.scripts.map((n) => h('button', { class: 'row-item', type: 'button', 'data-key': `flow:FLOWS/${n}.eqs`, title: `FLOWS/${n}.eqs — 단계를 보고 실행한다`,
+        onclick: () => this.openTab({ type: 'flow', path: `FLOWS/${n}.eqs` }) }, icon('play'), h('span', { class: 'label' }, n), h('span', { class: 'desc' }, `FLOWS/${n}.eqs`))),
     ];
     if (more.length) box.append(sec('가정 · 시나리오 · 스크립트', more.length, more));
     this.markSide();
@@ -511,8 +516,10 @@ export class Project {
       this.app.renderActivity();
     } else if (e.type === 'change') {
       this.offlineIds ||= new Set();
-      // 방금 이 화면에서 한 일(채택 등)은 알림 카드를 띄우지 않는다 — 한 사람이 이미 안다. 바뀜 기록에는 똑같이 남는다
-      if (e.change.who !== 'desk') {
+      // 방금 이 화면에서 한 일(채택 등)은 알림 카드를 띄우지 않는다 — 한 사람이 이미 안다. 바뀜 기록에는 똑같이 남는다.
+      // 이 화면에서 실행한 스크립트가 고친 것도 같다(단계마다 카드가 쌓여 화면을 가린다 — 흐름 화면의 단계 줄과 실행 기록이 말한다)
+      const mine = e.change.who === 'desk' || (e.change.who === 'script' && performance.now() < (this.scriptUntil || 0));
+      if (!mine) {
         this.changed(e.change, this.offlineIds.has(e.change.id));
         this.app.countChange(this);
       }
@@ -530,7 +537,9 @@ export class Project {
       this.reloadData();           // 원자료·받은 상자·회차 폴더가 바뀌었을 수 있다
       this.emit(e);
     } else if (e.type === 'job') {
+      if (e.op === 'script_run') this.scriptUntil = e.state === 'start' || e.state === 'progress' ? Infinity : performance.now() + 4000;
       if (e.state === 'start') this.job = { ...e, began: performance.now() };
+      else if (e.state === 'progress') this.job = { ...(this.job || { began: performance.now() }), ...e };       // 하는 동안의 알림(스크립트의 단계)
       else {
         this.job = { ...e, ended: performance.now() };
         const mine = this.job;

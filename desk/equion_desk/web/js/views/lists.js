@@ -1,11 +1,35 @@
 // 작업 기록(모두 보기)과 바뀜 기록 — 띠와 알림에서 이어지는 목록 화면.
 // 고정·메모·되돌리기는 명령으로 한다(`equion work pin`·`equion history revert`) — 화면의 단추는 D5.
 
-import { clear, cmdText, h, icon, KINDS, kindPill, when, WHO, whoLabel } from '../util.js';
+import { confirmDialog } from '../dialog.js';
+import { clear, cmdText, flash, h, icon, KINDS, kindPill, when, WHO, whoLabel } from '../util.js';
 
 export function recordsView(project) {
   const el = h('div', { class: 'view' });
   let filter = 'all';
+  let picking = false;                 // 기록을 골라 스크립트로 만드는 중
+  const picked = new Set();
+
+  /** 고른 기록의 명령을 한 줄씩 적은 스크립트 초안(`FLOWS/<이름>.eqs`) — `equion script new` */
+  async function toScript() {
+    const ids = project.records.filter((r) => picked.has(r.id)).map((r) => r.id);
+    const name = h('input', { class: 'mini-input wide', type: 'text', placeholder: '영문 이름 — 예: weekly', spellcheck: 'false', 'aria-label': '스크립트 이름' });
+    const title = h('input', { class: 'mini-input wide plain', type: 'text', placeholder: '한 줄 제목', 'aria-label': '제목' });
+    const body = h('div', { class: 'adopt define-form' },
+      h('p', {}, `고른 기록 ${ids.length}개를 만든 명령을 차례로 적어 스크립트 초안을 만듭니다(FLOWS/이름.eqs). 초안은 글이라 고칠 수 있고, 실행은 흐름 화면에서 따로 합니다.`),
+      h('div', { class: 'diff' }, project.records.filter((r) => picked.has(r.id)).map((r) => h('span', { class: 'dl' }, cmdText(r.command).replace(/^equion /, '')))),
+      h('label', { class: 'field-row' }, h('span', {}, '이름'), name), h('label', { class: 'field-row' }, h('span', {}, '제목'), title));
+    if (!(await confirmDialog({ title: '스크립트로 저장', body, confirm: '초안 만들기', wide: true }))) return;
+    try {
+      const res = await project.compute('script/new', { name: name.value.trim(), records: ids, title: title.value.trim() }, { quiet: true });
+      picking = false; picked.clear();
+      await project.loadOverview();
+      flash(`${res.result.path} 를 만들었습니다`);
+      project.openTab({ type: 'flow', path: res.result.path });
+    } catch (err) {
+      if (err.kind !== 'busy') project.notify({ level: 'error', text: err.message });
+    }
+  }
 
   function render() {
     clear(el);
@@ -16,7 +40,11 @@ export function recordsView(project) {
       h('div', {}, h('h1', {}, '작업 기록'),
         h('div', { class: 'sub' }, '계산할 때마다 work/ 에 남는 기록입니다 — Desk 에서 했든 터미널·Claude 가 했든 같은 곳에, 생기는 순간 뜹니다.')),
       h('div', { class: 'tools' },
+        picking ? h('button', { class: 'btn', type: 'button', onclick: () => { picking = false; picked.clear(); render(); } }, '그만두기') : null,
+        picking ? h('button', { class: 'btn primary', type: 'button', 'data-act': 'to-script', disabled: !picked.size, onclick: toScript }, icon('play'), `스크립트로 저장${picked.size ? ` (${picked.size})` : ''}`)
+          : h('button', { class: 'btn', type: 'button', 'data-act': 'pick', title: '기록을 골라 그 명령들을 스크립트 초안으로 만든다(equion script new)', onclick: () => { picking = true; render(); } }, icon('play'), '스크립트로…'),
         h('button', { class: 'btn quiet', type: 'button', title: '터미널에 명령을 붙인다(Enter 는 직접)', onclick: () => project.sendToTerminal('equion work list') }, icon('send'), 'equion work list'))));
+    if (picking) el.append(h('div', { class: 'banner info' }, icon('info'), h('div', {}, '스크립트에 넣을 기록을 누르세요 — 만든 차례대로 한 줄씩 적힙니다. 자료(회차)·실행 기록은 넣을 수 없습니다.')));
     el.append(h('div', { class: 'filters' },
       h('button', { type: 'button', 'aria-pressed': String(filter === 'all'), onclick: () => { filter = 'all'; render(); } }, '모두', h('span', { class: 'c' }, all.length)),
       Object.keys(KINDS).filter((k) => counts[k]).map((k) => h('button', {
@@ -24,9 +52,11 @@ export function recordsView(project) {
       }, KINDS[k], h('span', { class: 'c' }, counts[k])))));
     const rows = all.filter((r) => filter === 'all' || r.kind === filter).reverse();
     if (!rows.length) { el.append(h('div', { class: 'empty-state' }, '기록이 없습니다.')); return; }
-    el.append(h('div', { class: 'rec-list' }, rows.map((r) => h('button', {
-      class: 'rec-row', type: 'button', title: cmdText(r.command), onclick: () => project.openRecord(r.id),
-    }, kindPill(r.kind), h('span', { class: 'name' }, r.id),
+    const can = (r) => !['data', 'run', 'prop'].includes(r.kind) && !!r.command;
+    el.append(h('div', { class: `rec-list ${picking ? 'picking' : ''}`.trim() }, rows.map((r) => h('button', {
+      class: `rec-row ${picked.has(r.id) ? 'on' : ''}`.trim(), type: 'button', title: cmdText(r.command), disabled: picking && !can(r), 'data-record': r.id,
+      onclick: () => { if (!picking) { project.openRecord(r.id); return; } if (picked.has(r.id)) picked.delete(r.id); else picked.add(r.id); render(); },
+    }, picking ? h('span', { class: `check-box ${picked.has(r.id) ? 'on' : ''}`.trim() }, picked.has(r.id) ? icon('check') : null) : null, kindPill(r.kind), h('span', { class: 'name' }, r.id),
     h('span', { class: 'metric' }, r.metric || '', r.command ? h('span', { class: 'cmd' }, `   ${cmdText(r.command)}`) : null),
     whoLabel(r.who), h('span', { class: 'when' }, when(r.created))))));
   }

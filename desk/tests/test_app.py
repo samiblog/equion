@@ -906,6 +906,172 @@ def section_import(tmp: str) -> None:
         state.close()
 
 
+def section_model(tmp: str) -> None:
+    print("N. 모형 작업대·흐름 화면 — 조립 보기·모형과 블록 정의·글로 고치기·과거 재현 보기·원인 따라가기·스크립트·회차 바꾼 뒤 할 일")
+    from equion_desk.server import create_app
+
+    folder = example(tmp, "model")
+
+    def read(*parts: str) -> str:
+        with open(os.path.join(folder, *parts), encoding="utf-8") as f:
+            return f.read()
+
+    state, pid = new_state(tmp, folder, "n.json")
+    api = f"/api/p/{pid}"
+    try:
+        c = create_app(state).test_client()
+        a = c.get(f"{api}/assembly?model=main").json
+        r = a["report"]
+        check("N1 조립 보기 — 구성·내생과 외생·블록 사이의 연결·풀이 순서·외생의 자료 끝·함께 쓰는 모형",
+              a["model"] == "main" and a["spec"] == {"name": "main", "desc": "수요 + 물가 + 금융", "blocks": ["price", "finance"], "include": ["core"], "exclude": []}
+              and r["ok"] and r["composition"] == "main = core(demand) + price + finance" and r["endogenous"] == ["CN", "I", "Y", "P", "RL", "M2"]
+              and r["exogenous"] == ["G", "POIL", "R"] and ["demand", "Y", "price"] in r["links"] and any(b["type"] == "동시" and b["variables"] == ["CN", "Y"] for b in r["blocks"])
+              and r["exogenous_data"]["G"]["last"] == "2019Q4" and r["used_by"]["demand"] == ["core", "main_fixrl"] and r["includes"] == {"core": ["demand"]}
+              and r["parts"][0] == {**r["parts"][0], "id": "demand:CN", "block": "demand", "target": "CN", "adopted": None} and a["command"] == "equion assemble main", str(a["spec"]))
+        fix = c.get(f"{api}/assembly?model=main_fixrl").json["report"]
+        none = c.get(f"{api}/assembly?model=nope").json
+        check("N2 뺀 식의 목표는 외생이 된다 · 없는 모형은 까닭과 함께", fix["excluded"] == ["finance:RL"] and "RL" in fix["exogenous"] and "RL" not in fix["endogenous"]
+              and none["report"] is None and "nope" in none["error"] and c.get(f"{api}/assembly?model=a/b").status_code == 400)
+
+        toml = read("equion.toml")
+        plan = c.post(f"{api}/model/define", json={"name": "dp", "blocks": ["demand", "price"], "desc": "수요 + 물가", "dry": True}).json
+        wrote_nothing = read("equion.toml") == toml          # 미리 보는 것만으로는 쓰지 않는다
+        done = c.post(f"{api}/model/define", json={"name": "dp", "blocks": ["demand", "price"], "desc": "수요 + 물가"}).json["result"]
+        change = c.get(f"{api}/change?id={done['change']}").json
+        check("N3 새 모형 — 먼저 equion.toml 의 차이와 명령을 보이고(쓰지 않는다), 저장하면 바뀜 기록에 'Desk · 명령 그대로'",
+              plan["new"] and plan["same"] is False and "+[model.dp]" in plan["diff"] and plan["command"] == "equion model define dp --blocks demand,price --desc '수요 + 물가'"
+              and done["new"] and done["command"] == plan["command"] and change["who"] == "desk" and change["how"] == plan["command"]
+              and '[model.dp]' in read("equion.toml") and "# 모형 안에 모형" in read("equion.toml") and wrote_nothing, plan.get("command", ""))
+        check("N3-1 새 모형이 개요와 조립에 바로 보인다", "dp" in [m["name"] for m in c.get(f"{api}/overview").json["overview"]["models"]]
+              and c.get(f"{api}/assembly?model=dp").json["report"]["ok"])
+        edit = c.post(f"{api}/model/define", json={"name": "dp", "exclude": ["demand:I"]}).json["result"]
+        codes = [c.post(f"{api}/model/define", json=j).status_code for j in ({"name": "x", "blocks": ["nope"]}, {"name": "x", "blocks": "demand"}, {"blocks": ["demand"]},
+                                                                             {"name": "x", "exclude": ["demand"]}, {"name": "demand", "blocks": ["price"]})]
+        check("N4 모형 고치기 — 준 키만(뺄 식) · 없는 블록·블록과 같은 이름은 까닭과 함께 거절, 꼴이 틀린 값은 받지 않는다",
+              not edit["new"] and c.get(f"{api}/assembly?model=dp").json["report"]["excluded"] == ["demand:I"] and codes == [422, 400, 400, 400, 422], str(codes))
+        bplan = c.post(f"{api}/block/define", json={"name": "labor", "desc": "노동", "dry": True}).json
+        not_yet = not os.path.exists(os.path.join(folder, "EQUATIONS", "labor.txt")) and "labor" not in read("equion.toml")
+        bdone = c.post(f"{api}/block/define", json={"name": "labor", "desc": "노동"}).json["result"]
+        bchange = c.get(f"{api}/change?id={bdone['change']}").json
+        check("N5 새 블록 — 먼저 무엇이 생기는지(새 파일·설정의 줄)를 보인다. 쓰지 않는다",
+              bplan["new"] and bplan["files"] == ["EQUATIONS/labor.txt"] and "+labor = " in bplan["diff"] and not_yet, str(bplan)[:200])
+        check("N5-1 저장하면 빈 블록 파일을 함께 만든다(바뀜 기록 하나에 두 파일)", bdone["files"] == ["EQUATIONS/labor.txt"] and read("EQUATIONS", "labor.txt").startswith("# 노동 블록")
+              and sorted(f["path"] for f in bchange["files"]) == ["EQUATIONS/labor.txt", "equion.toml"] and bdone["command"] == "equion block define labor --desc '노동'"
+              and "labor" in [b["name"] for b in c.get(f"{api}/overview").json["overview"]["blocks"]])
+
+        text = read("EQUATIONS", "labor.txt")
+        bad = c.post(f"{api}/text/check", json={"path": "EQUATIONS/labor.txt", "text": text + "N c Y LF   # 고용\nW c P (\nN c Y   # 겹침\n"}).json
+        cfg = c.post(f"{api}/text/check", json={"path": "equion.toml", "text": read("equion.toml") + "\n[model.zz]\nblocks = ['nope']\n"}).json
+        syn = c.post(f"{api}/text/check", json={"path": "SCENARIOS/oil20.toml", "text": "a = 1\nb = [1,\nc"}).json
+        good = c.post(f"{api}/text/check", json={"path": "EQUATIONS/labor.txt", "text": text + "N c Y CN   # 고용(가상)\n"}).json
+        check("N6 치는 동안의 검사 — 블록 파일은 줄마다(문법·겹친 목표), 설정은 검사까지, TOML 문법은 줄 번호와 함께. 쓰지 않는다",
+              bad["kind"] == "block" and [(x["line"], "괄호" in x["text"] or "겹칩니다" in x["text"]) for x in bad["problems"]] == [(3, True), (4, True)]
+              and cfg["kind"] == "toml" and "없는 블록 'nope'" in cfg["problems"][0]["text"] and syn["problems"][0]["line"] == 3 and good["problems"] == []
+              and read("EQUATIONS", "labor.txt") == text, str(bad["problems"]) + str(syn["problems"]))
+        w = c.post(f"{api}/text/write", json={"path": "EQUATIONS/labor.txt", "text": text + "N c Y CN   # 고용(가상)\r\n"})
+        wchange = c.get(f"{api}/change?id={w.json['result']['change']}").json
+        codes = [c.post(f"{api}/text/write", json=j).status_code for j in ({"path": "README.md", "text": "x"}, {"path": "../x.txt", "text": "x"}, {"path": "EQUATIONS/none.txt", "text": "x"},
+                                                                          {"path": "EQUATIONS/labor.txt"}, {"path": "DATA/raw/toy_q.csv", "text": "x"})]
+        same = c.post(f"{api}/text/write", json={"path": "EQUATIONS/labor.txt", "text": read("EQUATIONS", "labor.txt")}).json["result"]
+        check("N7 글로 고쳐 저장 — 정의 파일만(다른 파일·바깥 경로·없는 파일·원자료는 거절), 줄바꿈은 LF 로, 바뀜 기록에 'Desk'",
+              w.status_code == 200 and read("EQUATIONS", "labor.txt").endswith("N c Y CN   # 고용(가상)\n") and "\r" not in read("EQUATIONS", "labor.txt")
+              and wchange["who"] == "desk" and wchange["how"] == "Desk 에서 고침" and codes == [422, 403, 404, 400, 422] and same["change"] is None, str(codes))
+        parts = [p["id"] for b in c.get(f"{api}/overview").json["overview"]["blocks"] for p in b["parts"]]
+        check("N8 고친 블록 파일의 식이 바로 부품이 된다", "labor:N" in parts)
+
+        h = c.post(f"{api}/hs/run", json={"target": "main"}).json["result"]
+        hb = c.post(f"{api}/hs/run", json={"target": "demand", "start": "2010Q1", "end": "2019Q4", "mode": "static"}).json["result"]
+        check("N9 과거 재현 — 모형, 그리고 블록만(범위·방식) — 기록의 명령이 터미널에서 치는 글 그대로",
+              h["id"].startswith("hs:") and h["command"] == "equion hs main" and h["range"] == ["2005Q1", "2019Q4"] and h["counts"]["ok"] == 60
+              and hb["command"] == "equion hs demand --range 2010Q1:2019Q4 --mode static" and hb["target"] == "demand" and hb["mode"] == "static" and hb["range"] == ["2010Q1", "2019Q4"],
+              str(hb.get("command")))
+        v = c.get(f"{api}/hs/view?id={h['id']}").json
+        names = [x["name"] for x in v["stats"]]
+        check("N10 과거 재현 기록 보기 — 변수마다 적합도, 기간마다 풀이 상태, 어느 계수로 풀었나",
+              sorted(names) == ["CN", "I", "M2", "P", "RL", "Y"] and all(x["rmspe"] is not None and x["n"] == 60 for x in v["stats"]) and len(v["status"]) == 60
+              and v["status"][0] == {**v["status"][0], "period": "2005Q1", "status": "ok"} and v["parts"][0]["source"] == "estimated" and v["meta"]["counts"]["ok"] == 60
+              and v["vintage"] and len(v["meta"]["implicit"]) >= 1 and c.get(f"{api}/hs/view?id=est:x").status_code == 400 and c.get(f"{api}/hs/view?id=hs:nope").status_code == 422,
+              str(v["stats"][:1]))
+        ser = c.get(f"{api}/hs/series?id={h['id']}&names=Y,P,ZZ").json
+        check("N11 변수의 풀린 값과 실측 — 없는 이름은 건너뛴다", len(ser["period"]) == 60 and ser["period"][0] == "2005Q1" and sorted(ser["series"]) == ["P", "Y"]
+              and len(ser["series"]["Y"]["solved"]) == len(ser["series"]["Y"]["actual"]) == 60 and ser["series"]["Y"]["solved"][0] != ser["series"]["Y"]["actual"][0]
+              and c.get(f"{api}/hs/series?id={h['id']}&names=").status_code == 400)
+        tp = c.get(f"{api}/trace?id={h['id']}&name=P").json
+        ty = c.get(f"{api}/trace?id={h['id']}&name=Y").json
+        tx = c.get(f"{api}/trace?id={h['id']}&name=POIL").json
+        check("N12 원인 따라가기 — 식의 입력마다 내생이면 이 풀이에서의 오차, 외생이면 실측. 항등식은 입력에서, 외생 변수는 오차가 없다",
+              tp["part"]["id"] == "price:P" and tp["part"]["kind"] == "equation" and tp["own"]["rmspe"] > 0 and tp["self_lag"]
+              and [(x["name"], x["endogenous"], x["block"]) for x in tp["inputs"]] == [("Y", True, "demand"), ("POIL", False, None)] and tp["inputs"][0]["rmspe"] > 0
+              and tp["inputs"][1]["rmspe"] is None and tp["solo"] is None and ty["part"]["kind"] == "identity" and [x["name"] for x in ty["inputs"]][-1] == "G"
+              and ty["inputs"][0]["rmspe"] >= ty["inputs"][1]["rmspe"] and tx["part"] is None and "외생" in tx["note"], str(tp["inputs"]))
+        c.post(f"{api}/est", json={"target": "price:P", "sim": True})
+        solo = c.get(f"{api}/trace?id={h['id']}&name=P").json["solo"]
+        check("N13 식만 따로 모의한 기록이 있으면 식 자체의 오차를 함께 보인다", solo and solo["record"].startswith("est:") and solo["rmspe"] > 0, str(solo))
+        rp = c.post(f"{api}/hs/replay", json={"record": h["id"]}).json["result"]
+        check("N14 그때 그대로 다시 — 같은 숫자인지 알린다", rp["replay"]["of"] == h["id"] and rp["replay"]["same"] is True and rp["command"] == f"equion hs --replay {h['id']}")
+
+        sc = c.get(f"{api}/scripts").json["scripts"]
+        plan = c.post(f"{api}/script/plan", json={"path": "FLOWS/monthly.eqs"}).json
+        log_before = len(c.get(f"{api}/records").json["records"])
+        check("N15 스크립트 미리보기 — 단계마다 실행할 줄·묶음 제목·바꾸는 파일, 매개변수. 기록을 남기지 않는다",
+              sc == [{"path": "FLOWS/monthly.eqs", "name": "monthly", "last": None}] and plan["ok"] and len(plan["steps"]) == 11 and plan["params"] == {"scenarios": ["base", "oil20"]}
+              and plan["steps"][0] == {**plan["steps"][0], "n": 1, "section": "자료", "kind": "cmd"} and "EQUATIONS/adopted.toml" in plan["steps"][2]["effects"]
+              and plan["steps"][4]["kind"] == "expect" and len(c.get(f"{api}/records").json["records"]) == log_before
+              and c.post(f"{api}/script/plan", json={"path": "equion.toml"}).status_code == 400 and c.post(f"{api}/script/plan", json={"path": "FLOWS/nope.eqs"}).status_code == 404,
+              str(plan.get("problems")))
+        seq = state.feed.read(0, 0)["seq"]
+        run = c.post(f"{api}/script/run", json={"path": "FLOWS/monthly.eqs"}).json["result"]
+        events = [e for e in state.feed.read(seq, 0)["events"] if e["type"] == "job" and e["op"] == "script_run"]
+        lines = [e["line"] for e in events if e["state"] == "progress"]
+        rv = c.get(f"{api}/run/view?id={run['id']}").json
+        check("N16 스크립트 실행 — 단계가 끝날 때마다 알리고(작업 줄의 '3/11'), 실행 기록에 단계마다 상태와 남긴 기록",
+              run["id"].startswith("run:monthly") and run["status"] in ("ok", "flag") and run["exit_code"] == 0 and len(lines) == 11 and lines[0].startswith("[1/11]")
+              and lines[-1].startswith("[11/11]") and events[0]["state"] == "start" and events[-1]["state"] == "done" and events[-1]["record"] == run["id"]
+              and len(rv["steps"]) == 11 and rv["steps"][2]["records"] and rv["steps"][2]["status"] in ("ok", "flag") and rv["meta"]["who"] == "desk"
+              and rv["meta"]["command"] == "equion run FLOWS/monthly.eqs" and any(x.startswith("hs:") for x in rv["meta"]["records"]), str(lines[:2]) + run.get("status", ""))
+        again = c.post(f"{api}/script/run", json={"path": "FLOWS/monthly.eqs", "from": "6", "sets": {"scenarios": "base"}}).json["result"]
+        rv2 = c.get(f"{api}/run/view?id={again['id']}").json
+        check("N17 '이 단계부터' · 값 바꿔 넣기 — 앞 단계는 건너뛰고, 명령 글에 --set·--from 이 적힌다",
+              rv2["meta"]["command"] == "equion run FLOWS/monthly.eqs --set scenarios=base --from 6" and str(rv2["meta"]["from"]) == "6"
+              and [x["status"] for x in rv2["steps"][:5]] == ["skip"] * 5 and rv2["steps"][5]["status"] in ("ok", "flag")
+              and c.get(f"{api}/scripts").json["scripts"][0]["last"]["id"] == again["id"], str(rv2["meta"].get("command")) + str([x["status"] for x in rv2["steps"]]))
+        new = c.post(f"{api}/script/new", json={"name": "from_desk", "records": [h["id"], hb["id"]], "title": "화면에서"}).json["result"]
+        check("N18 기록을 골라 스크립트 초안으로 — FLOWS/이름.eqs 에 그 명령들이 차례로",
+              new["path"] == "FLOWS/from_desk.eqs" and "hs main" in read("FLOWS", "from_desk.eqs") and "hs demand --range 2010Q1:2019Q4 --mode static" in read("FLOWS", "from_desk.eqs")
+              and c.post(f"{api}/script/new", json={"name": "x", "records": []}).status_code == 400 and len(c.get(f"{api}/scripts").json["scripts"]) == 2)
+
+        # 새 분기 자료로 회차를 바꾼 뒤 — 채택한 계수·과거 재현·전망이 옛 자료의 것이다
+        first = c.get(f"{api}/data").json["current"]
+        lines_ = read("DATA", "raw", "toy_q.csv").rstrip("\n").split("\n")
+        lines_.append(",".join(["2020Q1"] + [f"{float(x) * 1.01:.4f}" for x in lines_[-1].split(",")[1:]]))
+        os.makedirs(os.path.join(folder, "DATA", "raw", "inbox"), exist_ok=True)
+        with open(os.path.join(folder, "DATA", "raw", "inbox", "toy_q_new.csv"), "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(lines_) + "\n")
+        before = c.get(f"{api}/todo").json
+        c.post(f"{api}/data/add", json={"inbox": "toy_q_new.csv", "source": "na"})
+        built = c.post(f"{api}/data/build", json={}).json["result"]
+        c.post(f"{api}/data/use", json={"vintage": built["id"]})
+        todo = c.get(f"{api}/todo").json
+        check("N19 회차 바꾼 뒤 할 일 — 옛 자료로 추정한 채택 계수, 옛 자료로 푼 과거 재현·전망을 알린다(다시 계산하지 않는다)",
+              before["adopted"] == [] and before["hs"]["stale"] is False and todo["vintage"] == built["id"] and len(todo["adopted"]) >= 1
+              and all(x["vintage"] == first and x["record"].startswith("est:") for x in todo["adopted"]) and todo["hs"]["stale"] and todo["hs"]["vintage"] == first
+              and todo["sim"]["stale"] and todo["hs"]["model"] == "main", str(todo))
+        adopted0 = read("EQUATIONS", "adopted.toml")
+        re_ = c.post(f"{api}/reestimate", json={"name": "main"}).json["result"]
+        row = next(x for x in re_["rows"] if x["old"])
+        check("N20 다시 추정해 견주기 — 지금 자료로 새 기록만 남기고(채택표는 그대로) 옛 계수·새 계수와 적합도를 나란히",
+              re_["policy"] == "never" and re_["change"] is None and read("EQUATIONS", "adopted.toml") == adopted0 and len(re_["rows"]) == 5
+              and row["new"].startswith("est:") and row["old_fit"]["vintage"] == first and row["new_fit"]["vintage"] == built["id"] and row["new_fit"]["r2_adj"] is not None
+              and set(row["old_coefs"]) == set(row["new_coefs"]) and row["max_change_pct"] is not None and row["old_fit"]["n"] + 1 == row["new_fit"]["n"], str(row)[:300])
+        took = c.post(f"{api}/reestimate", json={"parts": [f"{row['part']}={row['new']}"]}).json["result"]
+        todo2 = c.get(f"{api}/todo").json
+        check("N21 고른 식만 새 계수로 채택 — 채택표가 바뀌고 할 일에서 빠진다",
+              len(took["adopted"]) == 1 and f'"{row["part"]}" = "{row["new"]}"' in read("EQUATIONS", "adopted.toml") and len(todo2["adopted"]) == len(todo["adopted"]) - 1
+              and c.post(f"{api}/reestimate", json={"parts": ["demand:CN"]}).status_code == 400 and c.post(f"{api}/reestimate", json={"parts": []}).status_code == 400, str(took)[:200])
+    finally:
+        state.close()
+
+
 def section_instance(tmp: str, folder: str) -> None:
     print("I. 창은 하나 — 또 실행하면 폴더를 떠 있는 창에 넘긴다")
     from equion_desk import instance
@@ -939,6 +1105,7 @@ def run() -> int:
         section_bench(tmp)
         section_data(tmp)
         section_import(tmp)
+        section_model(tmp)
         section_instance(tmp, folder)
     bad = [n for n, ok, _ in RESULTS if not ok]
     print(f"\nEquion Desk 앱 시험 {len(RESULTS) - len(bad)}/{len(RESULTS)}")

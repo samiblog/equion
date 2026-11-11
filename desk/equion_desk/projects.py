@@ -73,8 +73,11 @@ class ProjectSession:
         job = f"{self.id}-{self._jobs}"
         self.feed.add("job", p=self.id, job=job, state="start", op=op, label=label, who="desk")
         began = time.monotonic()
+        def progress(info: dict[str, Any]) -> None:
+            self.feed.add("job", p=self.id, job=job, state="progress", op=op, label=label, line=str(info.get("line", ""))[:300])
+
         try:
-            out = self.worker.call(op, **args)
+            out = self.worker.call(op, progress=progress, **args)
         except WorkerError as exc:
             self.feed.add("job", p=self.id, job=job, state="cancelled" if exc.kind == "cancelled" else "error", op=op, label=label,
                           error=str(exc), kind=exc.kind, seconds=time.monotonic() - began)

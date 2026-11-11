@@ -9,7 +9,7 @@
 - 프로젝트 파일은 그 폴더 안의 것만 읽는다(`ProjectSession.resolve`). 화면은 파일을 고치지 않는다 — 고치는 것은 작업 프로세스의 명령뿐이다.
 
 경로: `/api/state`·`/api/open`·`/api/example`·`/api/tabs/*`·`/api/settings`·`/api/events`(알림 긴 폴링) ·
-프로젝트마다 `/api/p/<탭 id>/overview·est·check·candidates·ident·adopt·hs·diag·sim·data(·build·use·add·diff)·series·analyses·an(·keep)·cancel·records·record·changes·change·tree·file·raw·view` · `/api/term/*`.
+프로젝트마다 `/api/p/<탭 id>/overview·est·check·candidates·ident·adopt·hs(·run·replay·view·series)·trace·diag·sim·data(·build·use·add·diff·preview·define)·series·analyses·an(·keep)·assembly·model/define·block/define·text(/check·/write)·scripts·script(/plan·/run·/new)·run/view·todo·reestimate·cancel·records·record·changes·change·tree·file·raw·view` · `/api/term/*`.
 """
 from __future__ import annotations
 
@@ -497,6 +497,206 @@ def create_app(state: AppState) -> Flask:
         if record is None:
             abort(400)
         return run(pid, "an_keep", t("남기기 {record}", record=record), record=record, name=pick(data, "name", NAME), replace=data.get("replace") is True)
+
+    # ---- 프로젝트: 모형 작업대(조립·과거 재현·원인 따라가기) · 흐름 화면 · 정의 고치기 ----------------------
+
+    HS_RECORD = re.compile(r"hs:[A-Za-z0-9][A-Za-z0-9_\-]{0,120}")
+    RUN_RECORD = re.compile(r"run:[A-Za-z0-9][A-Za-z0-9_\-.]{0,160}")
+    EST_RECORD = re.compile(r"est:[A-Za-z0-9][A-Za-z0-9_\-]{0,120}")
+    PERIOD = re.compile(r"[A-Za-z0-9+\-]{1,20}")
+    MODES = frozenset({"dynamic", "static", "fit"})
+    TEXT_LIMIT = 2_000_000
+
+    def names_arg(data: dict[str, Any], key: str, pattern: Any, limit: int = 200) -> list[str] | None:
+        """이름들의 목록 — 없으면 None(그 키는 그대로), 빈 목록이면 지운다는 뜻."""
+        value = data.get(key)
+        if value is None:
+            return None
+        if not isinstance(value, list) or len(value) > limit or any(not isinstance(x, str) or not pattern.fullmatch(x) for x in value):
+            abort(400, description=t("받을 수 없는 값입니다: {key}", key=key))
+        return value
+
+    def definition_path(pid: str, data: dict[str, Any]) -> str:
+        value = text_arg(data, "path", 400)
+        if value is None:
+            abort(400)
+        s = session(pid)
+        try:
+            path = s.resolve(value)
+        except Outside:
+            abort(403)
+        if not path.is_file():
+            abort(404)
+        return path.relative_to(Path(s.root).resolve()).as_posix()
+
+    def script_path(pid: str, data: dict[str, Any]) -> str:
+        rel = definition_path(pid, data)
+        if not rel.lower().endswith(".eqs"):
+            abort(400, description=t("스크립트(.eqs)가 아닙니다: {name}", name=rel))
+        return rel
+
+    def sets_arg(data: dict[str, Any]) -> dict[str, str] | None:
+        raw = data.get("sets")
+        if raw is None:
+            return None
+        if not isinstance(raw, dict) or len(raw) > 40 or any(not isinstance(k, str) or not NAME.fullmatch(k) or not isinstance(v, str) or len(v) > 200
+                                                             for k, v in raw.items()):
+            abort(400)
+        return {k: v for k, v in raw.items() if v != ""} or None
+
+    @app.get("/api/p/<pid>/assembly")
+    def api_assembly(pid: str) -> Any:
+        """조립 보기 — 모형의 블록·식, 내생·외생, 블록 사이의 연결, 풀이 블록, 문제. 계산하지 않는다."""
+        model = request.args.get("model") or None
+        if model is not None and not NAME.fullmatch(model):
+            abort(400)
+        return ask(pid, "assembly", model=model)
+
+    @app.post("/api/p/<pid>/model/define")
+    def api_model_define(pid: str) -> Any:
+        """{name, blocks?, include?, exclude?, desc?, dry?} — 모형 정의 쓰기(`equion model define`). dry 면 쓰지 않고 차이만."""
+        data = body()
+        name = pick(data, "name", NAME)
+        if name is None:
+            abort(400)
+        desc = data.get("desc")
+        if desc is not None and (not isinstance(desc, str) or len(desc) > 200):
+            abort(400)
+        args = dict(name=name, blocks=names_arg(data, "blocks", NAME), include=names_arg(data, "include", NAME), exclude=names_arg(data, "exclude", PART),
+                    desc=desc)
+        if data.get("dry") is True:
+            return ask(pid, "model_define", dry=True, **args)
+        return run(pid, "model_define", t("모형 정의 {name}", name=name), **args)
+
+    @app.post("/api/p/<pid>/block/define")
+    def api_block_define(pid: str) -> Any:
+        """{name, desc?, dry?} — 블록 더하기(`equion block define`): 빈 블록 파일을 함께 만든다. dry 면 쓰지 않고 차이만."""
+        data = body()
+        name = pick(data, "name", NAME)
+        if name is None:
+            abort(400)
+        desc = text_arg(data, "desc", 200)
+        if data.get("dry") is True:
+            return ask(pid, "block_define", name=name, desc=desc, dry=True)
+        return run(pid, "block_define", t("블록 정의 {name}", name=name), name=name, desc=desc)
+
+    @app.post("/api/p/<pid>/text/check")
+    def api_text_check(pid: str) -> Any:
+        """{path, text} — 정의 파일의 글을 읽어만 본다(블록 파일은 줄마다 식 문법, TOML 은 문법과 설정). 쓰지 않는다. 바쁘면 기다리지 않는다."""
+        data = body()
+        text = data.get("text")
+        if not isinstance(text, str) or len(text) > TEXT_LIMIT:
+            abort(400)
+        try:
+            return jsonify(session(pid).worker.call("check_text", wait=False, path=definition_path(pid, data), text=text)["result"])
+        except WorkerError as exc:
+            if exc.kind == "busy":
+                return jsonify(busy=True, problems=[])
+            return worker_error(exc)
+
+    @app.post("/api/p/<pid>/text/write")
+    def api_text_write(pid: str) -> Any:
+        """{path, text} — 정의 파일을 글로 고쳐 쓴다. 바뀜 기록이 지켜보는 정의 파일만(작업 프로세스가 가린다), 바뀜 기록에 'Desk'로 남는다."""
+        data = body()
+        text = data.get("text")
+        if not isinstance(text, str) or len(text) > TEXT_LIMIT:
+            abort(400)
+        rel = definition_path(pid, data)
+        return run(pid, "write_text", t("고침 {path}", path=rel), path=rel, text=text)
+
+    @app.post("/api/p/<pid>/hs/run")
+    def api_hs_run(pid: str) -> Any:
+        """{target?, start?, end?, mode?, vs?, name?} — 과거 재현(`equion hs`): 모형이나 블록, 범위, 방식(dynamic·static·fit), 견줄 기록."""
+        data = body()
+        target, mode = pick(data, "target", NAME), pick(data, "mode", allowed=MODES)
+        return run(pid, "hs", t("과거 재현 {model}", model=target or "").strip(), model=target, start=pick(data, "start", PERIOD), end=pick(data, "end", PERIOD),
+                   mode=mode, vs=pick(data, "vs", HS_RECORD), name=pick(data, "name", NAME))
+
+    @app.post("/api/p/<pid>/hs/replay")
+    def api_hs_replay(pid: str) -> Any:
+        """{record} — 그때 그대로 다시(`equion hs --replay`)."""
+        record = pick(body(), "record", HS_RECORD)
+        if record is None:
+            abort(400)
+        return run(pid, "hs_replay", t("그때 그대로 다시 {record}", record=record), record=record)
+
+    @app.get("/api/p/<pid>/hs/view")
+    def api_hs_view(pid: str) -> Any:
+        """과거 재현 기록 하나 — 변수마다 적합도, 기간마다 풀이 상태, 어느 계수로 풀었나."""
+        record = request.args.get("id", "")
+        if not HS_RECORD.fullmatch(record):
+            abort(400)
+        return ask(pid, "hs_view", record=record)
+
+    @app.get("/api/p/<pid>/hs/series")
+    def api_hs_series(pid: str) -> Any:
+        """과거 재현 기록의 변수들(`names=A,B`) — 풀린 값과 실측."""
+        record, names = request.args.get("id", ""), [n for n in request.args.get("names", "").split(",") if n]
+        if not HS_RECORD.fullmatch(record) or not names or len(names) > 40 or any(not SERIES.fullmatch(n) for n in names):
+            abort(400)
+        return ask(pid, "hs_series", record=record, names=names)
+
+    @app.get("/api/p/<pid>/trace")
+    def api_trace(pid: str) -> Any:
+        """원인 따라가기 — 변수의 식이 쓰는 입력마다 이 과거 재현에서의 오차(내생)·실측(외생). 계산하지 않는다."""
+        record, name = request.args.get("id", ""), request.args.get("name", "")
+        if not HS_RECORD.fullmatch(record) or not SERIES.fullmatch(name):
+            abort(400)
+        return ask(pid, "trace", record=record, name=name)
+
+    @app.get("/api/p/<pid>/scripts")
+    def api_scripts(pid: str) -> Any:
+        return ask(pid, "scripts")
+
+    @app.post("/api/p/<pid>/script/plan")
+    def api_script_plan(pid: str) -> Any:
+        """{path, sets?, from?} — 미리보기(`equion run … --dry-run`): 단계마다 실행할 줄과 바꾸는 파일. 기록을 남기지 않는다."""
+        data = body()
+        return ask(pid, "script_plan", path=script_path(pid, data), sets=sets_arg(data), from_step=text_arg(data, "from", 120))
+
+    @app.post("/api/p/<pid>/script/run")
+    def api_script_run(pid: str) -> Any:
+        """{path, sets?, from?} — 스크립트 실행(`equion run x.eqs`). 단계가 끝날 때마다 작업 줄에 알린다. 실행 기록(run:)을 남긴다."""
+        data = body()
+        rel = script_path(pid, data)
+        return run(pid, "script_run", t("스크립트 {name}", name=rel.rsplit("/", 1)[-1]), path=rel, sets=sets_arg(data), from_step=text_arg(data, "from", 120))
+
+    @app.get("/api/p/<pid>/run/view")
+    def api_run_view(pid: str) -> Any:
+        record = request.args.get("id", "")
+        if not RUN_RECORD.fullmatch(record):
+            abort(400)
+        return ask(pid, "run_view", record=record)
+
+    @app.post("/api/p/<pid>/script/new")
+    def api_script_new(pid: str) -> Any:
+        """{name, records, title?} — 작업 기록에서 스크립트 초안(`equion script new`): `FLOWS/<이름>.eqs`."""
+        data = body()
+        name = pick(data, "name", NAME)
+        recs = data.get("records")
+        if name is None or not isinstance(recs, list) or not 1 <= len(recs) <= 60 or any(not isinstance(r, str) or not re.fullmatch(r"[a-z]+:[A-Za-z0-9_\-.]{1,160}", r) for r in recs):
+            abort(400)
+        return run(pid, "script_new", t("스크립트 초안 {name}", name=name), name=name, records=recs, title=text_arg(data, "title", 120))
+
+    @app.get("/api/p/<pid>/todo")
+    def api_todo(pid: str) -> Any:
+        """지금 회차가 아닌 자료로 계산한 것(채택한 계수·가장 최근의 과거 재현·전망) — 무엇이 낡았는지만, 다시 계산하지 않는다."""
+        return ask(pid, "todo")
+
+    @app.post("/api/p/<pid>/reestimate")
+    def api_reestimate(pid: str) -> Any:
+        """{name?} — 채택한 식을 지금 자료로 다시 추정(`equion est --adopted`): 기록만 남기고 옛 계수와 견줄 재료를 돌려준다.
+        {parts: ["블록:목표=est:기록", …]} — 사람이 고른 식의 새 기록을 채택한다."""
+        data = body()
+        parts = data.get("parts")
+        if parts is not None:
+            if not isinstance(parts, list) or not 1 <= len(parts) <= 400 or any(
+                    not isinstance(x, str) or not PART.fullmatch(x.partition("=")[0]) or not EST_RECORD.fullmatch(x.partition("=")[2]) for x in parts):
+                abort(400)
+            return run(pid, "reestimate", t("새 계수 채택 {n}개", n=len(parts)), parts=parts)
+        name = pick(data, "name", NAME)
+        return run(pid, "reestimate", t("다시 추정 {name}", name=name or "").strip(), name=name, adopt="never")
+
 
     @app.post("/api/p/<pid>/sim")
     def api_sim(pid: str) -> Any:

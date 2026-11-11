@@ -5,6 +5,7 @@
 - 앱(서버)과는 표준 입출력으로 한 줄에 JSON 하나씩 주고받는다. 요청 `{"id", "op", "args"}` → 응답 `{"id", "ok", "result" | "error",
   "seconds", "said"}`. `said`는 엔진이 화면에 쓴 줄('알아서 한 것' 등)이다 — 응답 줄과 섞이지 않게 따로 모은다.
 - 한 번에 하나씩 한다(프로젝트의 기록 저장소가 그렇게 쓰인다). 기다리는 요청은 줄을 선다.
+- 오래 걸리는 일(스크립트)은 하는 동안 `{"progress": {...}, "for": id}` 줄을 보낸다 — 앱이 작업 줄에 '3/7 …'로 보인다.
 - 취소는 프로세스를 끝내고 다시 띄운다. 기록은 임시 폴더에 쓴 뒤 옮기므로(D33) 중간에 끝나도 깨진 기록이 남지 않는다.
 - 프로세스는 격리 모드(`-I`)로 뜬다 — PC의 `PYTHONPATH`·사용자 site-packages를 읽지 않는다(D39).
 
@@ -22,7 +23,7 @@ import threading
 import time
 from typing import Any
 
-from . import dataops, jobs, runtime
+from . import dataops, jobs, modelops, runtime
 from .records import read_series
 
 START_WAIT = 60.0     # 프로세스가 뜨고 equion을 불러올 때까지 기다리는 시간(초) — 느린 디스크·보안 프로그램
@@ -86,8 +87,8 @@ def _names(root: str, folder: str, suffixes: tuple[str, ...]) -> list[str]:
     return [os.path.splitext(f)[0] for f in files if f.lower().endswith(suffixes)]
 
 
-def _ops(holder: _Project) -> dict[str, Any]:
-    """요청 이름 → 하는 일. 화면이 부를 수 있는 것의 허용 목록이다 — 여기 없는 이름은 거절한다."""
+def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
+    """요청 이름 → 하는 일. 화면이 부를 수 있는 것의 허용 목록이다 — 여기 없는 이름은 거절한다. notify(**정보)는 하는 동안의 진행 알림."""
 
     def ping() -> dict:
         import equion
@@ -181,9 +182,9 @@ def _ops(holder: _Project) -> dict[str, Any]:
         done = holder.get().adopt(record, part=part, who="desk", command=_command("adopt", record, *(["--part", part] if part else [])))
         return done.to_dict()
 
-    def hs(model: str | None = None) -> dict:
-        rec = holder.get().hs(model, record=True, who="desk", command=_command("hs", model))
-        return rec.to_dict()
+    def hs(model: str | None = None, start: str | None = None, end: str | None = None, mode: str | None = None, vs: str | None = None,
+           name: str | None = None) -> dict:
+        return modelops.hs_run(holder.get(), model, start, end, mode, vs, name)
 
     def hs_swap(part: str, record: str, model: str | None = None) -> dict:
         """'이 후보로 HS' — 부품을 추정 기록의 식·계수로 바꿔 끼워 모형을 풀고(파일은 그대로) 지금 파일로 푼 것과 견준다.
@@ -268,6 +269,56 @@ def _ops(holder: _Project) -> dict[str, Any]:
     def an_keep(record: str, name: str | None = None, replace: bool = False) -> dict:
         return dataops.keep(holder.get(), record, name, replace)
 
+    # ---- 모형 작업대 · 흐름 화면(modelops.py) -------------------------------------------------------
+    def assembly(model: str | None = None) -> dict:
+        return modelops.assembly(holder.get(), model)
+
+    def model_define(name: str, blocks: list | None = None, include: list | None = None, exclude: list | None = None, desc: str | None = None,
+                     dry: bool = False) -> dict:
+        return modelops.model_define(holder.get(), name, blocks, include, exclude, desc, dry)
+
+    def block_define(name: str, desc: str | None = None, dry: bool = False) -> dict:
+        return modelops.block_define(holder.get(), name, desc, dry)
+
+    def check_text(path: str, text: str) -> dict:
+        return modelops.check_text(holder.get(), path, text)
+
+    def write_text(path: str, text: str) -> dict:
+        return modelops.write_text(holder.get(), path, text)
+
+    def hs_replay(record: str) -> dict:
+        return modelops.hs_replay(holder.get(), record)
+
+    def hs_view(record: str) -> dict:
+        return modelops.hs_view(holder.get(), record)
+
+    def hs_series(record: str, names: list) -> dict:
+        return modelops.hs_series(holder.get(), record, names)
+
+    def trace(record: str, name: str) -> dict:
+        return modelops.trace(holder.get(), record, name)
+
+    def scripts() -> dict:
+        return modelops.scripts(holder.get())
+
+    def script_plan(path: str, sets: dict | None = None, from_step: Any = None) -> dict:
+        return modelops.script_plan(holder.get(), path, sets, from_step)
+
+    def script_run(path: str, sets: dict | None = None, from_step: Any = None) -> dict:
+        return modelops.script_run(holder.get(), path, sets, from_step, notify)
+
+    def run_view(record: str) -> dict:
+        return modelops.run_view(holder.get(), record)
+
+    def script_new(name: str, records: list, title: str | None = None) -> dict:
+        return modelops.script_new(holder.get(), name, records, title)
+
+    def todo() -> dict:
+        return modelops.todo(holder.get())
+
+    def reestimate(name: str | None = None, adopt: str = "never", parts: list | None = None) -> dict:
+        return modelops.reestimate(holder.get(), name, adopt, parts)
+
     def scan() -> dict | None:
         """명령 밖에서 고친 정의 파일을 '바깥' 바뀜으로 적는다(K7). 바뀐 것이 없으면 None."""
         change = holder.get().history.scan()
@@ -277,7 +328,10 @@ def _ops(holder: _Project) -> dict[str, Any]:
             "hs": hs, "hs_swap": hs_swap, "an_diag": an_diag, "sim": sim, "scan": scan,
             "data": data, "series": series, "data_build": data_build, "data_use": data_use, "data_diff": data_diff, "data_add": data_add,
             "data_preview": data_preview, "data_define": data_define,
-            "analyses": analyses, "an": an, "an_keep": an_keep}
+            "analyses": analyses, "an": an, "an_keep": an_keep,
+            "assembly": assembly, "model_define": model_define, "block_define": block_define, "check_text": check_text, "write_text": write_text,
+            "hs_replay": hs_replay, "hs_view": hs_view, "hs_series": hs_series, "trace": trace, "scripts": scripts, "script_plan": script_plan,
+            "script_run": script_run, "run_view": run_view, "script_new": script_new, "todo": todo, "reestimate": reestimate}
 
 
 def _plain(value: Any) -> Any:
@@ -311,7 +365,12 @@ def serve(root: str) -> int:
 
         holder = _Project(root)
         holder.get()                      # 프로젝트가 아니면 여기서 알린다
-        ops = _ops(holder)
+        doing: dict[str, Any] = {"id": None}
+
+        def notify(**info: Any) -> None:
+            send({"progress": info, "for": doing["id"]})
+
+        ops = _ops(holder, notify)
     except Exception as exc:  # 프로젝트가 아니거나 equion을 불러오지 못함 — 앱에 알리고 끝낸다
         send({"ready": False, "error": str(exc), "kind": "input"})
         return 3
@@ -328,6 +387,7 @@ def serve(root: str) -> int:
             continue
         said = io.StringIO()
         began = time.perf_counter()
+        doing["id"] = rid
         try:
             if op not in ops:
                 raise WorkerError(f"모르는 요청: {op}", "input")
@@ -403,10 +463,11 @@ class Worker:
                               "cancelled" if self._cancelled else "gone")
         return json.loads(box[0].decode("utf-8"))
 
-    def call(self, op: str, timeout: float = CALL_WAIT, wait: bool = True, **args: Any) -> dict:
+    def call(self, op: str, timeout: float = CALL_WAIT, wait: bool = True, progress: Any = None, **args: Any) -> dict:
         """요청 하나를 하고 `{"result", "seconds", "said", "round_trip"}`을 돌려준다.
 
         wait=False 면 다른 일을 하는 중일 때 줄을 서지 않고 바로 `busy` 오류를 낸다(치는 동안의 문법 검사처럼 기다릴 값이 없는 부름).
+        progress(정보)를 주면 하는 동안 작업 프로세스가 알리는 진행(스크립트의 단계)을 받는다.
 
         오류
             WorkerError: 작업 프로세스가 오류를 알렸거나(`kind` input·internal), 끝났거나(gone), 취소됨(cancelled), 바쁨(busy)
@@ -414,11 +475,11 @@ class Worker:
         if not self._lock.acquire(blocking=wait):
             raise WorkerError("다른 계산이 도는 중입니다", "busy")
         try:
-            return self._call(op, timeout, args)
+            return self._call(op, timeout, args, progress)
         finally:
             self._lock.release()
 
-    def _call(self, op: str, timeout: float, args: dict[str, Any]) -> dict:
+    def _call(self, op: str, timeout: float, args: dict[str, Any], progress: Any = None) -> dict:
         self._cancelled = False
         if not self.alive:
             self._start()
@@ -435,6 +496,11 @@ class Worker:
                 resp = self._read(timeout)
                 if resp.get("id") == rid:
                     break
+                if progress is not None and resp.get("for") == rid and isinstance(resp.get("progress"), dict):
+                    try:
+                        progress(resp["progress"])
+                    except Exception:      # 알림을 받는 쪽의 문제로 계산을 끊지 않는다
+                        pass
         except (OSError, ValueError) as exc:
             self.stop()
             raise WorkerError(f"작업 프로세스와 끊겼습니다: {exc}", "gone") from exc

@@ -21,7 +21,7 @@ export function dataView(project, desc) {
   const el = h('div', { class: 'view data' });
   const st = {
     data: project.dataInfo, error: null, loadError: null, loading: false, section: SECTIONS.includes(desc.section) ? desc.section : 'series',
-    q: '', filter: 'all', open: desc.open || null, details: new Map(), diff: null, made: null,
+    q: '', filter: 'all', open: desc.open || null, details: new Map(), diff: null, made: null, todo: null, reest: null,
   };
   let disposeChart = () => {};
   let loaded = false;
@@ -37,6 +37,87 @@ export function dataView(project, desc) {
     st.details.clear();
     if (st.diff && !st.data?.vintages.some((v) => v.id === st.diff.b)) st.diff = null;
     render();
+    loadTodo();
+  }
+
+  /** 지금 회차가 아닌 자료로 계산한 것(채택한 계수·과거 재현·전망) — 무엇이 낡았는지만 읽는다 */
+  async function loadTodo() {
+    if (st.data?.mode !== 'defs' || !st.data.current) { st.todo = null; return; }
+    try { st.todo = await project.get('todo'); } catch { st.todo = null; }
+    const box = el.querySelector('.todo-slot');
+    if (box) { clear(box); put(box, todoPanel()); }
+  }
+
+  async function reestimate() {
+    try {
+      const res = await project.compute('reestimate', { name: st.todo?.hs?.model || project.overview?.hs?.model || undefined }, { quiet: true });
+      st.reest = { ...res.result, pick: new Set(res.result.rows.filter((r) => r.passed !== false && r.old).map((r) => r.part)) };
+      render();
+    } catch (err) {
+      if (err.kind !== 'busy') { st.error = err.message; render(); }
+    }
+  }
+
+  async function adoptPicked() {
+    const rows = st.reest.rows.filter((r) => st.reest.pick.has(r.part));
+    if (!rows.length) return;
+    const body = h('div', { class: 'adopt' }, h('p', {}, `고른 식 ${rows.length}개의 채택 계수를 새 추정 기록의 것으로 바꿉니다. 모형은 이 계수로 풉니다 — 과거 재현·전망을 다시 푸는 것은 따로 시킵니다.`),
+      h('h4', {}, '채택표 ', h('span', { class: 'mono' }, 'EQUATIONS/adopted.toml')),
+      h('div', { class: 'diff' }, rows.flatMap((r) => [r.old ? h('span', { class: 'dl del' }, `- "${r.part}" = "${r.old}"`) : null, h('span', { class: 'dl add' }, `+ "${r.part}" = "${r.new}"`)])),
+      h('p', { class: 'muted' }, '바뀜 기록에 남고, 거기서 되돌릴 수 있습니다.'));
+    if (!(await confirmDialog({ title: '새 계수 채택', body, confirm: `${rows.length}개 채택`, wide: true }))) return;
+    try {
+      await project.compute('reestimate', { parts: rows.map((r) => `${r.part}=${r.new}`) }, { quiet: true });
+      st.reest = null;
+      flash(`식 ${rows.length}개의 새 계수를 채택했습니다`);
+      await project.loadOverview();
+      loadTodo();
+      render();
+    } catch (err) {
+      if (err.kind !== 'busy') { st.error = err.message; render(); }
+    }
+  }
+
+  function todoPanel() {
+    const t = st.todo;
+    if (!t) return null;
+    const rows = [];
+    if (t.adopted.length) {
+      const from = [...new Set(t.adopted.map((a) => a.vintage).filter(Boolean))].join(' · ');
+      rows.push(h('div', { class: 'todo-row' }, h('span', { class: 'what' }, h('b', {}, `채택한 식 ${t.adopted.length}개`), `의 계수가 옛 자료(${from || '다른 회차'})로 추정됐습니다`),
+        h('button', { class: 'btn small', type: 'button', 'data-act': 'reest', disabled: project.busy, title: 'equion est --adopted — 지금 자료로 다시 추정해 기록만 남기고, 옛 계수와 견준다(채택은 고른 것만)', onclick: reestimate }, '다시 추정해 견주기')));
+    }
+    if (t.hs?.stale) {
+      rows.push(h('div', { class: 'todo-row' }, h('span', { class: 'what' }, h('b', {}, '과거 재현 '), h('span', { class: 'mono' }, t.hs.id), ` 은(는) 옛 자료(${t.hs.vintage})로 풀었습니다`),
+        h('button', { class: 'btn small', type: 'button', disabled: project.busy, title: `equion hs ${t.hs.model} — 지금 자료로 다시 푼다(새 기록)`, onclick: () => project.openTab({ type: 'model', model: t.hs.model, section: 'hs' }) }, '모형 작업대에서 다시 풀기')));
+    }
+    if (t.sim?.stale) {
+      rows.push(h('div', { class: 'todo-row' }, h('span', { class: 'what' }, h('b', {}, '전망 '), h('span', { class: 'mono' }, t.sim.id), ` 은(는) 옛 자료(${t.sim.vintage})로 풀었습니다`),
+        h('button', { class: 'btn small', type: 'button', disabled: project.busy, title: `equion sim ${t.sim.scenario || 'base'} — 지금 자료로 다시 푼다(새 기록)`, onclick: () => project.compute('sim', { scenario: t.sim.scenario || 'base', model: t.sim.model }) }, '다시 풀기')));
+    }
+    if (!rows.length && !st.reest) return null;
+    return h('div', { class: 'todo' }, rows.length ? h('div', { class: 'todo-head' }, icon('list'), h('b', {}, `회차 ${t.vintage} 로 바꾼 뒤 할 일`), h('span', { class: 'muted' }, '— 저절로 다시 계산하지 않습니다. 누른 것만 합니다.')) : null, rows, st.reest ? reestTable() : null);
+  }
+
+  function reestTable() {
+    const r = st.reest;
+    const pick = r.pick;
+    const short3 = (v) => (v == null ? '—' : Math.abs(v) >= 100 ? v.toFixed(1) : v.toPrecision(4));
+    return h('div', { class: 'reest' }, h('div', { class: 'todo-head' }, h('b', {}, '다시 추정한 결과'), h('span', { class: 'muted' }, `— ${r.model} · 지금 자료로. 고른 식만 새 계수로 채택합니다`), h('span', { class: 'grow' }),
+      h('button', { class: 'btn small quiet', type: 'button', onclick: () => { st.reest = null; render(); } }, '닫기'),
+      h('button', { class: 'btn small primary', type: 'button', 'data-act': 'adopt-new', disabled: !pick.size || project.busy, onclick: adoptPicked }, `고른 식 채택${pick.size ? ` (${pick.size})` : ''}`)),
+    h('table', { class: 'grid plain reest-table' }, h('thead', {}, h('tr', {}, ['', '식', '가장 크게 바뀐 계수', '조정 R²', '표준오차', '기준', '기록'].map((c, i) => h('th', { class: i >= 2 && i <= 4 ? 'num' : '' }, c)))),
+      h('tbody', {}, r.rows.map((row) => {
+        const box = h('input', { type: 'checkbox', 'aria-label': `${row.part} 의 새 계수 채택` });
+        box.checked = pick.has(row.part);
+        box.addEventListener('change', () => { if (box.checked) pick.add(row.part); else pick.delete(row.part); render(); });
+        const o = row.old_fit, n = row.new_fit;
+        return h('tr', {}, h('td', {}, box), h('td', {}, h('b', { class: 'mono' }, row.part), row.old ? null : h('span', { class: 'tag', title: '아직 채택한 계수가 없던 식입니다' }, '채택 없음')),
+          h('td', { class: 'num' }, row.max_change_pct == null ? '—' : `${row.max_change_pct.toFixed(row.max_change_pct < 10 ? 2 : 1)}%`),
+          h('td', { class: 'num' }, o ? `${short3(o.r2_adj)} → ` : '', short3(n?.r2_adj)), h('td', { class: 'num' }, o ? `${short3(o.se)} → ` : '', short3(n?.se)),
+          h('td', {}, row.passed === false ? h('span', { class: 'tag warn', title: row.reasons.join('\n') }, `걸러짐 — ${row.reasons[0] || ''}`) : h('span', { class: 'tag ok' }, '통과')),
+          h('td', {}, h('button', { class: 'link mono', type: 'button', title: '새 추정 기록을 식 작업대에서 본다', onclick: () => project.openTab({ type: 'bench', part: row.part, shown: row.new }) }, row.new)));
+      }))));
   }
 
   async function load() {
@@ -377,7 +458,7 @@ export function dataView(project, desc) {
         ' 의 예제처럼 DATA/series.toml 을 둡니다.')), seriesSection());
       return;
     }
-    el.append(flow(), status(), st.section === 'raw' ? rawSection() : st.section === 'vintages' ? vintageSection() : seriesSection());
+    el.append(flow(), status(), put(h('div', { class: 'todo-slot' }), todoPanel()), st.section === 'raw' ? rawSection() : st.section === 'vintages' ? vintageSection() : seriesSection());
   }
 
   render();
