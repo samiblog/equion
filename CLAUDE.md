@@ -15,7 +15,7 @@ Simulation(HS)·전망·시나리오를 수행한다. **방정식(회귀 체계)
 - **이름(D16)**: 패키지·import·명령 `equion`(별칭 `import equion as eqn`), 데스크톱 앱 **Equion Desk**
   (설치 파일 `EquionDesk-<버전>-setup.exe`, Windows 전용 — D29). 0.5.0에서 `macromodel` → `equion`으로 바꿨다 —
   옛 `.mmw` 워크파일·`macromodel-run` 보고서·레거시 pickle(`macromodel.*` 경로)·`MACROMODEL_PARAMS`는 계속 읽는다.
-- Equion **0.8.0** (2026-11-11, 공개 버전 하나 — 엔진 형식 표시 `ENGINE_VERSION`은 내부 값). 결정 D1~D48(`docs/DECISIONS.md`),
+- Equion **0.8.0** (2026-11-11, 공개 버전 하나 — 엔진 형식 표시 `ENGINE_VERSION`은 내부 값). 결정 D1~D49(`docs/DECISIONS.md`),
   진행 `docs/ROADMAP.md`, 바뀐 점 `CHANGELOG.md`. 사용자 문서 첫 페이지 `docs/README.md`(D27), 문서 검사 `docs/build_docs.py`.
 - **세 단계(D1)**: ① 라이브러리 — 워크파일 API `import equion as eqn` (완료) ② CLI `equion run` (완료)
   ③ 데스크톱 앱 Equion Desk(lectern 스타일, **Windows 전용**(D29) — 패키지는 3 OS 그대로) — **개발 계획 확정(D31)**:
@@ -194,6 +194,7 @@ uv run --package equion-desk --group ui python desk/tests/ui_check.py   # 앱 �
 - **공개 전 확인(D30)**: 이름 상표(D16 — KIPRIS·USPTO). 공개 뒤 `macro_model`은 이 저장소의 태그를 가져다 쓰고 패키지 코드를 지운다.
 - P3 데스크톱 앱(lectern 스택, Windows 전용 pywebview(WebView2), 설치 폴더 안 Python 런타임 하나 — D39, 명령 창은 앱 안의 터미널 —
   D9 변경)은 단계 D — D0 시험판(다른 PC 점검이 남음) → **D1 뼈대(D41) · D2 식·자료(D42~D44) · D3 조립·과거 재현·흐름(D45) · D4 전망·보고서(D46) · D5 Claude·되돌리기·설치본(D47) — 2026-11-12**. 판은 `0.1.0rc1`(출시 후보) —
-  남은 것은 다른 PC 설치 점검(`docs/DESK_D0_CHECK.md`)이고 지나면 `0.1.0`. 그 뒤는 2차판(`docs/DESK_DEVPLAN.md`).
+  남은 것은 다른 PC 설치 점검(`docs/DESK_D0_CHECK.md`)이고 지나면 `0.1.0`. 릴리스는 태그 `desk-v<판>` + GitHub 릴리스(설치 파일 첨부 — D49, 출시 후보는 사전 릴리스),
+  패키지 `0.8.1`은 Desk `0.1.0`과 함께. CI는 2026-11-12부터 꺼 두었다(사용자 지시 — 다시 켜라고 할 때까지 로컬 시험으로 확인). 그 뒤는 2차판(`docs/DESK_DEVPLAN.md`).
 - **엔진 후속(선택)**: Model의 `.wt` 역참조 → 주기 값객체, `compare_and_plot`/`show_hs_summary` 본문의 reporting 완전 이관,
   시나리오 결과 번들 저장.

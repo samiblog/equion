@@ -6,7 +6,8 @@ D1(뼈대)부터는 같은 표로 화면의 틀 — 프로젝트 탭·작업 기
 
 ## 설치 파일
 
-- **받기**: 저장소의 Actions → 가장 최근 CI 실행 → 작업 결과물 `EquionDesk-setup`(CI가 만들어 설치·기동 시험까지 한 파일, 14일 동안 남는다).
+- **받기**: 저장소의 Releases → `Equion Desk 0.1.0rc1`(사전 릴리스)에 붙은 `EquionDesk-0.1.0rc1-setup.exe`(D49). CI를 켜 둔 동안에는 Actions의 작업 결과물
+  `EquionDesk-setup`으로도 받는다(지금은 CI를 꺼 두었다).
 - **직접 만들기**(Windows, Inno Setup 6 필요 — 인터넷은 만들 때만): `uv run python desk/build/make.py` →
   `desk/dist/EquionDesk-0.1.0rc1-setup.exe`(48MB). 설치 파일은 저장소에 넣지 않는다 — 다른 PC에는 이 파일만 옮긴다.
 
