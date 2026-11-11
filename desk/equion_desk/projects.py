@@ -200,7 +200,16 @@ class ProjectSession:
     # ---- 기록 -----------------------------------------------------------------------------------
 
     def records(self, limit: int = 300) -> list[dict[str, Any]]:
-        return records.read_log(self.root, limit)
+        """작업 기록의 최근 줄 — 고정·메모(`work/marks.json`)를 함께."""
+        rows, marks = records.read_log(self.root, limit), records.read_marks(self.root)
+        for row in rows:
+            mark = marks.get(row.get("id"))
+            if mark:
+                row["pinned"], row["memo"] = bool(mark.get("pinned")), str(mark.get("memo") or "")
+        return rows
+
+    def proposals(self) -> list[dict[str, Any]]:
+        return records.read_proposals(self.root)
 
     def record(self, rid: Any) -> dict[str, Any] | None:
         return records.read_record(self.root, rid)

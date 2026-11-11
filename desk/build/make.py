@@ -29,7 +29,7 @@ def find_iscc() -> Path | None:
 
 
 def installer_version(version: str) -> str:
-    """설치 파일 이름의 판 — `0.1.0.dev0` 그대로(시험판임이 이름에 보이게)."""
+    """설치 파일 이름의 판 — `0.1.0rc1` 그대로(출시 후보임이 이름에 보이게)."""
     return version
 
 

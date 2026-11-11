@@ -10,6 +10,7 @@
 // 화면을 여는 것만으로는 계산하지 않는다(기획안 §2.4-1). 쓰던 식·고른 기록·옵션은 탭과 함께 기억한다.
 
 import { drawLines } from '../chart.js';
+import { claudeButton } from '../claude.js';
 import { confirmDialog, popMenu } from '../dialog.js';
 import { clear, copyText, debounce, flash, h, icon, num, put, short } from '../util.js';
 import { candidateRail, MAX_OVERLAY } from './candidates.js';
@@ -77,7 +78,7 @@ export function benchView(project, desc) {
     const name = p?.id || '';
     put(head, h('div', {}, title, sub), name ? h('div', { class: 'tools' },
       h('button', { class: 'btn quiet', type: 'button', title: '이름 복사', onclick: () => copyText(name, `${name} — 복사했습니다`) }, icon('copy'), '이름'),
-      h('button', { class: 'btn quiet', type: 'button', title: '터미널에 이름을 붙인다(Enter 는 직접)', onclick: () => project.sendToTerminal(name) }, icon('send'), '터미널로')) : null);
+      claudeButton(project, () => { const r = project.records.find((x) => x.id === st.selected); return { name, summary: r ? `후보 ${r.id}${r.metric ? ` (${r.metric})` : ''}` : (p?.text || '') }; })) : null);
   }
 
   // ---- 식 칸과 옵션 ------------------------------------------------------------------------------

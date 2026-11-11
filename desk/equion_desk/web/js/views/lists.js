@@ -1,5 +1,5 @@
 // 작업 기록(모두 보기)과 바뀜 기록 — 띠와 알림에서 이어지는 목록 화면.
-// 고정·메모·되돌리기는 명령으로 한다(`equion work pin`·`equion history revert`) — 화면의 단추는 D5.
+// 고정·메모는 결과 카드에서 하고 여기서는 가려 본다. 되돌리기는 바뀜 기록에서 — 무엇이 돌아가는지 먼저 보이고 나서(파일 하나만도 된다).
 
 import { confirmDialog } from '../dialog.js';
 import { clear, cmdText, flash, h, icon, KINDS, kindPill, when, WHO, whoLabel } from '../util.js';
@@ -49,15 +49,16 @@ export function recordsView(project) {
       h('button', { type: 'button', 'aria-pressed': String(filter === 'all'), onclick: () => { filter = 'all'; render(); } }, '모두', h('span', { class: 'c' }, all.length)),
       Object.keys(KINDS).filter((k) => counts[k]).map((k) => h('button', {
         type: 'button', 'aria-pressed': String(filter === k), onclick: () => { filter = k; render(); },
-      }, KINDS[k], h('span', { class: 'c' }, counts[k])))));
-    const rows = all.filter((r) => filter === 'all' || r.kind === filter).reverse();
+      }, KINDS[k], h('span', { class: 'c' }, counts[k]))),
+      all.some((r) => r.pinned) ? h('button', { type: 'button', 'aria-pressed': String(filter === 'pinned'), 'data-filter': 'pinned', onclick: () => { filter = 'pinned'; render(); } }, '고정', h('span', { class: 'c' }, all.filter((r) => r.pinned).length)) : null));
+    const rows = all.filter((r) => filter === 'all' || (filter === 'pinned' ? r.pinned : r.kind === filter)).reverse();
     if (!rows.length) { el.append(h('div', { class: 'empty-state' }, '기록이 없습니다.')); return; }
     const can = (r) => !['data', 'run', 'prop'].includes(r.kind) && !!r.command;
     el.append(h('div', { class: `rec-list ${picking ? 'picking' : ''}`.trim() }, rows.map((r) => h('button', {
       class: `rec-row ${picked.has(r.id) ? 'on' : ''}`.trim(), type: 'button', title: cmdText(r.command), disabled: picking && !can(r), 'data-record': r.id,
       onclick: () => { if (!picking) { project.openRecord(r.id); return; } if (picked.has(r.id)) picked.delete(r.id); else picked.add(r.id); render(); },
-    }, picking ? h('span', { class: `check-box ${picked.has(r.id) ? 'on' : ''}`.trim() }, picked.has(r.id) ? icon('check') : null) : null, kindPill(r.kind), h('span', { class: 'name' }, r.id),
-    h('span', { class: 'metric' }, r.metric || '', r.command ? h('span', { class: 'cmd' }, `   ${cmdText(r.command)}`) : null),
+    }, picking ? h('span', { class: `check-box ${picked.has(r.id) ? 'on' : ''}`.trim() }, picked.has(r.id) ? icon('check') : null) : null, kindPill(r.kind), h('span', { class: 'name' }, r.pinned ? h('span', { class: 'pinmark', title: '고정' }, icon('pin')) : null, r.id),
+    h('span', { class: 'metric' }, r.metric || '', r.memo ? h('span', { class: 'memo', title: r.memo }, `“${r.memo}”`) : null, r.command ? h('span', { class: 'cmd' }, `   ${cmdText(r.command)}`) : null),
     whoLabel(r.who), h('span', { class: 'when' }, when(r.created))))));
   }
 
@@ -96,6 +97,25 @@ export function changesView(project, desc) {
 
   function whoText(c) { return WHO[c.who] || c.who || ''; }
 
+  /** 되돌리기 — 그 바뀜 앞의 내용으로 다시 쓴다(이것도 바뀜 기록에 남는다). file 을 주면 그 파일만 */
+  async function revert(c, file = null) {
+    const files = file ? c.files.filter((f) => f.path === file) : c.files;
+    const command = `equion history revert ${c.id}${file ? ` --file ${file}` : ''}`;
+    const body = h('div', { class: 'adopt' },
+      h('p', {}, h('b', { class: 'mono' }, c.id), file ? ' 가 고친 파일 가운데 하나만' : ' 가 고친 파일을', ' 그 앞의 내용으로 되돌립니다. 그 뒤에 같은 파일을 또 고쳤으면 그것도 함께 물러납니다 — 되돌린 것도 바뀜 기록에 남아 다시 되돌릴 수 있습니다.'),
+      h('div', { class: 'diff' }, files.map((f) => h('span', { class: `dl ${f.op === 'added' ? 'del' : 'add'}` }, `${f.op === 'added' ? '지움(새로 만든 파일)' : f.op === 'removed' ? '되살림' : '앞 내용으로'}  ${f.path}`))),
+      h('div', { class: 'cmd-note mono' }, command));
+    if (!(await confirmDialog({ title: '되돌리기', body, confirm: file ? '이 파일만 되돌리기' : '되돌리기', wide: true }))) return;
+    try {
+      const res = await project.compute('revert', { change: c.id, ...(file ? { files: [file] } : {}) }, { quiet: true });
+      flash(res.result.change ? `되돌렸습니다 — 바뀜 기록 ${res.result.change}` : '지금 내용이 이미 그 앞과 같습니다(바꾼 것 없음)');
+      if (res.result.change) { selected = res.result.change; }
+      await load();
+    } catch (err) {
+      if (err.kind !== 'busy') project.notify({ level: 'error', text: err.message });
+    }
+  }
+
   function renderList() {
     clear(list);
     if (!changes.length) { list.append(h('div', { class: 'side-note' }, '바뀜 기록이 없습니다. 정의 파일(equion.toml·블록 파일·자료 정의·가정…)이 바뀌면 전후 차이가 여기에 남습니다.')); return; }
@@ -122,11 +142,12 @@ export function changesView(project, desc) {
         h('div', { class: 'sub' }, h('span', {}, c.how || ''), h('span', {}, when(c.created)), c.run ? h('span', { class: 'mono' }, c.run) : null,
           c.reverts ? h('span', {}, `${c.reverts} 을 되돌림`) : null)),
       h('div', { class: 'tools' },
-        h('button', { class: 'btn quiet', type: 'button', title: '되돌리기 명령을 터미널에 붙인다(Enter 는 직접) — 되돌리는 것도 바뀜 기록에 남는다',
-          onclick: () => project.sendToTerminal(`equion history revert ${c.id}`) }, icon('send'), '되돌리기 명령'))));
+        h('button', { class: 'btn', type: 'button', 'data-act': 'revert', disabled: project.busy, title: '이 바뀜 앞의 내용으로 되돌린다 — 무엇이 돌아가는지 먼저 보이고, 되돌린 것도 바뀜 기록에 남는다',
+          onclick: () => revert(c) }, icon('rewind'), '되돌리기'))));
     if (c.note) detail.append(h('div', { class: 'banner info' }, icon('info'), h('div', {}, c.note)));
     detail.append(h('div', { class: 'card-meta' }, c.files.map((f) => h('div', { class: 'pair' }, h('span', {}, OPS[f.op] || f.op),
-      h('button', { class: 'file-chip', type: 'button', onclick: () => project.openTab({ type: 'file', path: f.path }) }, f.path)))));
+      h('button', { class: 'file-chip', type: 'button', onclick: () => project.openTab({ type: 'file', path: f.path }) }, f.path),
+      c.files.length > 1 ? h('button', { class: 'btn small quiet', type: 'button', 'data-act': 'revert-file', disabled: project.busy, title: '이 파일만 그 앞의 내용으로 되돌린다', onclick: () => revert(c, f.path) }, '이 파일만 되돌리기') : null))));
     detail.append(c.diff ? diffBlock(c.diff) : h('div', { class: 'empty-state' }, '글 차이가 없습니다.'));
   }
 

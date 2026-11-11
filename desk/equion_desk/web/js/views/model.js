@@ -8,6 +8,7 @@
 // `equion block define`). 블록 파일의 식은 파일 보기의 '고치기'로. 푼 기록은 고치지 않는다 — 다시 풀면 새 기록이 생긴다.
 
 import { drawLines } from '../chart.js';
+import { claudeButton } from '../claude.js';
 import { confirmDialog } from '../dialog.js';
 import { clear, cmdText, copyText, flash, h, icon, kindPill, put, when, whoLabel } from '../util.js';
 import { diffBlock } from './lists.js';
@@ -426,7 +427,8 @@ export function modelView(project, desc) {
       h('div', { class: 'tools' },
         spec ? h('button', { class: 'btn', type: 'button', 'data-act': 'edit-model', title: '이 모형의 블록·끼울 모형·뺄 식을 고친다(equion model define) — 적힐 줄을 먼저 보인다', onclick: () => defineModel(false) }, icon('doc'), '모형 고치기') : null,
         h('button', { class: 'btn quiet', type: 'button', 'data-act': 'new-model', title: '블록과 모형을 골라 새 모형을 만든다', onclick: () => defineModel(true) }, icon('plus'), '새 모형'),
-        h('button', { class: 'btn quiet', type: 'button', 'data-act': 'new-block', title: '새 블록(방정식 파일 하나)을 만든다', onclick: defineBlock }, icon('plus'), '새 블록'))));
+        h('button', { class: 'btn quiet', type: 'button', 'data-act': 'new-block', title: '새 블록(방정식 파일 하나)을 만든다', onclick: defineBlock }, icon('plus'), '새 블록'),
+        claudeButton(project, () => { const r = project.records.find((x) => x.id === st.shown); return { name: `모형 ${st.model}`, summary: r ? `과거 재현 ${r.id}${r.metric ? ` (${r.metric})` : ''}` : '' }; }))));
     if (st.error) el.append(h('div', { class: 'banner error' }, icon('alert'), h('div', { class: 'grow' }, st.error)));
     if (!st.asm) { if (!st.error) el.append(h('div', { class: 'empty-state' }, '모형을 읽는 중…')); return; }
     el.append(flow(), st.section === 'hs' ? hsSection() : assemblySection());

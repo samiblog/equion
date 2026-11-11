@@ -114,9 +114,14 @@ def run(shots: str | None) -> int:
             try:
                 page = open_page(browser)
                 page.wait_for_selector("#welcome .welcome-card")
-                check("U1 프로젝트 없이 띄우면 첫 화면 — 폴더 열기·예제 만들기",
-                      page.locator("#welcome .btn").count() == 2 and page.locator("#activity").is_hidden())
+                check("U1 프로젝트 없이 띄우면 첫 화면 — 폴더 열기·예제 만들기·도움말",
+                      page.locator("#welcome .btn").count() == 3 and page.locator("#activity").is_hidden())
                 shot(page, "01-welcome")
+                page.click("#welcome [data-act=help]")
+                page.wait_for_selector(".dialog.help .doc h1")
+                helped = page.inner_text(".dialog.help .doc h1")
+                page.keyboard.press("Escape")
+                check("U1-1 첫 화면의 도움말 — 프로젝트가 없으면 상자로 뜨고 Esc 로 닫힌다", "Equion Desk 도움말" in helped and page.locator(".dialog.help").count() == 0)
                 page.close()
             finally:
                 server.terminate()
@@ -584,7 +589,9 @@ def run(shots: str | None) -> int:
                 cmd = page.inner_text(f"{pane} .an-form .cmdline .cmd")
                 page.click(f"{pane} [data-act='solve']")
                 page.wait_for_selector(f"{pane} .asm-box.shut", timeout=90000)
+                page.wait_for_selector(f"{pane} tr[data-sim].vs", timeout=30000)       # 풀이가 끝난 뒤 새 기록을 읽어 견주기까지 — 가정 표가 접힌 것보다 조금 늦다
                 page.wait_for_selector(f"{pane} [data-mode='diff']", timeout=30000)
+                page.wait_for_selector("#job .job.done:has-text('sim:')", timeout=30000)        # 작업 줄의 '끝남'은 응답보다 조금 늦게 온다
                 with open(os.path.join(folder, "ASSUMPTIONS", "base.csv"), encoding="utf-8") as f:
                     saved = f.read()
                 check("T3 풀기 — 저장하지 않은 가정을 먼저 저장하고 기준선과 시나리오를 차례로(작업 하나). 함께 푼 것은 나란히 견주게 고른다",
@@ -659,6 +666,81 @@ def run(shots: str | None) -> int:
                       page.locator(f"{pane} .view-head .tools .btn:has-text('전망 작업대에서')").count() == 1 and page.locator(f"{pane} [data-act='to-report']").count() == 1
                       and page.locator(f"{pane} [data-act='to-xlsx']").count() == 1)
 
+                print("R. 제안 · 되돌리기 · 고정과 메모 · Claude ▾ · 도움말(D5)")
+                claude_env = {**env, "EQUION_WHO": "claude"}
+                price = os.path.join(folder, "EQUATIONS", "price.txt")
+                made = equion(folder, claude_env, "propose", "new", "--title", "물가식에 시차 하나 더", "--why", "P(-2)를 넣어 본다 — 화면 점검", "--part", "price:P=P c Y POIL P(-1) P(-2)")
+                page.wait_for_selector(f"{active} .notice[data-key='prop:p1']", timeout=20000)
+                note = page.inner_text(f"{active} .notice[data-key='prop:p1']")
+                page.wait_for_selector(f"{active} .side .row-item[data-key='proposals'] .dot.prop", timeout=10000)
+                dot = page.locator(f"{active} .side .row-item[data-key='proposals'] .dot.prop").count()
+                page.click(f"{active} .notice[data-key='prop:p1'] .btn.primary")
+                page.wait_for_selector(f"{pane} .split-view.proposals .diff .dl.add")
+                check("R1 Claude 가 제안을 남기면 알림 카드와 사이드바의 점 — '제안 보기'가 제안 카드를 연다(바뀔 내용의 차이·까닭). 아직 아무것도 바뀌지 않았다",
+                      made.returncode == 0 and "Claude 제안 p1" in note and "물가식에 시차 하나 더" in note and dot == 1
+                      and "+P c Y POIL P(-1) P(-2)" in page.inner_text(f"{pane} .diff") and "화면 점검" in page.inner_text(f"{pane} .prop-why")
+                      and page.locator(f"{active} .side .row-item[data-key='proposals'] .dot.prop").count() == 0
+                      and page.locator(f"{active} .notice[data-key='prop:p1']").count() == 0 and "P(-2)" not in open(price, encoding="utf-8").read(), note + made.stderr[-200:])
+                page.wait_for_timeout(250)
+                shot(page, "03n-proposal")
+                page.click(f"{pane} [data-act='apply']")
+                page.wait_for_selector(".dialog .cmd-note")
+                said = page.inner_text(".dialog")
+                page.click(".dialog-foot .btn.primary")
+                page.wait_for_selector(f"{pane} .split-view.proposals .banner.info .btn", timeout=30000)
+                check("R2 적용 — 바꿀 파일과 같은 일을 하는 명령을 보이고 나서 쓴다. 제안은 '적용함'이 되고 바뀜 기록으로 가는 단추가 생긴다(알림 카드 없이)",
+                      "equion propose apply p1" in said and "EQUATIONS/price.txt" in said and "적용함" in page.inner_text(f"{pane} .detail .view-head")
+                      and "P c Y POIL P(-1) P(-2)" in open(price, encoding="utf-8").read() and page.locator(f"{active} .notice[data-change]").count() == 0
+                      and page.locator(f"{pane} [data-act='apply']").count() == 0, said)
+                page.click(f"{pane} .split-view.proposals .banner.info .btn")
+                page.wait_for_selector(f"{pane} [data-act='revert']")
+                page.click(f"{pane} [data-act='revert']")
+                page.wait_for_selector(".dialog .cmd-note")
+                said = page.inner_text(".dialog")
+                page.click(".dialog-foot .btn.primary")
+                page.wait_for_selector(f"{pane} .detail .view-head .sub:has-text('되돌림')", timeout=30000)
+                check("R3 되돌리기 — 무엇이 돌아가는지와 명령을 보이고 나서. 파일은 앞 내용으로 돌아가고, 되돌린 것도 바뀜 기록에 새 줄로 남는다",
+                      "equion history revert h" in said and "앞 내용으로" in said and "P(-2)" not in open(price, encoding="utf-8").read()
+                      and "Desk" in page.inner_text(f"{pane} .detail .view-head") and page.locator(f"{active} .notice[data-change]").count() == 0, said)
+                page.wait_for_timeout(250)
+                shot(page, "03o-revert")
+                page.click("#btn-records")
+                page.wait_for_selector(f"{pane} .rec-row")
+                page.click(f"{pane} .rec-row:has(.kind:has-text('전망')) >> nth=0")
+                page.wait_for_selector(f"{pane} [data-act='pin']")
+                page.click(f"{pane} [data-act='pin']")
+                page.wait_for_selector(f"{pane} [data-act='pin'][aria-pressed='true']")
+                page.fill(f"{pane} .memo-line input", "보고서에 쓴 전망")
+                page.keyboard.press("Enter")
+                page.click(f"{active} .tabbar .tab:has-text('작업 기록')")
+                page.wait_for_selector(f"{pane} .rec-row .memo", timeout=15000)
+                page.click(f"{pane} .filters [data-filter='pinned']")
+                check("R4 고정과 메모 — 결과 카드에서 고정하고 메모를 적으면 작업 기록 목록에 보이고 '고정'으로 가려 본다",
+                      page.locator(f"{pane} .rec-row").count() == 1 and page.locator(f"{pane} .rec-row .pinmark").count() == 1
+                      and "보고서에 쓴 전망" in page.inner_text(f"{pane} .rec-row"), page.inner_text(f"{pane} .rec-list")[:200])
+                page.click(f"{active} .side .row-item[data-key='bench:demand:CN']")
+                page.wait_for_selector(f"{pane} [data-act='claude']")
+                page.click(f"{pane} [data-act='claude']")
+                page.wait_for_selector(".menu .menu-item")
+                menu = page.inner_text(".menu")
+                page.wait_for_timeout(200)
+                shot(page, "03p-claude")
+                page.keyboard.press("Escape")
+                check("R5 Claude ▾ — 맡기기 · 제안 받기 · 이름만 보내기 · Equion 알려 주기(요청 글을 터미널에 붙인다 — Enter 는 직접)",
+                      all(x in menu for x in ("맡기기", "제안 받기", "이름만 보내기", "Equion 알려 주기", "demand:CN")) and page.locator(".menu").count() == 0, menu)
+                shown = equion(folder, claude_env, "desk", "show", "model:main")
+                page.wait_for_selector(f"{active} .tabbar .tab[aria-selected='true']:has-text('main')", timeout=20000)
+                page.wait_for_selector(f"{pane} .flow-card")
+                check("R6 equion desk show — Claude 가 치면 그 화면이 앞으로 온다(화면 이동만)", shown.returncode == 0 and page.locator(f"{pane} .flow-card").count() == 3, shown.stderr[-200:])
+                page.keyboard.press("F1")
+                page.wait_for_selector(f"{pane} .view.help h1")
+                check("R7 F1 — 도움말 탭(화면 · 핵심 고리 · 되돌리기 · Claude 와 함께 · 같은 일을 하는 명령 · 손버릇)",
+                      "Equion Desk 도움말" in page.inner_text(f"{pane} .view.help h1") and page.locator(f"{pane} .view.help table").count() >= 3
+                      and "도움말" in page.inner_text(f"{active} .tabbar .tab[aria-selected='true']"))
+                page.wait_for_timeout(200)
+                shot(page, "03q-help")
+                page.click(f"{active} .tabbar .tab[aria-selected='true'] .x")
+
                 print("W. 터미널에서 친 명령의 기록이 띠에 뜨고 카드로 열린다(D1 완료 기준)")
                 typed = page.locator(f"{active} .term-body .xterm").count() > 0
                 before = page.locator("#strip .chip").count()
@@ -692,7 +774,7 @@ def run(shots: str | None) -> int:
                 page.click(f"{pane} [data-scenario='oil20']")                                   # 기준선만
                 page.click(f"{pane} [data-act='solve']")
                 page.wait_for_selector("#job .job")
-                page.wait_for_selector("#job .job.done", timeout=60000)
+                page.wait_for_selector("#job .job.done:has-text('sim:')", timeout=60000)
                 page.wait_for_selector(f"{pane} tr[data-sim].on:has-text('_base')", timeout=30000)
                 check("X1 개요의 '전망' 단추는 전망 작업대를 열고, '풀기' — 작업 줄에 도는 일과 끝난 일(기록 이름), 푼 전망이 목록 맨 위에 보인다",
                       "sim:" in page.inner_text("#job .job.done") and "전망" in page.inner_text(f"{active} .tabbar .tab[aria-selected='true']")

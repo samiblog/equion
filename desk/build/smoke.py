@@ -128,6 +128,17 @@ def main() -> int:
                   (code, code2, code3, code4, code5, code6) == (200,) * 6 and asm.get("report", {}).get("ok") is True and len(fc.get("periods", [])) == 8
                   and len(ids) == 2 and os.path.isfile(os.path.join(project, "reports", "smoke.md")) and os.path.getsize(os.path.join(project, "exports", "smoke.xlsx")) > 2000,
                   f"{code} {code2} {code3} {code4} {code5} {code6} {str(ran)[:200]} {str(sent)[:120]} {str(xl)[:120]}")
+            made = subprocess.run([python, "-I", "-X", "utf8", "-m", "equion", "propose", "new", "--title", "기동 시험", "--part", "demand:CN=CN c Y"], cwd=project, env=env,
+                                  capture_output=True, text=True, encoding="utf-8")
+            code, props = http(f"/api/p/{pid}/proposals")
+            code2, one = http(f"/api/p/{pid}/proposal?id=prop:p1")
+            code3, marked = http(f"/api/p/{pid}/mark", {"record": ids[-1] if ids else "sim:x", "pinned": True, "memo": "기동 시험"})
+            code4, helped = http("/web/help/ko.md")
+            props, one, marked = (x if isinstance(x, dict) else {} for x in (props, one, marked))
+            check("9-3 제안·고정·도움말 — 명령으로 만든 제안이 목록에(차이와 함께), 기록에 고정과 메모, 앱에 든 도움말",
+                  made.returncode == 0 and (code, code2, code3, code4) == (200,) * 4 and [p.get("id") for p in props.get("proposals", [])] == ["prop:p1"]
+                  and "+CN c Y" in str(one.get("diff")) and marked.get("pinned") is True and "Equion Desk 도움말" in str(helped)[:200],
+                  f"{made.returncode} {code} {code2} {code3} {code4} {(made.stdout + made.stderr)[-200:]} {str(one)[:150]}")
         finally:
             server.terminate()
             try:

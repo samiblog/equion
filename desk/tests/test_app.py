@@ -1222,6 +1222,109 @@ def section_forecast(tmp: str) -> None:
         state.close()
 
 
+def section_review(tmp: str) -> None:
+    print("P. 제안·되돌리기·고정 — 제안이 생기는 순간 알림, 제안 보기·적용·버림(낡음), 바뀜 되돌리기(파일 하나만), 고정과 메모, equion desk show")
+    from equion_desk.server import create_app
+
+    folder = example(tmp, "review")
+
+    def read(*parts: str) -> str:
+        with open(os.path.join(folder, *parts), encoding="utf-8") as f:
+            return f.read()
+
+    equion(folder, "hs", "main")
+    equion(folder, "est", "P c Y POIL P(-1) P(-2)", "--for", "price:P", "--as", "p_lag2", who="claude")
+    equion(folder, "hs", "main", "--swap", "price:P=est:p_lag2", "--vs", "hs:hs_0001", who="claude")
+    state, pid = new_state(tmp, folder, "p.json")
+    api = f"/api/p/{pid}"
+    try:
+        c = create_app(state).test_client()
+        c.get(f"{api}/overview")
+        since = state.feed.read(0, 0)["seq"]
+        check("P1 제안이 없으면 빈 목록 · 앱 상태에 Claude Code 가 있는지(claude 명령)",
+              c.get(f"{api}/proposals").json == {"proposals": []} and isinstance(c.get("/api/state").json["claude"], bool))
+        r = equion(folder, "propose", "new", "--title", "물가식에 시차 하나 더", "--why", "P(-2)가 유의하다(est:p_lag2)", "--part", "price:P=est:p_lag2",
+                   "--preview", "hs:hs_0002", who="claude")
+        events = wait_events(state, since, lambda e: e.get("type") == "proposal")
+        ev = next((e for e in events if e.get("type") == "proposal"), {})
+        listed = c.get(f"{api}/proposals").json["proposals"] or [{"stale": None, "parts": None}]
+        check("P2 제안이 생기는 순간 알림 줄에(누가·제목·바꿀 파일) — 목록에도 열림으로, 아무것도 바뀌지 않았다",
+              r.returncode == 0 and ev.get("new") is True and ev["proposal"] == {**ev["proposal"], "id": "prop:p1", "name": "p1", "status": "open", "who": "claude", "title": "물가식에 시차 하나 더"}
+              and [f["path"] for f in ev["proposal"]["files"]] == ["EQUATIONS/price.txt", "EQUATIONS/adopted.toml"] and listed[0]["stale"] == []
+              and listed[0]["parts"] == {"price:P": "est:p_lag2"} and "P(-2)" not in read("EQUATIONS", "price.txt"), str(ev)[:300] + (r.stdout + r.stderr)[-400:])
+        one = c.get(f"{api}/proposal?id=prop:p1").json
+        check("P3 제안 하나 — 지금 파일 대비 차이·까닭·식·미리 계산한 과거 재현의 전후 RMSPE·같은 일을 하는 명령. 없는 제안·이름 모양",
+              "+P c Y POIL P(-1) P(-2)" in one["diff"] and one["why"].startswith("P(-2)") and one["previews"][0] == {**one["previews"][0], "id": "hs:hs_0002", "kind": "hs", "model": "main"}
+              and one["previews"][0]["vs"]["id"] == "hs:hs_0001" and len(one["previews"][0]["vs"]["rmspe"]["P"]) == 2 and one["commands"]["apply"] == "equion propose apply p1"
+              and c.get(f"{api}/proposal?id=prop:nope").status_code == 422 and c.get(f"{api}/proposal?id=p1").status_code == 400, one["diff"][:200])
+
+        with open(os.path.join(folder, "EQUATIONS", "price.txt"), "a", encoding="utf-8", newline="\n") as f:
+            f.write("# 제안 뒤에 사람이 적은 줄\n")
+        stale = c.get(f"{api}/proposals").json["proposals"][0]
+        refused = c.post(f"{api}/proposal/apply", json={"id": "prop:p1"})
+        since = state.feed.read(0, 0)["seq"]
+        forced = c.post(f"{api}/proposal/apply", json={"id": "prop:p1", "force": True})
+        done = forced.json["result"]
+        events = wait_events(state, since, lambda e: e.get("type") == "proposal" and (e.get("proposal") or {}).get("status") == "applied")
+        change = (done.get("decided") or {}).get("change")
+        hist = {x["id"]: x for x in c.get(f"{api}/changes").json["changes"]}
+        check("P4 낡음 — 제안을 만든 뒤 그 파일이 바뀌면 알리고, 덮겠다고(force) 할 때만 적용한다. 적용은 바뀜 기록에 'Desk'로, 알림 줄에 상태가 바뀐다",
+              stale["stale"] == ["EQUATIONS/price.txt"] and [f["stale"] for f in stale["files"]] == [True, False] and refused.status_code == 422 and "낡" in refused.json["error"]
+              and forced.status_code == 200 and done["status"] == "applied" and change in hist and hist[change]["who"] == "desk" and len(hist[change]["files"]) == 2
+              and "P c Y POIL P(-1) P(-2)" in read("EQUATIONS", "price.txt") and '"price:P" = "est:p_lag2"' in read("EQUATIONS", "adopted.toml")
+              and any(e.get("type") == "proposal" and e.get("new") is False for e in events), str(refused.json)[:200] + str(done)[:200])
+
+        one_file = c.post(f"{api}/revert", json={"change": change, "files": ["EQUATIONS/adopted.toml"]}).json["result"]
+        kept = "P c Y POIL P(-1) P(-2)" in read("EQUATIONS", "price.txt")
+        bad = [c.post(f"{api}/revert", json=j).status_code for j in ({"change": change, "files": ["equion.toml"]}, {"change": "h9999"}, {"change": "x1"},
+                                                                    {"change": change, "files": ["../x"]}, {"change": change, "files": []})]
+        whole = c.post(f"{api}/revert", json={"change": change}).json["result"]
+        again = c.post(f"{api}/revert", json={"change": change}).json["result"]
+        detail = c.get(f"{api}/change?id={whole['change']}").json
+        check("P5 되돌리기 — 파일 하나만(다른 파일은 그대로) · 바뀜 전체 · 이미 같으면 바꾼 것 없음. 되돌린 것도 바뀜 기록에 남는다 · 그 바뀜에 없는 파일(422)·모양(400)",
+              one_file["change"] and one_file["files"] == ["EQUATIONS/adopted.toml"] and one_file["command"] == f"equion history revert {change} --file EQUATIONS/adopted.toml" and kept
+              and not os.path.exists(os.path.join(folder, "EQUATIONS", "adopted.toml")) and bad == [422, 422, 400, 400, 400]
+              and whole["change"] and whole["files"] == ["EQUATIONS/price.txt"] and "P(-2)" not in read("EQUATIONS", "price.txt") and "사람이 적은 줄" in read("EQUATIONS", "price.txt")
+              and again["change"] is None and detail["reverts"] == change and detail["who"] == "desk", str(one_file) + str(bad) + str(whole))
+
+        equion(folder, "propose", "new", "--title", "버릴 제안", "--part", "demand:CN=CN c Y", who="claude")
+        dropped = c.post(f"{api}/proposal/drop", json={"id": "prop:p2", "why": "시차를 빼면 설명이 안 된다"}).json["result"]
+        rows = {x["id"]: x for x in c.get(f"{api}/proposals").json["proposals"]}
+        check("P6 버림 — 파일은 그대로, 제안과 까닭은 남는다 · 이미 닫힌 제안은 다시 적용하지 못한다",
+              dropped["status"] == "dropped" and rows["prop:p2"]["decided"]["note"] == "시차를 빼면 설명이 안 된다" and rows["prop:p1"]["status"] == "applied"
+              and "CN c Y CN(-1)" in read("EQUATIONS", "demand.txt") and c.post(f"{api}/proposal/apply", json={"id": "prop:p2"}).status_code == 422
+              and c.post(f"{api}/proposal/drop", json={"id": "p2"}).status_code == 400, str(dropped)[:200])
+
+        m1 = c.post(f"{api}/mark", json={"record": "est:p_lag2", "pinned": True, "memo": "제안 p1 의 근거"}).json
+        m2 = c.post(f"{api}/mark", json={"record": "est:p_lag2", "pinned": False}).json
+        recs = {x["id"]: x for x in c.get(f"{api}/records").json["records"]}
+        bad = [c.post(f"{api}/mark", json=j).status_code for j in ({"record": "est:nope", "pinned": True}, {"record": "prop:p1", "pinned": True}, {"record": "est:p_lag2", "pinned": "yes"},
+                                                                  {"record": "est:p_lag2", "memo": "x" * 501})]
+        check("P7 고정과 메모 — 기록은 그대로, marks.json 에만. 작업 기록 목록에 함께 온다 · 없는 기록(422)·모양(400)",
+              m1 == {"record": "est:p_lag2", "pinned": True, "memo": "제안 p1 의 근거"} and m2["pinned"] is False and m2["memo"] == "제안 p1 의 근거"
+              and recs["est:p_lag2"]["pinned"] is False and recs["est:p_lag2"]["memo"] == "제안 p1 의 근거" and "pinned" not in recs["hs:hs_0001"]
+              and bad == [422, 400, 400, 400], str(m1) + str(bad))
+
+        since = state.feed.read(0, 0)["seq"]
+        shown = [equion(folder, "desk", "show", x, who="claude").returncode for x in ("prop:p1", "demand:CN", "est:nope")]
+        events = wait_events(state, since, lambda e: e.get("type") == "show" and e.get("show") == "demand:CN")
+        shows = [(e["show"], e["kind"], e["who"]) for e in events if e.get("type") == "show"]
+        check("P8 equion desk show — 터미널·Claude 가 치면 알림 줄에 '이 화면을 열어 달라'가 온다(없는 이름은 오지 않는다). 다시 띄운 앱은 지난 요청을 다시 열지 않는다",
+              shown == [0, 0, 3] and shows == [("prop:p1", "proposal", "claude"), ("demand:CN", "part", "claude")], str(shows))
+    finally:
+        state.close()
+    state, pid = new_state(tmp, folder, "p2.json")
+    try:
+        c = create_app(state).test_client()
+        c.get(f"/api/p/{pid}/overview")
+        state.session(pid).watcher.check()
+        got = state.feed.read(0, 0.3)["events"]
+        check("P9 다시 띄우면 — 지난 요청·지난 제안으로 알림을 만들지 않는다(목록에는 그대로 있다)",
+              not any(e.get("type") in ("show", "proposal") for e in got) and len(c.get(f"/api/p/{pid}/proposals").json["proposals"]) == 2, str([e.get("type") for e in got]))
+    finally:
+        state.close()
+
+
 def section_instance(tmp: str, folder: str) -> None:
     print("I. 창은 하나 — 또 실행하면 폴더를 떠 있는 창에 넘긴다")
     from equion_desk import instance
@@ -1257,6 +1360,7 @@ def run() -> int:
         section_import(tmp)
         section_model(tmp)
         section_forecast(tmp)
+        section_review(tmp)
         section_instance(tmp, folder)
     bad = [n for n, ok, _ in RESULTS if not ok]
     print(f"\nEquion Desk 앱 시험 {len(RESULTS) - len(bad)}/{len(RESULTS)}")

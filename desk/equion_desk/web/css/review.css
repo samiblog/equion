@@ -1,0 +1,53 @@
+/* 제안 · 되돌리기 · Claude 에게 · 고정과 메모 · 도움말(D5). 색은 tokens.css. */
+
+/* ---- Claude ▾ ------------------------------------------------------------------------------- */
+.claude-btn svg.ic:first-child { color: var(--w-claude); }
+.claude-btn.dim { opacity: .6; }
+.menu-note { max-width: 320px; margin: 2px 4px 6px; padding: 8px 10px; border-radius: var(--radius-s); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-xs); line-height: 1.6; }
+.menu-sep { height: 1px; margin: 5px 4px; background: var(--line-2); }
+.menu.stack .menu-item { flex-direction: column; align-items: flex-start; gap: 2px; }
+.menu.stack .menu-item small { white-space: normal; line-height: 1.45; }
+
+/* ---- 제안 ----------------------------------------------------------------------------------- */
+.split-view.proposals .change-row .l1 .tag { height: 18px; }
+.prop-why { margin: 0 0 4px; max-width: 760px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.prop-parts { display: grid; gap: 6px; }
+.prop-part { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; font-size: var(--fs-s); }
+.prop-part code { font-size: calc(11.5px * var(--scale)); color: var(--ink-2); overflow-wrap: anywhere; }
+.prop-preview { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin: 8px 0 6px; font-size: var(--fs-s); }
+.split-view.proposals .detail .cmdline { margin-top: 18px; }
+.split-view.proposals .detail .vs { margin: 0 0 10px; }
+.row-item .dot.prop { background: var(--k-prop); }
+
+/* ---- 바뀜 기록의 되돌리기 -------------------------------------------------------------------- */
+.card-meta .pair .btn.small { margin-left: 4px; }
+.revert-list { display: grid; gap: 4px; margin: 8px 0; }
+
+/* ---- 고정과 메모 ----------------------------------------------------------------------------- */
+.btn[data-act="pin"][aria-pressed="true"] { color: var(--accent-ink); background: var(--accent-soft); }
+.memo-line { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; }
+.memo-line > span { flex: none; color: var(--ink-3); font-size: var(--fs-xs); font-weight: 700; letter-spacing: .05em; }
+.memo-line input { flex: 1; min-width: 0; height: 28px; padding: 0 9px; border: 1px solid transparent; border-radius: var(--radius-s); background: var(--raised); color: var(--ink); font-size: var(--fs-s); }
+.memo-line input::placeholder { color: var(--ink-4); }
+.memo-line input:hover { border-color: var(--line); }
+.memo-line input:focus { outline: 0; border-color: var(--accent); background: var(--paper); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.rec-row .pinmark { display: inline-flex; margin-right: 6px; color: var(--accent); vertical-align: -2px; }
+.rec-row .pinmark svg.ic { width: 12px; height: 12px; }
+.rec-row .memo { margin-left: 10px; color: var(--ink-3); font-size: var(--fs-xs); font-style: normal; }
+
+/* ---- 도움말 ---------------------------------------------------------------------------------- */
+.view.help { max-width: 880px; }
+.dialog.help { width: min(880px, calc(100vw - 48px)); }
+.dialog.help .dialog-body { max-height: min(70vh, 720px); overflow: auto; }
+.popover .pop-actions { display: grid; gap: 6px; }
+.popover .pop-actions .btn { justify-content: flex-start; }
+.popover .pop-note { margin-top: 6px; color: var(--ink-3); font-size: var(--fs-xs); line-height: 1.6; }
+
+/* ---- 좁은 가운데 폭에서는 목록을 위에, 내용을 아래에(바뀜 기록 · 제안) --------------------------------- */
+.pane { container: pane / inline-size; }
+.split-view .detail .view-head .tools { flex: 0 1 auto; flex-wrap: wrap; }
+@container pane (max-width: 780px) {
+  .split-view { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .split-view .list { max-height: 196px; border-right: 0; border-bottom: 1px solid var(--line-strong); }
+  .split-view .detail { padding: 16px 20px 44px; }
+}

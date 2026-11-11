@@ -23,7 +23,7 @@ import threading
 import time
 from typing import Any
 
-from . import dataops, jobs, modelops, runtime, simops
+from . import dataops, jobs, modelops, reviewops, runtime, simops
 from .records import read_series
 
 START_WAIT = 60.0     # 프로세스가 뜨고 equion을 불러올 때까지 기다리는 시간(초) — 느린 디스크·보안 프로그램
@@ -359,6 +359,22 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
     def export(records: list, name: str) -> dict:
         return simops.export(holder.get(), records, name)
 
+    # ---- 제안 · 되돌리기 · 고정과 메모(reviewops.py) -----------------------------------------------
+    def proposal(name: str) -> dict:
+        return reviewops.proposal(holder.get(), name)
+
+    def proposal_apply(name: str, force: bool = False) -> dict:
+        return reviewops.proposal_apply(holder.get(), name, force)
+
+    def proposal_drop(name: str, why: str | None = None) -> dict:
+        return reviewops.proposal_drop(holder.get(), name, why)
+
+    def revert(change: str, files: list | None = None) -> dict:
+        return reviewops.revert(holder.get(), change, files)
+
+    def mark(record: str, pinned: bool | None = None, memo: str | None = None) -> dict:
+        return reviewops.mark(holder.get(), record, pinned, memo)
+
     def scan() -> dict | None:
         """명령 밖에서 고친 정의 파일을 '바깥' 바뀜으로 적는다(K7). 바뀐 것이 없으면 None."""
         change = holder.get().history.scan()
@@ -374,7 +390,8 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
             "script_run": script_run, "run_view": run_view, "script_new": script_new, "todo": todo, "reestimate": reestimate,
             "forecast": forecast, "assume": assume, "sim_run": sim_run, "sim_view": sim_view, "views": views, "view_define": view_define,
             "reports": reports, "report_new": report_new, "report_add": report_add, "report_check": report_check, "report_update": report_update,
-            "export": export}
+            "export": export,
+            "proposal": proposal, "proposal_apply": proposal_apply, "proposal_drop": proposal_drop, "revert": revert, "mark": mark}
 
 
 def _plain(value: Any) -> Any:

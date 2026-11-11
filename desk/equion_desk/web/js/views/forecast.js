@@ -10,6 +10,7 @@
 // 푼 전망이 있으면 가정 표는 접어 두고(한 줄 요약) 결과를 먼저 보인다 — 가정을 고치려면 그 줄을 눌러 편다.
 
 import { drawLines } from '../chart.js';
+import { claudeButton } from '../claude.js';
 import { confirmDialog, popMenu } from '../dialog.js';
 import { clear, copyText, flash, h, icon, kindPill, put, when, whoLabel } from '../util.js';
 import { exportXlsx, sendToReport } from './send.js';
@@ -414,7 +415,8 @@ export function forecastView(project, desc) {
       info ? h('div', { class: 'tools' },
         info.scenarios.length ? h('button', { class: 'btn quiet', type: 'button', title: '시나리오 파일을 연다 — 충격(어느 변수를 얼마나)을 적는 정의 파일', onclick: (e) => popMenu(e.currentTarget, [h('div', { class: 'menu-title' }, '시나리오 파일'),
           ...info.scenarios.map((s) => ({ label: s.name, hint: s.desc || s.file, onPick: () => project.openTab({ type: 'file', path: s.file, edit: true }) }))], { cls: 'plain', align: 'right' }) }, icon('layers'), '시나리오', icon('chevron', 'down')) : null,
-        h('button', { class: 'btn quiet', type: 'button', onclick: () => project.openTab({ type: 'reports' }) }, icon('doc'), '보고서')) : null));
+        h('button', { class: 'btn quiet', type: 'button', onclick: () => project.openTab({ type: 'reports' }) }, icon('doc'), '보고서'),
+        claudeButton(project, () => ({ name: st.shown || `모형 ${st.model} 의 전망`, summary: st.view && st.shown ? `${st.view.meta.scenario === 'base' ? '기준선' : `시나리오 ${st.view.meta.scenario}`} ${st.view.meta.range?.join('~') || ''}` : '' }))) : null));
     if (st.error) el.append(h('div', { class: 'banner error' }, icon('alert'), h('div', { class: 'grow' }, st.error)));
     if (!info) { if (!st.error) el.append(h('div', { class: 'empty-state' }, '전망을 읽는 중…')); return; }
     if (!info.model) { el.append(h('div', { class: 'empty-state' }, '모형이 없습니다.')); return; }

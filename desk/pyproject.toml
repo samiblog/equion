@@ -1,6 +1,6 @@
 [project]
 name = "equion-desk"
-version = "0.1.0.dev0"
+version = "0.1.0rc1"
 description = "Equion Desk — Equion 프로젝트를 화면에서 다루는 데스크톱 앱(Windows 전용)"
 readme = "README.md"
 license = "MIT"

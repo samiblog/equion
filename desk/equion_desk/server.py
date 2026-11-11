@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -107,7 +108,8 @@ def create_app(state: AppState) -> Flask:
     def app_state() -> dict[str, Any]:
         return {"version": __version__, "mode": state.mode, "tabs": state.tabs(), "active": state.active,
                 "terminal": state.terminals.available, "can_pick": state.pick_folder is not None, "can_pick_file": state.pick_file is not None,
-                "recent": state.config.get("recent") or [], "client": state.config.client(), "seq": state.feed.seq}
+                "recent": state.config.get("recent") or [], "client": state.config.client(), "seq": state.feed.seq,
+                "claude": shutil.which("claude") is not None}      # Claude Code 가 이 PC 에 있나 — 없으면 '맡기기·제안 받기'가 설치를 안내한다
 
     @app.get("/api/state")
     def api_state() -> Any:
@@ -817,6 +819,64 @@ def create_app(state: AppState) -> Flask:
         data = body()
         scenario, model = text_arg(data, "scenario") or "base", text_arg(data, "model")
         return run(pid, "sim", t("전망 {scenario}", scenario=scenario), scenario=scenario, model=model)
+
+    # ---- 프로젝트: 제안 · 되돌리기 · 고정과 메모 ---------------------------------------------------------
+
+    PROP_ID = re.compile(r"prop:[A-Za-z0-9][A-Za-z0-9_\-]{0,60}")
+    CHANGE = re.compile(r"h\d{1,8}")
+    MARKED = re.compile(r"(?:est|hs|sim|an|run):[A-Za-z0-9][A-Za-z0-9_\-.]{0,160}")
+
+    @app.get("/api/p/<pid>/proposals")
+    def api_proposals(pid: str) -> Any:
+        """제안 목록(만든 순) — 열림·적용·버림. 열린 제안은 만든 뒤 바뀐 파일(낡음)과 함께. 파일을 읽기만 한다."""
+        return jsonify(proposals=session(pid).proposals())
+
+    @app.get("/api/p/<pid>/proposal")
+    def api_proposal(pid: str) -> Any:
+        """제안 하나 — 지금 파일 대비 바뀔 내용의 차이, 까닭, 미리 계산한 기록."""
+        rid = request.args.get("id", "")
+        if not PROP_ID.fullmatch(rid):
+            abort(400)
+        return ask(pid, "proposal", name=rid[5:])
+
+    @app.post("/api/p/<pid>/proposal/apply")
+    def api_proposal_apply(pid: str) -> Any:
+        """{id, force?} — 제안 적용(`equion propose apply`). 만든 뒤 파일이 바뀌었으면(낡음) force 일 때만."""
+        data = body()
+        rid = pick(data, "id", PROP_ID)
+        if rid is None:
+            abort(400)
+        return run(pid, "proposal_apply", t("제안 적용 {name}", name=rid[5:]), name=rid[5:], force=data.get("force") is True)
+
+    @app.post("/api/p/<pid>/proposal/drop")
+    def api_proposal_drop(pid: str) -> Any:
+        """{id, why?} — 제안 버림(`equion propose drop`). 파일은 그대로."""
+        data = body()
+        rid = pick(data, "id", PROP_ID)
+        if rid is None:
+            abort(400)
+        return run(pid, "proposal_drop", t("제안 버림 {name}", name=rid[5:]), name=rid[5:], why=text_arg(data, "why", 300))
+
+    @app.post("/api/p/<pid>/revert")
+    def api_revert(pid: str) -> Any:
+        """{change, files?} — 되돌리기(`equion history revert`): 그 바뀜 앞의 내용으로 다시 쓴다. files 를 주면 그 파일만."""
+        data = body()
+        change, files = pick(data, "change", CHANGE), data.get("files")
+        if change is None:
+            abort(400)
+        if files is not None and (not isinstance(files, list) or not 1 <= len(files) <= 60 or any(
+                not isinstance(f, str) or not 0 < len(f) <= 300 or "\\" in f or f.startswith("/") or ".." in f.split("/") for f in files)):
+            abort(400)
+        return run(pid, "revert", t("되돌리기 {change}", change=change), change=change, files=files)
+
+    @app.post("/api/p/<pid>/mark")
+    def api_mark(pid: str) -> Any:
+        """{record, pinned?, memo?} — 기록에 고정·메모(`equion work pin·memo`). 기록은 그대로, marks.json 에만."""
+        data = body()
+        record, pinned, memo = pick(data, "record", MARKED), data.get("pinned"), data.get("memo")
+        if record is None or (pinned is not None and not isinstance(pinned, bool)) or (memo is not None and (not isinstance(memo, str) or len(memo) > 500)):
+            abort(400)
+        return ask(pid, "mark", record=record, pinned=pinned, memo=memo)
 
     @app.post("/api/p/<pid>/cancel")
     def api_cancel(pid: str) -> Any:

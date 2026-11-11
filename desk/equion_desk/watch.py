@@ -20,6 +20,9 @@ import threading
 import time
 from typing import Any, Callable
 
+from . import records
+
+SHOW_KINDS = frozenset({"record", "proposal", "data", "part", "model", "file", "place"})
 POLL = 2.0          # watchdog 이 깨우지 않아도 이만큼마다 견준다(초)
 SETTLE = 0.25       # 깨운 뒤 잠깐 기다린다 — 명령 하나가 파일 여럿을 잇달아 쓴다
 MAX_EVENTS = 2000   # 들고 있는 알림 수
@@ -138,6 +141,9 @@ class ProjectWatcher:
         self._offset = self._log_size()
         self._known = set(history_ids(root))
         self._defs = definitions(root)
+        self._props = self._proposal_state()
+        self._requests = os.path.join(root, *records.REQUESTS)
+        self._req_offset = self._size(self._requests)
         self._observer: Any = None
         self._start_observer()
         self._thread = threading.Thread(target=self._loop, name=f"desk-watch-{pid}", daemon=True)
@@ -149,10 +155,23 @@ class ProjectWatcher:
         return self._observer is not None
 
     def _log_size(self) -> int:
+        return self._size(self._log)
+
+    @staticmethod
+    def _size(path: str) -> int:
         try:
-            return os.path.getsize(self._log)
+            return os.path.getsize(path)
         except OSError:
             return 0
+
+    def _proposal_state(self) -> dict[str, str]:
+        """제안마다의 상태(open·applied·dropped) — 새 제안과 상태가 바뀐 것을 가린다."""
+        out = {}
+        for name in records.proposal_names(self.root):
+            found = records.read_proposal(self.root, name)
+            if found:
+                out[name] = found["status"]
+        return out
 
     def _start_observer(self) -> None:
         try:
@@ -202,6 +221,8 @@ class ProjectWatcher:
         self._check_log()
         self._check_history()
         self._check_definitions()
+        self._check_proposals()
+        self._check_requests()
         if self._tree_dirty:
             self._tree_dirty = False
             self.feed.add("tree", p=self.pid)
@@ -232,6 +253,45 @@ class ProjectWatcher:
                 continue
             if isinstance(line, dict) and isinstance(line.get("id"), str):
                 self.feed.add("record", p=self.pid, record=line)
+
+    def _check_proposals(self) -> None:
+        now = self._proposal_state()
+        if now == self._props:
+            return
+        old, self._props = self._props, now
+        for name, status in now.items():
+            if old.get(name) != status:
+                found = records.read_proposal(self.root, name)
+                if found:
+                    self.feed.add("proposal", p=self.pid, proposal=found, new=name not in old)
+        if set(old) - set(now):          # 제안 폴더를 지웠다 — 목록을 다시 읽게
+            self.feed.add("proposal", p=self.pid, proposal=None, new=False)
+
+    def _check_requests(self) -> None:
+        """`equion desk show <이름>` 이 덧붙인 줄 — 그 화면을 열어 달라는 요청(화면 이동만)."""
+        size = self._size(self._requests)
+        if size < self._req_offset:      # 커져서 지난 줄을 버리고 새로 썼다
+            self._req_offset = 0
+        if size == self._req_offset:
+            return
+        try:
+            with open(self._requests, "rb") as f:
+                f.seek(self._req_offset)
+                chunk = f.read(size - self._req_offset)
+        except OSError:
+            return
+        end = chunk.rfind(b"\n")
+        if end < 0:
+            return
+        self._req_offset += end + 1
+        for raw in chunk[:end].split(b"\n")[-8:]:       # 밀린 요청이 많아도 마지막 몇 개만 연다
+            try:
+                line = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                continue
+            show = line.get("show") if isinstance(line, dict) else None
+            if isinstance(show, str) and 0 < len(show) <= 300 and line.get("kind") in SHOW_KINDS:
+                self.feed.add("show", p=self.pid, show=show, kind=line["kind"], who=str(line.get("who") or "")[:40])
 
     def _check_history(self) -> None:
         ids = history_ids(self.root)

@@ -6,10 +6,11 @@
 
 import { renderDoc } from '../md.js';
 import { bytes, clear, cmdText, copyText, h, icon, kindPill, when, whoLabel } from '../util.js';
+import { claudeButton } from '../claude.js';
 import { exportXlsx, sendToReport } from './send.js';
 
 /** 전후 비교(변수마다 RMSPE 가 얼마에서 얼마로) — 좋아진 것은 초록, 나빠진 것은 붉게 */
-function compareStrip(vs) {
+export function compareStrip(vs) {
   const rows = Object.entries(vs.rmspe || {}).filter(([, v]) => Array.isArray(v) && v[0] != null && v[1] != null);
   if (!rows.length) return null;
   const EPS = 0.005;      // 보이는 자릿수(소수 둘째) 아래의 차이는 '그대로'
@@ -48,6 +49,24 @@ export function cardView(project, desc) {
     }
     const m = rec.meta || {};
     const command = cmdText(m.command);
+    // 고정과 메모 — 기록 자체는 그대로, work/marks.json 에만(equion work pin·memo)
+    const canMark = ['est', 'hs', 'sim', 'an', 'run'].includes(kind);
+    const row = () => project.records.find((r) => r.id === id);
+    const mark = async (change) => {
+      try {
+        const done = await project.post('mark', { record: id, ...change });
+        const r = row();
+        if (r) { r.pinned = !!done.pinned; r.memo = done.memo || ''; }
+        project.emit({ type: 'records' });
+        return done;
+      } catch (err) { project.notify({ level: 'error', text: err.message }); return null; }
+    };
+    const pin = h('button', { class: 'btn quiet', type: 'button', 'data-act': 'pin', 'aria-pressed': String(!!row()?.pinned), title: '고정 — 정리(equion work clean)에서 빼고 목록에서 가려 본다',
+      onclick: async () => { const done = await mark({ pinned: pin.getAttribute('aria-pressed') !== 'true' }); if (done) { pin.setAttribute('aria-pressed', String(!!done.pinned)); pin.lastChild.textContent = done.pinned ? '고정됨' : '고정'; } } },
+    icon('pin'), row()?.pinned ? '고정됨' : '고정');
+    const memo = h('input', { type: 'text', value: row()?.memo || '', maxlength: '500', placeholder: '이 기록에 대해 적어 둘 것 — 예: 보고서에 쓴 것', spellcheck: 'false', 'aria-label': '메모' });
+    memo.addEventListener('change', () => mark({ memo: memo.value.trim() }));
+    memo.addEventListener('keydown', (e) => { if (e.key === 'Enter') memo.blur(); });
     clear(el);
     el.append(h('div', { class: 'view-head' },
       h('div', {}, h('h1', {}, kindPill(kind), h('span', { class: 'mono' }, id)),
@@ -60,7 +79,9 @@ export function cardView(project, desc) {
         ['est', 'hs', 'sim', 'an'].includes(kind) ? h('button', { class: 'btn quiet', type: 'button', 'data-act': 'to-report', title: '이 기록의 표를 보고서의 한 구역으로 보낸다', onclick: () => sendToReport(project, id) }, icon('doc'), '보고서로') : null,
         ['est', 'hs', 'sim'].includes(kind) ? h('button', { class: 'btn quiet', type: 'button', 'data-act': 'to-xlsx', title: '값·값의 종류·출처를 엑셀로', onclick: () => exportXlsx(project, [id]) }, icon('table'), '엑셀로') : null,
         h('button', { class: 'btn quiet', type: 'button', title: '이름 복사', onclick: () => copyText(id, `${id} — 복사했습니다`) }, icon('copy'), '이름'),
-        h('button', { class: 'btn quiet', type: 'button', title: '터미널에 이름을 붙인다(Enter 는 직접)', onclick: () => project.sendToTerminal(id) }, icon('send'), '터미널로'))));
+        canMark ? pin : null,
+        claudeButton(project, () => ({ name: id, summary: row()?.metric || '' })))));
+    if (canMark) el.append(h('label', { class: 'memo-line' }, h('span', {}, '메모'), memo));
     if (command) {
       el.append(h('button', { class: 'cmdline', type: 'button', title: '이 기록을 만든 명령 — 누르면 복사합니다', onclick: () => copyText(command, '명령을 복사했습니다') },
         h('span', { class: 'prompt' }, '>'), h('span', { class: 'cmd' }, command), icon('copy')));

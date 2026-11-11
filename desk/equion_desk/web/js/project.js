@@ -13,13 +13,15 @@ import { dataView } from './views/data.js';
 import { fileView } from './views/file.js';
 import { flowView } from './views/flow.js';
 import { forecastView } from './views/forecast.js';
+import { helpView } from './views/help.js';
 import { homeView } from './views/home.js';
 import { importView } from './views/importer.js';
 import { changesView, recordsView } from './views/lists.js';
 import { modelView } from './views/model.js';
+import { proposalsView } from './views/proposals.js';
 import { reportsView } from './views/reports.js';
 
-const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView, model: modelView, flow: flowView, forecast: forecastView, reports: reportsView };
+const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView, model: modelView, flow: flowView, forecast: forecastView, reports: reportsView, proposals: proposalsView, help: helpView };
 const MAX_TABS = 24;       // 가운데 탭 — 넘으면 가장 오래된 것부터 닫는다(작업대가 늘어 14에서 올렸다)
 const FILE_ICON = { md: 'doc', csv: 'table', toml: 'code', txt: 'equation', eqs: 'play', json: 'code', xlsx: 'table' };
 
@@ -49,6 +51,9 @@ export class Project {
     this.dataError = null;
     this.dataWanted = false;
     this.dataChecked = null;     // {vintage, fingerprint} — 만들어 보았더니 값이 같았던 정의·원자료(다시 권하지 않는다)
+    this.proposals = [];         // 제안(work/proposals/) — 열림·적용·버림
+    this.unseenProps = new Set();
+    this.reloadProposals = debounce(() => this.loadProposals(), 200);
     this.saveView = debounce(() => this.persist(), 500);
     this.reloadOverview = debounce(() => this.loadOverview(), 150);
     this.reloadData = debounce(() => { if (this.dataWanted) this.loadData(); }, 500);
@@ -111,6 +116,7 @@ export class Project {
       await this.restore();
       this.loadRecords();
       this.loadOverview();
+      this.loadProposals();
     }
     if (this.app.settings.term_visible) this.term.start();
     this.tabs.get(this.active)?.view.show();
@@ -338,6 +344,30 @@ export class Project {
     return this.openTab({ type: 'record', id });
   }
 
+  async loadProposals() {
+    try { this.proposals = (await this.get('proposals')).proposals; } catch { this.proposals = []; }
+    for (const id of [...this.unseenProps]) if (!this.proposals.some((p) => p.id === id && p.status === 'open')) this.unseenProps.delete(id);
+    this.renderParts();
+  }
+
+  seenProposal(id) {
+    if (this.unseenProps.delete(id)) this.renderParts();
+    this.notices.querySelector(`[data-key="${CSS.escape(id)}"]`)?.remove();
+  }
+
+  /** 이름으로 화면을 연다 — `equion desk show <이름>` 이 시킨 것(화면 이동만) */
+  showByName(name, kind) {
+    const PLACE = { home: 'home', data: 'data', analysis: 'analysis', forecast: 'forecast', reports: 'reports', records: 'records', changes: 'changes', proposals: 'proposals' };
+    if (kind === 'record') return this.openRecord(name);
+    if (kind === 'proposal') return this.openTab({ type: 'proposals', id: name });
+    if (kind === 'data') return this.openTab({ type: 'data' });
+    if (kind === 'part') return this.openTab({ type: 'bench', part: name });
+    if (kind === 'model') return this.openTab({ type: 'model', model: name.replace(/^model:/, '') });
+    if (kind === 'file') return this.openTab(/^FLOWS\/[^/]+\.eqs$/.test(name) ? { type: 'flow', path: name } : { type: 'file', path: name });
+    if (kind === 'place' && PLACE[name]) return this.openTab({ type: PLACE[name] });
+    return null;
+  }
+
   seen(id) {
     if (this.unseen.delete(id)) this.app.renderActivity();
   }
@@ -379,6 +409,7 @@ export class Project {
     const note = this.dataNote();
     const nAn = this.records.filter((r) => r.kind === 'an').length;
     const nSim = this.records.filter((r) => r.kind === 'sim').length;
+    const nOpen = this.proposals.filter((p) => p.status === 'open').length;
     box.append(sec('작업대', '', [
       h('button', { class: 'row-item', type: 'button', 'data-key': 'data', title: note ? `자료 — ${note.text}` : '자료 — 원자료 · 시리즈 · 회차', onclick: () => this.openTab({ type: 'data' }) },
         icon('data'), h('span', { class: 'label' }, '자료'), h('span', { class: 'desc mono' }, o.vintage?.id || (o.data_file || '').split('/').pop() || ''),
@@ -389,6 +420,8 @@ export class Project {
         icon('forward'), h('span', { class: 'label' }, '전망'), h('span', { class: 'desc mono' }, o.forecast?.model || ''), h('span', { class: 'tail' }, nSim || null)),
       h('button', { class: 'row-item', type: 'button', 'data-key': 'reports', title: '보고서 — 글 사이에 기록에서 보낸 표·차트. 새 기록으로 바꾼다', onclick: () => this.openTab({ type: 'reports' }) },
         icon('doc'), h('span', { class: 'label' }, '보고서'), h('span', { class: 'desc' }, ''), h('span', { class: 'tail' }, o.reports || null)),
+      h('button', { class: 'row-item', type: 'button', 'data-key': 'proposals', title: nOpen ? `제안 — 열린 제안 ${nOpen}개(적용하기 전에 바뀔 내용을 본다)` : '제안 — Claude 가 남긴 “이렇게 바꾸면”을 적용하기 전에 본다', onclick: () => this.openTab({ type: 'proposals' }) },
+        icon('spark'), h('span', { class: 'label' }, '제안'), h('span', { class: 'desc' }, nOpen ? `열림 ${nOpen}` : ''), h('span', { class: 'tail' }, this.unseenProps.size ? h('span', { class: 'dot prop', title: '아직 보지 않은 제안' }) : (this.proposals.length || null))),
     ]));
 
     box.append(sec('모형', o.models.length, o.models.map((m) => h('button', {
@@ -538,6 +571,21 @@ export class Project {
       (this.offlineIds ||= new Set()).add(e.change);
       const card = this.notices.querySelector(`[data-key="${CSS.escape(e.change)}"] .text`);
       if (card && !card.textContent.startsWith('Desk')) card.prepend('Desk 가 꺼져 있는 동안 ');
+    } else if (e.type === 'proposal') {
+      const p = e.proposal;
+      if (p && e.new && p.status === 'open' && this.active !== 'proposals') { this.unseenProps.add(p.id); this.renderParts(); }
+      if (p && e.new && p.status === 'open') {
+        this.notify({ level: 'info', key: p.id, timeout: 45000,
+          text: h('span', {}, h('b', {}, `${WHO[p.who] || p.who || ''} 제안 ${p.name}`.trim()), p.title ? ` — ${p.title}` : ''),
+          sub: [h('span', {}, `바꿀 파일 ${p.files.length}`), h('span', {}, '아직 아무것도 바뀌지 않았습니다')],
+          actions: [['제안 보기', () => this.openTab({ type: 'proposals', id: p.id }), true]] });
+      }
+      this.reloadProposals();
+      this.emit(e);
+    } else if (e.type === 'show') {
+      if (this.app.current !== this) this.app.select(this.id);
+      const view = this.showByName(e.show, e.kind);
+      if (view) flash(`${WHO[e.who] || e.who || '터미널'} — ${e.show} 화면을 열었습니다`);
     } else if (e.type === 'defs') {
       this.reloadOverview();
       this.reloadData();
@@ -566,6 +614,7 @@ export class Project {
     if (!this.ready) return;
     this.loadRecords();
     this.loadOverview();
+    this.loadProposals();
     this.refreshFiles();
     this.reloadData();
   }

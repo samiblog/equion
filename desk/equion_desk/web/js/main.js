@@ -146,7 +146,8 @@ const app = {
       h('p', { class: 'lede' }, '방정식 모형을 만들고, 과거를 재현해 검증하고, 전망합니다. 프로젝트 폴더를 열면 식·모형·기록이 화면에 놓이고, 터미널에서 친 명령의 결과도 같은 자리에 뜹니다.'),
       h('div', { class: 'actions' },
         h('button', { class: 'btn primary', type: 'button', disabled: !this.state?.can_pick, title: this.state?.can_pick ? '' : '폴더 고르기는 앱 창에서만 됩니다', onclick: () => this.openProject('/api/open') }, icon('folder'), '폴더 열기…'),
-        h('button', { class: 'btn', type: 'button', onclick: () => this.openProject('/api/example') }, icon('spark'), '예제 프로젝트 만들기')),
+        h('button', { class: 'btn', type: 'button', onclick: () => this.openProject('/api/example') }, icon('spark'), '예제 프로젝트 만들기'),
+        h('button', { class: 'btn quiet', type: 'button', 'data-act': 'help', title: '도움말 (F1)', onclick: () => this.openHelp() }, icon('info'), '도움말')),
       h('p', { class: 'hint' }, 'Equion 프로젝트 폴더는 ', h('code', {}, 'equion.toml'), ' 이 있는 폴더입니다. 예제는 문서 폴더의 ', h('code', {}, 'Equion/example1'),
         ' 에 만듭니다(가상 분기 모형 — 실제 자료가 아닙니다).'),
       this.notice ? h('div', { class: 'error' }, this.notice.text) : null,
@@ -236,6 +237,25 @@ const app = {
     }
   },
 
+  // ---- 도움말 ----------------------------------------------------------------------------------
+
+  /** 도움말 — 프로젝트가 열려 있으면 가운데 탭으로, 아니면 상자로 */
+  async openHelp() {
+    if (this.current) { this.current.openTab({ type: 'help' }); return; }
+    if (document.querySelector('.dialog.help')) return;
+    const { helpText } = await import('./views/help.js');
+    const { renderDoc } = await import('./md.js');
+    const body = h('div', { class: 'dialog-body' });
+    const close = () => { back.remove(); document.removeEventListener('keydown', onKey, true); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    const back = h('div', { class: 'backdrop' }, h('div', { class: 'dialog wide help', role: 'dialog', 'aria-modal': 'true', 'aria-label': '도움말' },
+      h('div', { class: 'dialog-head' }, h('h2', {}, '도움말'), h('button', { class: 'icon-btn', type: 'button', title: '닫기', 'aria-label': '닫기', onclick: close }, icon('x'))), body));
+    back.addEventListener('pointerdown', (e) => { if (e.target === back) close(); });
+    document.addEventListener('keydown', onKey, true);
+    document.body.append(back);
+    try { await renderDoc(body, await helpText(), { pid: '', dir: '', openFile: () => {} }); } catch (err) { body.textContent = err.message; }
+  },
+
   // ---- 설정 상자 --------------------------------------------------------------------------------
 
   toggleSettings(anchor) {
@@ -253,7 +273,12 @@ const app = {
         h('button', { class: 'btn small', type: 'button', 'aria-label': '작게', onclick: () => step(-5) }, icon('minus')), size,
         h('button', { class: 'btn small', type: 'button', 'aria-label': '크게', onclick: () => step(5) }, icon('plus')),
         h('button', { class: 'btn small quiet', type: 'button', onclick: () => step(100 - this.settings.font_scale) }, '기본')),
-      h('div', { class: 'about' }, `Equion Desk ${root.dataset.version}`, h('br'), '설정과 지난 화면은 사용자 폴더에 적습니다 — 프로젝트 폴더는 건드리지 않습니다.'));
+      h('h4', {}, 'Claude Code'), h('div', { class: 'pop-actions' },
+        h('button', { class: 'btn small', type: 'button', 'data-act': 'teach-claude', disabled: !this.current, title: '이 프로젝트에 Equion 스킬을 넣는 명령을 터미널에 붙인다(Enter 는 직접) — 한 번만 하면 된다',
+          onclick: () => { pop.remove(); this.current?.sendToTerminal('equion guide skill --install project'); } }, icon('spark'), 'Claude Code 에 Equion 알려 주기')),
+      h('div', { class: 'pop-note' }, this.state?.claude ? '이 PC 에서 claude 명령을 찾았습니다 — 터미널에서 claude 로 띄웁니다.' : '이 PC 에서 claude 명령을 찾지 못했습니다. 없어도 화면의 모든 기능은 그대로입니다.'),
+      h('div', { class: 'about' }, `Equion Desk ${root.dataset.version}`, h('br'), '설정과 지난 화면은 사용자 폴더에 적습니다 — 프로젝트 폴더는 건드리지 않습니다.', h('br'),
+        h('button', { class: 'link', type: 'button', onclick: () => { pop.remove(); this.openHelp(); } }, '도움말 (F1)')));
     document.body.append(pop);
     const r = anchor.getBoundingClientRect();
     pop.style.top = `${r.bottom + 6}px`;
@@ -273,7 +298,7 @@ async function main() {
   await ready();
   const logo = document.querySelector('.brand .mark');
   if (logo) logo.innerHTML = LOGO;
-  for (const [id, name] of [['btn-new', 'plus'], ['btn-changes', 'history'], ['btn-side', 'sidebar'], ['btn-term', 'terminal'], ['btn-settings', 'gear']]) $(id).prepend(icon(name));
+  for (const [id, name] of [['btn-new', 'plus'], ['btn-changes', 'history'], ['btn-side', 'sidebar'], ['btn-term', 'terminal'], ['btn-help', 'info'], ['btn-settings', 'gear']]) $(id).prepend(icon(name));
 
   const state = await getJSON('/api/state');
   app.settings = { ...app.settings, ...state.client };
@@ -284,11 +309,13 @@ async function main() {
   $('btn-side').addEventListener('click', () => app.setSetting('side_visible', !app.settings.side_visible));
   $('btn-term').addEventListener('click', () => app.setSetting('term_visible', !app.settings.term_visible));
   $('btn-settings').addEventListener('click', (e) => app.toggleSettings(e.currentTarget));
+  $('btn-help').addEventListener('click', () => app.openHelp());
   $('btn-changes').addEventListener('click', () => app.current?.openTab({ type: 'changes' }));
   $('btn-records').addEventListener('click', () => app.current?.openTab({ type: 'records' }));
   $('strip').addEventListener('wheel', (e) => { if (e.deltaY) { $('strip').scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') document.querySelector('.popover')?.remove();
+    if (e.key === 'F1') { e.preventDefault(); app.openHelp(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w' && app.current && !app.current.termBox.contains(document.activeElement)) {
       e.preventDefault();
       app.current.closeTab(app.current.active);

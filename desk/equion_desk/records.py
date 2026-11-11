@@ -174,3 +174,59 @@ def read_record(root: str, rid: Any) -> dict[str, Any] | None:
             files.append({"name": entry.name, "size": entry.stat().st_size})
     return {"id": rid, "kind": kind, "name": name, "path": f"work/{kind}/{name}", "meta": meta, "summary": summary, "files": files,
             "series": read_series(base) if kind == "est" else {}}
+
+
+# ---- 제안(work/proposals/) · 고정과 메모(work/marks.json) ------------------------------------------
+
+PROP_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_\-]{0,60}")
+REQUESTS = ("work", "desk", "requests.jsonl")      # `equion desk show` 가 한 줄씩 덧붙이는 곳
+
+
+def _sha256(path: str) -> str | None:
+    import hashlib
+
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def proposal_names(root: str) -> list[str]:
+    """제안 이름들(만든 순 — p1, p2 … 다음에 이름 붙인 것)."""
+    base = os.path.join(root, "work", "proposals")
+    try:
+        names = [n for n in os.listdir(base) if PROP_NAME.fullmatch(n) and os.path.isfile(os.path.join(base, n, "proposal.json"))]
+    except OSError:
+        return []
+    return sorted(names, key=lambda n: (int(n[1:]) if n[:1] == "p" and n[1:].isdigit() else 10 ** 9, n))
+
+
+def read_proposal(root: str, name: Any) -> dict[str, Any] | None:
+    """제안 하나의 요약(`proposal.json`) — 열린 제안이면 만든 뒤 바뀐 파일(낡음)과 함께. 차이(diff)는 작업 프로세스가 낸다."""
+    if not isinstance(name, str) or not PROP_NAME.fullmatch(name):
+        return None
+    meta = _json(os.path.join(root, "work", "proposals", name, "proposal.json"))
+    files = meta.get("files") if isinstance(meta, dict) else None
+    if not isinstance(files, dict) or meta.get("status") not in ("open", "applied", "dropped"):
+        return None
+    stale = []
+    if meta["status"] == "open":
+        for rel, v in files.items():
+            if isinstance(rel, str) and ".." not in rel.split("/") and _sha256(os.path.join(root, *rel.split("/"))) != (v or {}).get("base"):
+                stale.append(rel)
+    return {"id": f"prop:{name}", "name": name, "title": meta.get("title") or "", "why": meta.get("why") or "", "who": meta.get("who"),
+            "created": meta.get("created"), "status": meta["status"], "parts": meta.get("parts") or {}, "previews": meta.get("previews") or [],
+            "decided": meta.get("decided"), "command": meta.get("command"), "stale": stale,
+            "files": [{"path": rel, "delete": bool((v or {}).get("delete")), "stale": rel in stale} for rel, v in files.items()]}
+
+
+def read_proposals(root: str, limit: int = 200) -> list[dict[str, Any]]:
+    out = [read_proposal(root, n) for n in proposal_names(root)[-limit:]]
+    return [p for p in out if p]
+
+
+def read_marks(root: str) -> dict[str, dict[str, Any]]:
+    """기록의 고정·메모(`work/marks.json`) — {기록: {pinned, memo}}."""
+    found = _json(os.path.join(root, "work", "marks.json"))
+    return {k: v for k, v in found.items() if isinstance(v, dict)} if isinstance(found, dict) else {}
