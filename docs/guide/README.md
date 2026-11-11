@@ -19,7 +19,7 @@
 ## 시작하기 전에
 
 설치는 [설치](../start/install.md)를 따릅니다. 이 가이드의 명령은 모두 터미널에서 칩니다(Windows는 PowerShell·명령 프롬프트·Lectern 터미널).
-판을 확인합니다 — 이번 판은 0.8 개발 판이라 `--version`에는 아직 0.7.0이 보입니다.
+판을 확인합니다.
 
 ```console
 $ equion --version
@@ -27,7 +27,7 @@ $ equion --version
 <!-- out -->
 ```text
 $ equion --version
-equion 0.7.0
+equion 0.8.0
 ```
 
 ## 이 가이드의 출력

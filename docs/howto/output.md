@@ -112,7 +112,7 @@ print(p.note_check("notes/core.md").text())
 | 자료 | data:d2026-11a |
 | 표본 | 1970Q1~2019Q4 |
 | 누가 · 언제 | Python · 2026-11-09T10:22:43 |
-| equion | 0.7.0 |
+| equion | 0.8.0 |
 
 **단위근 검정**
 

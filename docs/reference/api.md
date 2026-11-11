@@ -1,6 +1,6 @@
 # Equion API 참조
 
-Equion 0.7.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstring에서 만든다(손으로 고치지 말 것). 배우는 순서는 [시작하기](../start/first-model.md)와 [튜토리얼](../tutorial/README.md), 방정식 문법은 [방정식 문법](../explain/equations.md). 예제의 `eqn`·`np`·`pd`는 `import equion as eqn`·`numpy`·`pandas`다.
+Equion 0.8.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstring에서 만든다(손으로 고치지 말 것). 배우는 순서는 [시작하기](../start/first-model.md)와 [튜토리얼](../tutorial/README.md), 방정식 문법은 [방정식 문법](../explain/equations.md). 예제의 `eqn`·`np`·`pd`는 `import equion as eqn`·`numpy`·`pandas`다.
 
 *English: generated reference of the public API (signatures and docstrings, in Korean). See [README.en.md](../../README.en.md) and [docs/en](../en/README.md).*
 

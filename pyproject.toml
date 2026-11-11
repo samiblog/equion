@@ -1,6 +1,6 @@
 [project]
 name = "equion"
-version = "0.7.0"
+version = "0.8.0"
 description = "방정식·연립방정식 추정·풀이·시뮬레이션 — 방정식 DSL·블록 Newton 솔버·워크파일 API·명령줄"
 readme = "README.md"
 license = "MIT"

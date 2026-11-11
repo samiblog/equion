@@ -3,7 +3,7 @@
 Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 [`docs/DECISIONS.md`](docs/DECISIONS.md)(D-번호), 검증은
 [`docs/explain/validation.md`](docs/explain/validation.md), 계획은 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-## 미공개
+## 0.8.0 — 2026-11-11
 
 ### 추가
 - **프로젝트 — 부품과 조립(0.8 E1, D32)**: 폴더 하나를 `equion.toml`(자료 파일·블록·모형 조립·묶음·HS 기본값)로 다룹니다.

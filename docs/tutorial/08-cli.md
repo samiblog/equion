@@ -27,7 +27,7 @@ equion("--version")
 ```
 <!-- out -->
 ```text
-equion 0.7.0
+equion 0.8.0
 (종료 코드 0)
 ```
 
@@ -237,7 +237,7 @@ print(sorted(os.listdir("my_project")))
   failed: 0
 출력 수: 4
 입력 파일: equion/datasets/toy_q.csv
-버전: 0.7.0
+버전: 0.8.0
 (종료 코드 0)
 새 프로젝트 my_project:
   README.md

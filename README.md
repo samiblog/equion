@@ -9,7 +9,7 @@
 그것을 견고하게 받아 같은 의미로 추정하고 풀도록 설계했습니다. 라이브러리(`import equion as eqn`)와
 명령줄(`equion run`)로 씁니다. Windows 데스크톱 앱 **Equion Desk**는 Equion이 충분히 다듬어진 뒤 만듭니다(기획).
 
-- 버전: Equion **0.7.0** (2026-10-30)
+- 버전: Equion **0.8.0** (2026-11-11)
 - 스택: Python 3.12+ · numpy · pandas · scipy · openpyxl (회귀·검정은 자체 구현, 그래프는 내장 plotly.js)
 - 라이선스: [MIT](LICENSE)
 - **문서: [docs/README.md](docs/README.md)** — 설치 · [30분 첫 모델](docs/start/first-model.md) · 튜토리얼 8편 · 레시피 · 해설 · 참조 ·

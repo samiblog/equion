@@ -70,7 +70,7 @@
 - [x] 공개 API 전체 docstring(매개변수·돌려주는 것·오류·예제)
 - [x] 옛 `USER_GUIDE.md`는 새 위치 안내로, 엔진 수준 API는 `docs/explain/engine.md`로
 
-## 0.8 — 프로젝트·작업 명령·기록·스크립트 (진행, 2026-11-09 — D31~D38)
+## 0.8 — 프로젝트·작업 명령·기록·스크립트 (완료, 2026-11-11, 0.8.0 — D31~D38)
 
 Equion Desk 개발 계획(`DESK_DEVPLAN.md`)의 단계 E. 끝나면 Desk 없이도 Lectern 터미널과 Claude로 "자료를 넣고 `equion run monthly.eqs`"가 된다.
 수치 코어(파서·IR·풀이·통계)는 고치지 않는다 — 워크파일 API 위의 새 층.
@@ -84,10 +84,11 @@ Equion Desk 개발 계획(`DESK_DEVPLAN.md`)의 단계 E. 끝나면 Desk 없이�
 - [x] E4 분석·노트·보고서(2026-11-09): 등록부·`an`·`note`·`report`, 묶음 (D37). 블록 후보(VAR를 블록으로)·기초 통계는 2차판
 - [x] E5 스크립트·재연(2026-11-09): `.eqs` 해석기·`run x.eqs`·`check x.eqs`·`--replay`·`script new·export`, `DATA/raw/inbox/` (D36). `expect --stop` = 종료 코드 2
 - [x] E6 안내·문서(2026-11-09): Claude용 모형 작업 안내 `equion guide`(`equion/help/guide.md` — 표는 코드에서)·스킬 초안 `guide skill`, 튜토리얼 9편, 파일 지도. 안내만 읽은 새 Claude가 예제의 월간 스크립트를 돌림
-- [ ] `tomlkit` 의존성(D38), 오류 메시지에서 문서 절 안내
+- [x] `tomlkit` 의존성(D38)
 
 ## 다음 (0.9 후보)
 
+- [ ] 오류 메시지에서 문서 절 안내 — 0.8에서 옮김
 - [ ] 외부 데이터 연결(ECOS·KOSIS 먼저 — 받은 파일을 원자료로, 출처 정의 파일 `equion data fetch`) — 0.8에서 옮김(D31)
 - (한국 모델의 방정식 정련은 비공개 저장소 `macro_model`의 일이다 — D30)
 - [ ] 비선형 시스템 추정(NLS·FIML의 계수 비선형식), X-13 대체(필요하면 별도 결정)
