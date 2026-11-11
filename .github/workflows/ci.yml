@@ -42,7 +42,7 @@ jobs:
           - { os: ubuntu-latest, python: "3.14" }
           - { os: windows-latest, python: "3.14" }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python }}
@@ -80,7 +80,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.13"
@@ -108,7 +108,7 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]   # 창은 Windows 전용, 서버·경계 시험은 어느 OS에서나(D29)
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.13"
@@ -120,7 +120,7 @@ jobs:
     name: desk · 화면 점검(Edge)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.13"
@@ -141,7 +141,7 @@ jobs:
     name: desk · 설치본 빌드·기동 시험
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.13"
@@ -190,7 +190,7 @@ jobs:
     name: lowest · 하한 버전 · py3.12
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
@@ -210,7 +210,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.14"
@@ -233,7 +233,7 @@ jobs:
     name: audit · 알려진 취약점
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
       - name: pip-audit(잠근 버전·해시 그대로)
         run: |
