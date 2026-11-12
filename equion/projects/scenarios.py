@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 import tomllib
@@ -64,7 +65,10 @@ def parse_shock(text: str) -> dict:
     m = SHOCK_RE.match(str(text))
     if not m:
         raise ProjectError(f"충격 {text!r} — 변수=크기[%][@처음[:끝]] 꼴(예: POIL=+20% · R=+0.5@start:start+3)")
-    out = {"var": m[1], ("pct" if m[3] else "value"): float(m[2]), "from": m[4] or "start", "to": m[5] or "end"}
+    size = float(m[2])
+    if not math.isfinite(size):
+        raise ProjectError(f"충격 {text!r} — 크기가 유한한 수가 아닙니다")
+    out = {"var": m[1], ("pct" if m[3] else "value"): size, "from": m[4] or "start", "to": m[5] or "end"}
     return out
 
 
@@ -73,7 +77,10 @@ def parse_addfactor(text: str) -> dict:
     m = AF_RE.match(str(text))
     if not m:
         raise ProjectError(f"식 보정 {text!r} — 블록:목표=값[@처음[:끝]] 꼴(예: demand:CN=-0.2@start:start+3)")
-    return {"eq": m[1], "value": float(m[2]), "from": m[3] or "start", "to": m[4] or "end"}
+    value = float(m[2])
+    if not math.isfinite(value):
+        raise ProjectError(f"식 보정 {text!r} — 값이 유한한 수가 아닙니다")
+    return {"eq": m[1], "value": value, "from": m[3] or "start", "to": m[4] or "end"}
 
 
 def shock_word(s: dict) -> str:

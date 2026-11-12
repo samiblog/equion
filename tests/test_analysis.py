@@ -179,10 +179,10 @@ def _main(tmp, t0):
     print("C. 기록·카드")
     print("=" * 80)
     m = r.meta
-    check("기록: 이름·명령·옵션·자료", r.id == "an:unitroot_0001" and m["command"] == "an unitroot dlog(Y) R" and m["options"]["trend"] == "c"
+    check("기록: 이름·명령·옵션·자료", r.id == "an:unitroot_0001" and m["command"] == "an unitroot 'dlog(Y) R'" and m["options"]["trend"] == "c"
           and m["data"]["kind"] == "vintage" and m["kind"] == "an")
     card = r.record.summary_md()
-    check("카드: 머리(기록·명령·자료·표본·누가)·표·알아서 한 것", card.startswith("# 단위근 — dlog(Y) · R") and "| 명령 | `an unitroot dlog(Y) R` |" in card
+    check("카드: 머리(기록·명령·자료·표본·누가)·표·알아서 한 것", card.startswith("# 단위근 — dlog(Y) · R") and "| 명령 | `an unitroot 'dlog(Y) R'` |" in card
           and "## 단위근 검정" in card and "## 알아서 한 것" in card)
     check("카드: 차트(같은 폴더 CSV)", '"url": "chart_1.csv"' in dg.record.summary_md())
     check("짧은 글", r.text().startswith("[an:unitroot_0001] 단위근 · dlog(Y) · R · 1970Q2~2019Q4 · 자료 data:")
@@ -536,6 +536,27 @@ def _main(tmp, t0):
           and raises(lambda: pj.note_add("notes/inv.md"), ProjectError, "더할 것이 없습니다")
           and raises(lambda: pj.note_add("notes/inv.txt", lines=["an stats Y"]), ProjectError, ".md")
           and raises(lambda: pj.note_add("../x.md", lines=["an stats Y"]), ProjectError, "프로젝트 밖"))
+    other = os.path.join(tmp, "elsewhere")
+    check("거절: 노트·스크립트의 줄에 다른 프로젝트(-p · --project= · 줄인 --proj)(QA)",
+          raises(lambda: pj.note_add("notes/inv.md", lines=[f"an stats Y -p {other}"]), ProjectError, "다른 프로젝트")
+          and reg.allowed(["est", "demand:CN", f"--project={other}"], where="script") is not None
+          and reg.allowed(["an", "stats", "Y", "--proj", other]) is not None and reg.allowed(["an", "stats", "Y", "--smpl", "1990Q1:last"]) is None)
+    tn = pj.note_add("notes/title.md", lines=["an stats Y"], title="제목\n```python\nprint(1)\n```")
+    tt = read(os.path.join(pj.root, "notes", "title.md"))
+    blocks_t = quiet(pj.note_check, "notes/title.md").blocks
+    check("새 노트의 제목은 한 줄 — 줄바꿈·백틱으로 블록을 끼워 넣지 못한다(QA)", tn.block == 1 and tt.split(chr(10))[0].startswith("# 제목 ") and "```python" not in tt
+          and [b.lang for b in blocks_t] == ["equion"], tt[:120])
+    with open(os.path.join(pj.root, "notes", "py.md"), "w", encoding="utf-8") as f:
+        f.write("# 파이썬\n\n```python\nimport sys\nprint('ran', sys.stdin.read() == '')\n```\n")
+    os.environ["EQUION_NO_PYTHON"] = "1"
+    try:
+        den = quiet(pj.note_run, "notes/py.md", block=1)
+    finally:
+        os.environ.pop("EQUION_NO_PYTHON", None)
+    ran = quiet(pj.note_run, "notes/py.md", block=1)
+    check("Python 블록: EQUION_NO_PYTHON(Desk)이면 거절하고 터미널 명령을 알린다 · 돌릴 때 표준 입력은 비어 있다(멈추지 않는다)(QA)",
+          den.blocks[0].status == "denied" and "터미널" in den.blocks[0].detail and ran.blocks[0].status == "run"
+          and "ran True" in read(os.path.join(pj.root, "notes", "py.md")), str([den.blocks[0].to_dict(), ran.blocks[0].to_dict()])[:300])
     code, out, _ = run(["note", "add", "notes/n2.md", "--line", "an stats Y", "--line", "an acf Y --lags 4", "--title", "점검"], dj)
     code2, out2, _ = run(["note", "add", "notes/n2.md", "--record", rec, "--json"], dj)
     code3, _, err3 = run(["note", "add", "notes/n2.md", "--line", "group remove core"], dj)
@@ -569,8 +590,8 @@ def _main(tmp, t0):
     sp = quiet(ps.an, "split", "sim:new sim:old")
     t1 = sp.table(1)
     total = (t1["자료"] + t1["가정"] + t1["식"] + (t1["나머지"] if "나머지" in t1.columns else 0) - t1["바뀜"]).abs().max()
-    check("자료 개정 · 가정 · 식이 모두 바뀌면 — 몫의 합 = 바뀜(만든 때 순으로 앞·뒤), 셋 다 0이 아닌 줄이 있다",
-          total < 1e-6 and (t1["자료"].abs() > 1e-6).any() and (t1["가정"].abs() > 1e-6).any() and (t1["식"].abs() > 1e-6).any()
+    check("자료 개정 · 가정 · 식이 모두 바뀌면 — 몫의 합 = 바뀜(표의 반올림 안 — 만든 때 순으로 앞·뒤), 셋 다 0이 아닌 줄이 있다",
+          total <= 0.0025 + 1e-9 and (t1["자료"].abs() > 1e-6).any() and (t1["가정"].abs() > 1e-6).any() and (t1["식"].abs() > 1e-6).any()
           and "sim:new ← sim:old" in sp.text(), str(t1)[:500])
     t2 = sp.table(2)
     check("단계마다 다시 푼 성장률 표(S0~S3) — S0 = 앞 기록, S3 = 뒤 기록", list(t2.columns)[-4:] == ["S0 앞을 다시", "S1 자료만 뒤로", "S2 가정까지", "S3 식까지(뒤를 다시)"]
@@ -581,6 +602,43 @@ def _main(tmp, t0):
           and raises(lambda: ps.an("split", "sim:old sim:new", vars="NOPE"), ProjectError, "내생변수"))
     code, out, _ = run(["an", "split", "sim:old sim:new", "--vars", "Y"], ps.root)
     check("명령줄 an split --vars", code == 0 and "[an:split_" in out and "자료" in out and "CN 20" not in out, out[:300])
+    # 출시 전 점검(QA)에서 고친 것
+    sc = os.path.join(ps.root, "SCENARIOS", "endo.toml")
+    write(sc, 'desc = "내생 충격과 대소문자 다른 식 보정"\nbase = "base"\n[[shock]]\nvar = "CN"\nfrom = "start"\nto = "start+2"\nvalue = 3\nkind = "level"\n'
+              '[[addfactor]]\neq = "Demand:cn"\nfrom = "start+3"\nto = "end"\nvalue = 1.5\n')
+    quiet(ps.sim, as_name="base_q")
+    quiet(ps.sim, "endo", as_name="endo_q")
+    se = quiet(ps.an, "split", "sim:base_q sim:endo_q", vars="y,cn")
+    te = se.table(1)
+    check("요인 나누기: 내생변수의 충격 · 대소문자가 다른 식 보정도 다시 준다 — '나머지' 없이 모두 '가정'(변수 이름도 대소문자 무시)(QA)",
+          "나머지" not in te.columns and (te["가정"].abs() > 1e-3).any() and np.allclose(te[["자료", "식"]].to_numpy(dtype=float), 0)
+          and {i.split()[0] for i in te.index} == {"Y", "CN"}, str(te)[:300])
+    check("요인 나누기: 표본(--smpl)은 받지 않는다 · 기록이 쓴 전망 기록은 정리에서 남는다 · 기록의 명령은 그대로 다시 돌릴 수 있다(QA)",
+          raises(lambda: ps.an("split", "sim:base_q sim:endo_q", smpl="2020Q1:2020Q4"), ProjectError, "표본")
+          and se.record.meta["command"] == "an split 'sim:base_q sim:endo_q' --vars y,cn"
+          and run(se.record.meta["command"].split(" ", 2)[:2] + ["sim:base_q sim:endo_q", "--vars", "y,cn"], ps.root)[0] == 0)
+    run(["work", "clean", "--yes"], ps.root)
+    check("정리(work clean --yes) 뒤에도 남긴 분석이 쓴 두 전망 기록이 남는다(QA)",
+          all(os.path.isdir(os.path.join(ps.root, "work", "sim", n)) for n in ("base_q", "endo_q")))
+    mroot = os.path.join(tmp, "monthly_split")
+    os.makedirs(os.path.join(mroot, "DATA"))
+    shutil.copy(eqn.datasets.path("toy_m"), os.path.join(mroot, "DATA", "data.csv"))
+    write(os.path.join(mroot, "equion.toml"), '[project]\nname = "mon"\nformat = "equion-project"\nformat_version = 1\n\n[data]\nfile = "DATA/data.csv"\n\n'
+          '[block]\nmon = { file = "EQUATIONS/mon.txt" }\n\n[model.main]\nblocks = ["mon"]\n\n[forecast]\nmodel = "main"\nrange = "next:12"\n'
+          'assume = "base"\nfill = "last"\n')
+    os.makedirs(os.path.join(mroot, "EQUATIONS"))
+    os.makedirs(os.path.join(mroot, "ASSUMPTIONS"))
+    os.makedirs(os.path.join(mroot, "SCENARIOS"))
+    write(os.path.join(mroot, "EQUATIONS", "mon.txt"), "IP c IP(-1) RM\nCPIM c CPIM(-1) IP\n")
+    write(os.path.join(mroot, "ASSUMPTIONS", "base.csv"), "period,RM\n" + "".join(f"2020M{m},{1 + 0.1 * m:.2f}\n" for m in range(1, 13)))
+    write(os.path.join(mroot, "SCENARIOS", "late.toml"), 'desc = "가을부터"\n[[addfactor]]\neq = "mon:IP"\nfrom = "2020M9"\nto = "end"\nvalue = 5.0\n')
+    pm = quiet(Project.open, mroot)
+    m1 = quiet(pm.sim, as_name="m1")
+    quiet(pm.sim, "late", as_name="m2")
+    sm = quiet(pm.an, "split", "sim:m1 sim:m2")
+    tm = sm.table(1)
+    check("월간: 가정 12달(10~12월 포함)을 모두 쓰고(가정 칸) · 9월~끝의 식 보정이 요인 나누기에서 '가정'으로 — 라벨을 글자가 아니라 기간으로 견준다(QA)",
+          list(m1.flags["RM"].loc["2020M10":"2020M12"]) == ["가정"] * 3 and "나머지" not in tm.columns and (tm["가정"].abs() > 0.5).any(), str(tm)[:300])
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:

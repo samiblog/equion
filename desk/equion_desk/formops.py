@@ -152,6 +152,8 @@ def note_run(project: Any, path: str, block: int | None = None, stale: bool = Fa
 
 
 def note_add(project: Any, note: str, lines: list[str] | None = None, record: str | None = None, title: str | None = None) -> dict:
+    if not str(note or "").replace("\\", "/").startswith("notes/"):
+        raise ValueError(f"노트는 notes/ 안에 — {note!r}")
     words = ["note", "add", note, *[x for line in (lines or []) for x in ("--line", line)], *(["--record", record] if record else []),
              *(["--title", title] if title else [])]
     res = project.note_add(note, lines=lines, record=record, title=title, who="desk", command=command(*words))

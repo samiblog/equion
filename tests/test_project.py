@@ -710,7 +710,7 @@ def _define_tests(tmp):
           and "1970Q1" in v.note and v.sheets == [], f"{v.shape} {v.note}")
     check("미리보기: 아무것도 쓰지 않는다(정의·바뀜 기록·작업 기록 그대로)", (len(P.history.list()), len(P.work.log()), read(sf)) == state0)
     bad = P.data_preview("DATA/raw/toy_q.csv", time_col="CN")
-    check("미리보기: 틀이 맞지 않으면 예외가 아니라 까닭(칸 위치)", not bad.ok and "시점으로 읽을 수 없습니다" in bad.error and "B2" in bad.error
+    check("미리보기: 틀이 맞지 않으면 예외가 아니라 까닭(칸 위치)", not bad.ok and "기간을 찾지 못했습니다" in bad.error and "B2" in bad.error
           and bad.grid and bad.columns == [], bad.error)
     check("미리보기: 없는 파일·읽을 수 없는 형식", raises(lambda: P.data_preview("DATA/raw/nope.csv"), ProjectError, "파일이 없습니다")
           and raises(lambda: P.data_preview("equion.toml"), ProjectError, "csv·xlsx·xls"))
@@ -1029,7 +1029,8 @@ def _scenario_tests(tmp):
           and parse_shock("WY=2%@2020Q1") == {"var": "WY", "pct": 2.0, "from": "2020Q1", "to": "end"}
           and parse_addfactor("demand:CN=-0.2@start:start+1") == {"eq": "demand:CN", "value": -0.2, "from": "start", "to": "start+1"}
           and shock_word({"var": "R", "value": -0.5, "from": "start", "to": "start+3"}) == "R=-0.5@start:start+3"
-          and raises(lambda: parse_shock("POIL+20"), ProjectError, "변수=크기"))
+          and raises(lambda: parse_shock("POIL+20"), ProjectError, "변수=크기")
+          and raises(lambda: parse_shock("R=+1e999"), ProjectError, "유한") and raises(lambda: parse_addfactor("demand:CN=1e999"), ProjectError, "유한"))
     sf = os.path.join(d, "SCENARIOS", "risk.toml")
     r = P.scenario_define("risk", desc="유가와 금리", base="base", shocks=["POIL=+20%", {"var": "R", "value": 0.5, "from": "start", "to": "start+3"}],
                           addfactor=["demand:CN=-0.2@start:start+1"], who="tester", command="equion scenario define risk …")
@@ -1110,6 +1111,67 @@ def _wide_milestone_tests(tmp):
     check("명령줄 data preview --time-axis --time-row --name-col · --header-row 1,2", code == 0 and "시점 줄 2" in out and code2 == 0
           and json.loads(out2)["columns"][0]["name"] == "국내총생산 명목", out[:200])
 
+    # 출시 전 점검(QA)에서 고친 것 — 잘못 읽지 않기(조용한 오독이 가장 나쁘다)
+    def wide(name, head, *rows, **kw):
+        path = os.path.join(raw, name)
+        write(path, ",".join(["항목"] + list(head)) + "\n" + "".join(",".join(map(str, r)) + "\n" for r in rows))
+        return read_source(SourceSpec("q", f"DATA/raw/{name}", path, time_axis="columns", **kw))
+
+    def err(fn):
+        try:
+            fn()
+        except ValueError as e:
+            return str(e)
+        return ""
+
+    qs = wide("q_slash.csv", ["2018/1/4", "2018/2/4", "2018-3/4", "2018-4/4"], ["A", 1, 2, 3, 4])
+    mk = wide("q_mark.csv", ["2018Q1*", "2018 2/4 p)", "2018 3/4p", "2018 4/4 1)"], ["A", 1, 2, 3, 4])
+    check("시점: 2018/1/4 · 2018-3/4 는 분기(달로 읽지 않는다) · 끝의 표시(* · p) · p · 1))는 떼고 첫 기간을 잃지 않는다(QA)",
+          qs.freq == "Q" and [str(x.date()) for x in qs.data.index] == ["2018-01-01", "2018-04-01", "2018-07-01", "2018-10-01"]
+          and mk.freq == "Q" and len(mk.data) == 4 and mk.data["A"].iloc[0] == 1, f"{qs.freq} {qs.data.index.tolist()} {mk.time_note}")
+    e_half = err(lambda: wide("q_half.csv", ["2018 1/2", "2018 2/2", "2019 1/2"], ["A", 1, 2, 3]))
+    e_jan = err(lambda: wide("q_jan.csv", ["Jan-18", "Feb-18", "Mar-18"], ["A", 1, 2, 3]))
+    e_dup = err(lambda: wide("q_dup.csv", ["2018 1/4", "2018년 1분기", "2018Q2"], ["A", 1, 2, 3]))
+    desc = wide("q_desc.csv", ["2018Q4", "2018Q3", "2018Q2", "2018Q1"], ["A", 4, 3, 2, 1])
+    tot = wide("q_tot.csv", ["2018", "2019", "2020", "합계"], ["A", 1, 2, 3, 6])
+    check("시점: 반기는 거절(칸 위치) · 'Jan-18' 은 서기 1년이 아니라 '기간을 찾지 못함' · 같은 기간 둘(칸 위치) · 거꾸로 적힌 표 · 끝의 합계 열은 건너뜀(QA)",
+          "반기" in e_half and "B1" in e_half and "기간을 찾지 못했습니다" in e_jan and "B1" in e_jan and "같은 기간" in e_dup and "C1" in e_dup
+          and desc.freq == "Q" and list(desc.data["A"]) == [1, 2, 3, 4] and tot.freq == "A" and len(tot.data) == 3 and "끝의 글 열 E" in tot.time_note,
+          f"{e_half} | {e_jan} | {e_dup} | {tot.time_note}")
+    grp = wide("q_grp.csv", ["", "2018Q1", "2018Q2", "2018Q3"], ["생산", "", "", "", ""], ["", "제조", 6, 7, 8], ["", "서비스", 4, 5, 6],
+               ["", "", "", "", ""], ["소비", "", "", "", ""], ["", "내구재", 8, 9, 10], ["주: 가상 자료", "", "", "", ""], name_col=["A", "B"])
+    write(os.path.join(raw, "q_hdr.csv"), "시점,국내총생산,,,투자\n,명목,,실질,\n,원계열,계절조정,원계열,\n2018Q1,1,2,3,5\n2018Q2,11,12,13,15\n2018Q3,21,22,23,25\n")
+    hdr = read_source(SourceSpec("h", "DATA/raw/q_hdr.csv", os.path.join(raw, "q_hdr.csv"), header_row=[1, 2, 3]))
+    check("이름: 무리 제목 줄 · 빈 줄 · 각주 줄은 시리즈가 아니다 · 위 칸 이어 붙이기는 무리의 경계(세로 병합)를 넘지 않는다(QA)",
+          list(grp.data.columns) == ["생산 제조", "생산 서비스", "소비 내구재"] and "값이 없는 줄" in grp.time_note
+          and list(hdr.data.columns) == ["국내총생산 명목 원계열", "국내총생산 명목 계절조정", "국내총생산 실질 원계열", "투자"],
+          f"{list(grp.data.columns)} {list(hdr.data.columns)}")
+    write(os.path.join(raw, "q_blank.csv"), "표 3\n\n항목,2018Q1,2018Q2,2018Q3\nA,1,-,3\n\nB,4,5,x\n")
+    bl = read_source(SourceSpec("b", "DATA/raw/q_blank.csv", os.path.join(raw, "q_blank.csv"), time_axis="columns", time_row=3, missing=["-"]))
+    write(os.path.join(raw, "q_bad.xlsx"), "이건 엑셀이 아니다")
+    e_bad = err(lambda: read_source(SourceSpec("x", "DATA/raw/q_bad.xlsx", os.path.join(raw, "q_bad.xlsx"))))
+    write(os.path.join(raw, "q_semi.csv"), "시점;A\n2018Q1;1\n2018Q2;2\n")
+    e_semi = err(lambda: read_source(SourceSpec("s", "DATA/raw/q_semi.csv", os.path.join(raw, "q_semi.csv"))))
+    check("줄 번호는 편집기와 같다(빈 줄도 센다 — 칸 위치 C4 · D6) · 깨진 엑셀 · 세미콜론 csv 는 알기 쉬운 오류(QA)",
+          bl.missing_cells == ["C4 '-'"] and bl.bad_cells == ["D6 'x'"] and list(bl.data.columns) == ["A", "B"]
+          and "엑셀 파일을 읽을 수 없습니다" in e_bad and "세미콜론" in e_semi, f"{bl.missing_cells} {bl.bad_cells} {e_bad} {e_semi}")
+    try:
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["항목", 2018.09, 2018.10, 2018.11, 2018.12, 2019.01])
+        ws.append(["A", 9, 10, 11, 12, 1])
+        wb.save(os.path.join(raw, "q_num.xlsx"))
+        nm = read_source(SourceSpec("n", "DATA/raw/q_num.xlsx", os.path.join(raw, "q_num.xlsx"), time_axis="columns"))
+        num_ok = nm.freq == "M" and [x.month for x in nm.data.index] == [9, 10, 11, 12, 1] and list(nm.data["A"]) == [9, 10, 11, 12, 1]
+    except ImportError:
+        num_ok = True
+    check("엑셀 숫자 칸의 2018.10(파일에는 2018.1) 은 10월 — 1월로 읽지 않는다(QA)", num_ok)
+    check("줄 번호 검사 — 0 · 2.7 · 글 · 거꾸로([3, 2]) · 빈 목록은 오류, 2.0 은 2 · time_axis 'Columns' 는 columns(QA)",
+          all(raises(lambda v=v: row_list(v), ValueError) for v in (0, 2.7, "a", [3, 2], [])) and row_list(2.0) == [2]
+          and wide("q_case.csv", ["2018Q1", "2018Q2", "2018Q3"], ["A", 1, 2, 3]).freq == "Q"
+          and read_source(SourceSpec("c", "DATA/raw/q_case.csv", os.path.join(raw, "q_case.csv"), time_axis="Columns")).freq == "Q")
+
     print("=" * 80)
     print("P. 이정표 · 묶어 보내기 · 묶음 열기 (D61)")
     print("=" * 80)
@@ -1169,6 +1231,66 @@ def _wide_milestone_tests(tmp):
     check("명령줄 milestone list·show --json · bundle make --out · bundle open · 없는 이정표(3)",
           code == 0 and "fc1" in out and code2 == 0 and json.loads(out2)["same"] is True and code3 == 0 and code4 == 0
           and "[bundle open]" in out4 and code5 == 3 and "없습니다" in err5, out + out3)
+
+    # 출시 전 점검(QA)에서 고친 것
+    victim = os.path.join(tmp, "milestone_victim.txt")
+    write(victim, "지우면 안 되는 파일")
+    ev = os.path.join(d, "work", "milestones", "evil")
+    os.makedirs(os.path.join(ev, "defs"))
+    write(os.path.join(ev, "milestone.json"), json.dumps({"name": "evil", "files": {"../milestone_victim.txt": "0" * 64}}))
+    check("조작한 이정표(프로젝트 밖 경로)는 견주기·되돌리기를 거절하고 밖의 파일은 그대로 · 목록은 막히지 않는다(QA)",
+          raises(lambda: P.milestone_restore("evil", files=["../milestone_victim.txt"]), ProjectError, "손상")
+          and raises(lambda: P.milestone_diff("evil"), ProjectError, "손상") and os.path.isfile(victim)
+          and [m["name"] for m in P.milestones()] == ["fc1"])
+    shutil.rmtree(ev)
+    quiet(P.milestone_make, "qa1")
+    write(os.path.join(d, "notes", "after.md"), "# 이정표 뒤의 노트\n")
+    blk = os.path.join(d, "EQUATIONS", "price.txt")
+    write(blk, read(blk) + "# 뒤에 더한 줄\n")
+    rq = os.path.join(d, "DATA", "raw", "toy_q.csv")
+    write(rq, read(rq).replace("\n2019Q4,", "\n2019Q4,1", 1))
+    before_v = P.vintage
+    quiet(P.data_build, use=True)
+    v_now = Project.open(d).vintage
+    ch = quiet(Project.open(d).milestone_restore, "qa1")
+    q2 = Project.open(d)
+    check("되돌리기는 정의만 — 자료 회차(equion.toml의 vintage)는 그대로, 이정표 뒤에 만든 노트는 지우지 않는다(QA)",
+          ch is not None and v_now != before_v and q2.vintage == v_now and os.path.isfile(os.path.join(d, "notes", "after.md"))
+          and "뒤에 더한 줄" not in read(blk) and q2.milestone_diff("qa1").defs_same and not q2.milestone_diff("qa1").same, f"{before_v} {v_now} {q2.vintage} {ch} {q2.milestone_diff('qa1').text()}")
+    ms_dir = os.path.join(d, "work", "milestones", "qa1", "defs", "EQUATIONS", "demand.txt")
+    os.remove(ms_dir)
+    check("사본이 빠진 이정표는 그 파일을 지우지 않고 거절(QA)",
+          raises(lambda: quiet(Project.open(d).milestone_restore, "qa1", files=["EQUATIONS/demand.txt"]), ProjectError, "사본")
+          and os.path.isfile(os.path.join(d, "EQUATIONS", "demand.txt"))
+          and raises(lambda: P.milestone_make("nul"), ProjectError, "이름") and raises(lambda: P.milestone_make("a" * 80), ProjectError, "이름")
+          and raises(lambda: P.milestone_restore("fc1", files=[]), ProjectError, "없습니다"))
+    b1 = quiet(Project.open(d).bundle)
+    b2 = quiet(Project.open(d).bundle)
+    shop = os.path.join(d, "workshop")
+    os.makedirs(shop)
+    b3 = quiet(Project.open(d).bundle, out=os.path.join(shop, "x.zip"))
+    b4 = quiet(Project.open(d).bundle, out=shop)
+    check("묶음: 같은 날 다시 묶어도 앞 묶음을 덮지 않는다(_2) · workshop/ 은 work/ 가 아니다 · --out 에 폴더를 주면 그 안에(QA)",
+          b1.path != b2.path and os.path.isfile(os.path.join(d, b1.path)) and os.path.isfile(os.path.join(d, b2.path))
+          and os.path.isfile(os.path.join(shop, "x.zip"))
+          and b4.path.startswith("workshop/") and b4.path.endswith(".zip"), f"{b1.path} {b2.path} {b4.path}")
+    cz = os.path.join(tmp, "custom_paths")
+    cp = new_project(tmp, "custom_paths")[0]
+    os.makedirs(os.path.join(cz, "MODEL"))
+    shutil.move(os.path.join(cz, "EQUATIONS", "demand.txt"), os.path.join(cz, "MODEL", "demand.txt"))
+    write(os.path.join(cz, "equion.toml"), read(os.path.join(cz, "equion.toml")).replace('"EQUATIONS/demand.txt"', '"MODEL/demand.txt"'))
+    cb = quiet(Project.open(cz).bundle, out=os.path.join(tmp, "custom.zip"))
+    cq = Project.from_bundle(os.path.join(tmp, "custom.zip"), os.path.join(tmp, "custom_copy"))
+    check("묶음·이정표: equion.toml 이 가리키는 다른 자리의 블록 파일(MODEL/)도 든다 — 받은 쪽에서 조립된다(QA)",
+          os.path.isfile(os.path.join(tmp, "custom_copy", "MODEL", "demand.txt")) and cq.assemble("main").ok
+          and "MODEL/demand.txt" in quiet(Project.open(cz).milestone_make, "c1").files, cb.path)
+    bad2 = os.path.join(tmp, "nullver.zip")
+    with zipfile.ZipFile(bad2, "w") as z:
+        z.writestr("x/bundle.json", json.dumps({"format": "equion-bundle", "format_version": None}))
+        z.writestr("x/equion.toml", "[project]\nname = 'x'\n")
+    dest2 = os.path.join(tmp, "nullver_out")
+    check("묶음 열기: 이상한 명세(format_version null)는 3 — 반쯤 푼 것이 남지 않는다(QA)",
+          raises(lambda: Project.from_bundle(bad2, dest2), ProjectError, "format_version") and not os.path.exists(dest2))
 
 
 def test_suite():

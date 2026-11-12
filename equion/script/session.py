@@ -148,7 +148,8 @@ class Session:
         params: 매개변수 {이름: 값}(값은 목록 또는 띄어 쓴 글자) — 줄의 {이름}에 들어간다
         script: 스크립트 경로(기록 이름의 앞부분·`src/`) · name: 기록 이름(기본 <스크립트>_0001 …)
         fail_on: 'failed'(기본)·'fallback'·'partial'·'never' — HS·전망 기록에 이 상태의 기간이 있으면 종료 코드 2
-        echo: 단계마다 한 줄을 받는 함수(기본: 보이지 않음) · python: Python 단계를 돌릴지(Desk 앱은 거짓)
+        echo: 단계마다 한 줄을 받는 함수(기본: 보이지 않음) · python: Python 단계를 돌릴지(Desk 앱은 거짓 — 환경 변수
+            EQUION_NO_PYTHON이 있으면 늘 거짓)
         from_step: 이 단계 번호부터(앞 단계는 건너뜀 — 그 기록이 필요하면 프로젝트의 가장 새 기록)
     """
 
@@ -176,7 +177,7 @@ class Session:
         self.fail_on = fail_on
         self.echo = echo
         self.verbosity = verbosity
-        self.python = python
+        self.python = python and not os.environ.get("EQUION_NO_PYTHON")
         self.from_step = from_step
         self.today = today or date.today().isoformat()
         self.total = total

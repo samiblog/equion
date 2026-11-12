@@ -199,6 +199,7 @@ def _referenced(p, store):
         for v in (m.get("swaps") or {}).values():
             if str(v).startswith("est:"):
                 keep.add(v)
+        keep |= {x for x in ((m.get("inputs") or {}).get("records") or []) if not str(x).startswith("data:")}   # 분석이 쓴 기록(요인 나누기 등)
     for pr in p.proposals():
         keep |= set(pr.meta.get("previews") or [])
         keep |= {v for v in (pr.meta.get("parts") or {}).values() if str(v).startswith("est:")}

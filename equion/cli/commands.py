@@ -1031,9 +1031,40 @@ def _ask_inbox(item) -> bool:
 
 
 def _cmdline(argv) -> str:
-    """기록에 적을 명령 그대로(equion …)."""
+    """기록에 적을 명령(equion …) — 묶어 보내도 이 PC의 경로가 남지 않게, 프로젝트 고르기(-p 폴더)는 빼고 절대 경로는
+    지금 폴더 기준(밖이면 파일 이름만)으로 적는다."""
     import shlex
-    return "equion " + shlex.join(argv)
+    from ..registry import names_project
+    words, skip = [], False
+    toks = list(argv)
+    for i, t in enumerate(toks):
+        if skip:
+            skip = False
+            continue
+        if t in ("-p", "--project") or (names_project(t) and "=" not in t and not (t.startswith("-p") and len(t) > 2)):
+            skip = True
+            continue
+        if names_project(t):
+            continue
+        words.append(_scrub_path(t))
+    return "equion " + shlex.join(words)
+
+
+def _scrub_path(t: str) -> str:
+    """낱말이 절대 경로(또는 --opt=절대 경로)면 지금 폴더 기준으로 — 밖이면 '…/파일 이름'."""
+    import re
+    head, eq, val = t.partition("=") if t.startswith("--") else ("", "", t)
+    target = val if (eq or not head) else t
+    if not (os.path.isabs(target) or re.match(r"^[A-Za-z]:[\\/]", target)):
+        return t
+    here = os.path.abspath(".")
+    full = os.path.abspath(target)
+    try:
+        inside = os.path.commonpath([os.path.normcase(full), os.path.normcase(here)]) == os.path.normcase(here)
+    except ValueError:
+        inside = False
+    new = os.path.relpath(full, here).replace(os.sep, "/") if inside else "…/" + os.path.basename(full.rstrip("\\/"))
+    return f"{head}={new}" if eq else new
 
 
 def _safe_streams():

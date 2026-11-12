@@ -1397,6 +1397,12 @@ def section_side(tmp: str) -> None:
         check("Q9 여러 변수(따옴표) · 틀린 명령은 코드와 글 · Python 스크립트는 받지 않는다 · 빈 줄은 400",
               two["code"] == 0 and any(x["analysis"] == "corr" and x["scope"] == "many" for x in lst["results"]) and adopt["code"] != 0 and adopt["out"]
               and py["code"] == 3 and py["denied"] and empty.status_code == 400, str([two, adopt, py])[:400])
+        thr = c.post(f"{api}/line", json={"line": "run FLOWS/monthly.eqs --threads 2"})
+        nxt = c.post(f"{api}/line", json={"line": "an stats Y"})
+        far = c.post(f"{api}/line", json={"line": f"an stats Y -p {tmp}"}).json["result"]
+        check("Q9b 명령 창 — --threads(다시 띄우기)·-p(다른 프로젝트)는 받지 않고, 작업 프로세스는 그대로(QA)",
+              thr.status_code == 200 and thr.json["result"]["code"] == 3 and thr.json["result"]["denied"] and nxt.status_code == 200
+              and nxt.json["result"]["code"] == 0 and far["code"] == 3 and far["denied"], str([thr.json, far])[:300])
         cat = c.get(f"{api}/catalog").json
         cmds = {x["command"] for x in cat["commands"]}
         check("Q10 명령 목록 — 명령·옵션(명령줄 정의에서)과 프로젝트의 이름들(식·모형·묶음·시리즈·기록·회차)",
@@ -1483,6 +1489,14 @@ def section_forms(tmp: str) -> None:
         nomd = c.get(f"{api}/note?path=README.txt")
         check("R7 기록 담기(블록 2 · 결과 구역까지) · 노트가 부를 수 없는 명령(422) · 프로젝트 밖(403) · md 아님(400)",
               rec_add["block"] == 2 and rec_add["record"] == ran["records"][0] and denied.status_code == 422 and outside.status_code == 403 and nomd.status_code == 400)
+        notnotes = c.post(f"{api}/note/add", json={"note": "EQUATIONS/x.md", "lines": ["an stats Y"]})
+        with open(os.path.join(folder, "notes", "py.md"), "w", encoding="utf-8", newline="\n") as f:
+            f.write("# 파이썬\n\n```python\nopen('PY_RAN.txt', 'w').write('x')\n```\n")
+        pyrun = c.post(f"{api}/note/run", json={"path": "notes/py.md", "block": 1}).json["result"]
+        check("R7b 노트는 notes/ 안에만 담는다 · Python 블록은 앱에서 돌리지 않는다(거절 — 터미널 명령을 알림)(QA)",
+              400 <= notnotes.status_code < 500 and not os.path.exists(os.path.join(folder, "EQUATIONS", "x.md"))
+              and pyrun["blocks"][0]["status"] == "denied" and "터미널" in pyrun["blocks"][0]["detail"]
+              and not os.path.exists(os.path.join(folder, "PY_RAN.txt")), str([notnotes.status_code, pyrun])[:300])
         a1 = c.post(f"{api}/line", json={"line": "an unitroot Y"}).json["result"]["records"][0]
         a2 = c.post(f"{api}/line", json={"line": "an unitroot Y --smpl 1990Q1:last"}).json["result"]["records"][0]
         other = c.post(f"{api}/line", json={"line": "an unitroot CN"}).json["result"]["records"][0]

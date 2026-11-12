@@ -124,11 +124,33 @@ def _an_md(m: dict, tables, charts) -> str:
     return md.card(f"{m['label']} — {m['target_label']}", head, secs)
 
 
+def _command(name: str, target: str, opts: dict, defaults: dict, smpl: str = None) -> str:
+    """기록에 적을 명령(명령줄 그대로 다시 돌릴 수 있게 — 따옴표 · 기본값과 다른 옵션 · 표본)."""
+    import shlex
+    words = ["an", name, str(target)]
+    for k, v in opts.items():
+        if v is None or v == defaults.get(k):
+            continue
+        flag = "--" + k.replace("_", "-")
+        if isinstance(v, bool):
+            words.append(flag if v else "--no-" + k.replace("_", "-"))
+        elif isinstance(v, (list, tuple)):
+            words += [flag, ",".join(map(str, v))]
+        else:
+            words += [flag, str(v)]
+    if smpl:
+        words += ["--smpl", str(smpl)]
+    return shlex.join(words)
+
+
 def run_an(p, name: str, target: str, options: dict = None, smpl: str = None, as_name: str = None, note: str = None,
            who: str = None, command: str = None) -> AnRecord:
     """분석 하나를 돌려 기록을 남긴다. note를 주면 그 노트 끝에 명령 블록과 결과 구역을 더한다."""
     a = reg.get(name)
+    if name == "split" and smpl:
+        raise ProjectError("요인 나누기는 표본(--smpl)을 쓰지 않습니다 — 두 기록의 전망 구간을 그대로 나눕니다")
     opts = a.defaults()
+    defaults = dict(opts)
     for k, v in (options or {}).items():
         if k not in opts:
             raise ProjectError(f"{name}: 모르는 옵션 --{k} (옵션: {', '.join('--' + o for o in opts) or '없음'})")
@@ -155,7 +177,7 @@ def run_an(p, name: str, target: str, options: dict = None, smpl: str = None, as
     finally:
         wf._smpl = old
         verbose(old_v)
-    cmd = command or f"an {name} {target}"
+    cmd = command or _command(name, target, opts, defaults, smpl)
     meta = {"who": _who(who), "command": cmd, "project": p.name, "equion": _version(), "analysis": name,
             "label": a.label, "target": target, "target_label": out.target, "options": opts, "smpl": smpl,
             "sample": list(out.sample) if out.sample else None, "lines": out.lines, "implicit": out.implicit,

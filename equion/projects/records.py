@@ -104,6 +104,38 @@ def definition_hashes(p) -> Dict[str, str]:
     return out
 
 
+def definition_files(p, documents: bool = False) -> List[str]:
+    """정의 파일(프로젝트 기준 경로) — 바뀜 기록이 지켜보는 표준 자리(equion.toml · EQUATIONS/ · DATA/series.toml·derived.txt ·
+    ASSUMPTIONS/ · ADDFACTORS/ · SCENARIOS/ · VIEWS/ · FLOWS/)와 equion.toml이 가리키는 다른 자리(블록 파일 · 자료 정의 · 보정항의 판단 값 파일).
+    documents=True면 노트·보고서(notes/·reports/)도. 프로젝트 밖·work/를 가리키는 경로는 넣지 않는다 — 이정표·묶음이 쓴다."""
+    import glob
+    import tomllib
+    from ..work.history import tracked
+    cfg = p.config
+    extra = [b.file for b in cfg.blocks.values()] + [ADOPTED] + [x for x in (cfg.series_file, cfg.derived_file) if x]
+    for f in sorted(glob.glob(os.path.join(p.root, "ADDFACTORS", "*.toml"))):
+        try:
+            with open(f, "rb") as fh:
+                raw = tomllib.load(fh)
+        except (OSError, ValueError):
+            continue
+        if isinstance(raw.get("values"), str):
+            extra.append(raw["values"])
+    root = os.path.abspath(p.root)
+    out = set()
+    for rel in tracked(p.root, extra):
+        full = os.path.abspath(os.path.join(root, rel))
+        try:
+            inside = os.path.commonpath([os.path.normcase(full), os.path.normcase(root)]) == os.path.normcase(root)
+        except ValueError:                       # 다른 드라이브
+            inside = False
+        rel = os.path.relpath(full, root).replace(os.sep, "/") if inside else ""
+        if not rel or rel.startswith("work/") or (not documents and rel.startswith(("notes/", "reports/"))):
+            continue
+        out.add(rel)
+    return sorted(out)
+
+
 def data_label(spec: dict) -> str:
     return f"data:{spec['id']}" if spec.get("kind") == "vintage" else f"{spec.get('file')}"
 

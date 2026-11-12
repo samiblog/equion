@@ -7,7 +7,10 @@
     r.code, r.records, r.changes, r.out
 
 - 문법은 명령줄 그대로(앞의 `equion`은 빼도 된다). 터미널에서 같은 줄을 치면 같은 일이 되고 같은 기록이 남는다.
-- 받지 않는 것: Python 스크립트 실행(`run x.py`)과 새 프로젝트(`new`) — 그것은 터미널에서. 셸 명령은 애초에 Equion 명령이 아니다.
+- 받지 않는 것: Python 스크립트 실행(`run x.py`)과 새 프로젝트(`new`), 다른 프로젝트(`-p`/`--project` — 명령 창은 그 탭의 프로젝트),
+  프로세스를 다시 띄우거나 지켜보는 선택지(`--threads` · `--watch`), 사용자 폴더에 스킬 설치(`guide skill --install`) — 그것은 터미널에서.
+  셸 명령은 애초에 Equion 명령이 아니다. Desk의 작업 프로세스는 Python 단계·블록을 돌리지 않는다(EQUION_NO_PYTHON — 스크립트의 `py` 단계와
+  노트의 Python 블록은 '거절'로 끝나고 터미널에 붙일 명령을 알린다).
 - 명령은 입력을 기다리지 않는다 — 표준 입력은 비워 둔다(Desk의 작업 프로세스는 표준 입력으로 요청을 받는다).
 - 돌려주는 것: 종료 코드·출력 글·새로 생긴 기록(work/log.jsonl)·새 바뀜 기록(work/history) — 화면이 결과 탭과 '되돌리기'를 잇는다.
 - `catalog()`는 명령줄 정의(argparse)에서 명령·옵션 목록을 뽑는다 — 자동 완성의 재료. 분석이 늘면 함께 는다(등록부).
@@ -89,6 +92,14 @@ def why_not(toks: List[str]) -> Optional[str]:
         return DENIED[toks[0]]
     if toks[0] == "run" and any(t.lower().endswith(".py") for t in toks[1:]):
         return "Python 스크립트는 터미널에서(equion run x.py) — 명령 창은 Equion 명령과 .eqs 스크립트만"
+    from ..registry import names_project
+    if any(names_project(t) for t in toks[1:]):
+        return "명령 창은 이 탭의 프로젝트에서만 — 다른 프로젝트는 그 프로젝트의 탭이나 터미널에서(-p/--project 없이)"
+    for opt, what in (("--threads", "스레드 수를 바꿔 다시 띄우기"), ("--watch", "파일을 지켜보며 다시 돌리기")):
+        if any(len(t.split("=", 1)[0]) >= 5 and opt.startswith(t.split("=", 1)[0]) for t in toks[1:]):
+            return f"{opt}({what})는 터미널에서 — 명령 창은 한 번 돌고 끝나는 명령만"
+    if toks[0] == "guide" and any(len(t.split("=", 1)[0]) >= 5 and "--install".startswith(t.split("=", 1)[0]) for t in toks[1:]):
+        return "스킬 설치(guide skill --install)는 사용자 폴더에 파일을 쓴다 — 터미널에서"
     return None
 
 

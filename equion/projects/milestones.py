@@ -2,10 +2,11 @@
 
     work/milestones/<이름>/
         milestone.json      이름 · 메모 · 만든 때 · 누가 · 자료 회차 · 정의 파일의 해시 · 고정한 기록
-        defs/<경로>         그때의 정의 파일 사본(블록 파일 · equion.toml · 채택표 · 자료 정의 · 가정 · 보정항 · 시나리오 · 보기 · 노트 · 보고서 · 스크립트)
+        defs/<경로>         그때의 정의 파일 사본(블록 파일 · equion.toml · 채택표 · 자료 정의 · 가정 · 보정항 · 시나리오 · 보기 · 스크립트 —
+                            노트·보고서는 글이라 넣지 않는다)
 
 `milestone_diff`는 지금과 견주고(파일마다 같음 · 고침 · 새로 · 지움과 차이), `milestone_restore`는 정의를 그때로 되돌린다 — 바뀜 기록 하나로 남아
-그것도 되돌릴 수 있다. 계산 결과(기록)는 이정표에 사본을 두지 않는다 — 고정한 기록의 이름만 적고, 이정표의 기록은 정리(`work clean`)에서 빠진다.
+그것도 되돌릴 수 있다. 자료 회차(equion.toml의 [data] vintage)는 견주지도 되돌리지도 않는다 — 회차는 따로 알리고 바꾸는 것은 `data use`. 계산 결과(기록)는 이정표에 사본을 두지 않는다 — 고정한 기록의 이름만 적고, 이정표의 기록은 정리(`work clean`)에서 빠진다.
 """
 from __future__ import annotations
 
@@ -21,6 +22,36 @@ from ..work.store import now_iso
 from .config import NAME_RE, ProjectError
 
 FOLDER = os.path.join("work", "milestones")
+MAX_NAME = 64
+RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
+
+
+def _safe_rel(rel) -> bool:
+    """이정표가 적은 파일 경로가 프로젝트 안의 정의 자리인가(손으로 고친 milestone.json·조작한 묶음을 막는다)."""
+    if not isinstance(rel, str) or not rel or len(rel) > 400 or "\\" in rel or ":" in rel or rel.startswith("/"):
+        return False
+    parts = rel.split("/")
+    return all(seg not in ("", ".", "..") for seg in parts) and parts[0].lower() not in ("work", ".git")
+
+
+def _with_vintage(data: Optional[bytes], vintage: Optional[str]) -> Optional[bytes]:
+    """equion.toml의 [data] vintage만 주어진 값으로(없으면 줄을 뺀다) — 이정표는 회차를 견주지도 되돌리지도 않는다."""
+    if data is None:
+        return None
+    try:
+        import tomlkit
+        doc = tomlkit.parse(_text(data))
+    except Exception:  # noqa: BLE001 — 읽을 수 없는 equion.toml은 그대로 견준다
+        return data
+    sec = doc.get("data")
+    if sec is None or not hasattr(sec, "get"):
+        return data
+    if vintage is None:
+        if "vintage" in sec:
+            del sec["vintage"]
+    else:
+        sec["vintage"] = vintage
+    return tomlkit.dumps(doc).encode("utf-8")
 
 
 @dataclass
@@ -59,15 +90,21 @@ class MilestoneDiff:
     diff: str
 
     @property
+    def defs_same(self) -> bool:
+        """정의 파일이 그때와 같다(자료 회차는 견주지 않는다 — 되돌릴 것이 없다)."""
+        return all(f["status"] == "same" for f in self.files)
+
+    @property
     def same(self) -> bool:
         """정의도 자료 회차도 그때와 같다."""
-        return all(f["status"] == "same" for f in self.files) and self.vintage == self.vintage_now
+        return self.defs_same and self.vintage == self.vintage_now
 
     def text(self) -> str:
         """명령줄에 보이는 짧은 글."""
-        KO = {"changed": "고침", "added": "새로", "removed": "지움"}
+        KO = {"changed": "고침", "added": "새로", "removed": "지움", "missing": "사본 없음"}
         moved = [f for f in self.files if f["status"] != "same"]
-        L = [f"[milestone show] {self.name} 와 지금 — " + ("같습니다" if self.same else f"바뀐 파일 {len(moved)}")]
+        L = [f"[milestone show] {self.name} 와 지금 — " + ("같습니다" if self.same else
+                                                          "정의는 같습니다(자료 회차만 다름)" if self.defs_same else f"바뀐 파일 {len(moved)}")]
         if self.vintage != self.vintage_now:
             L.append(f"  자료 회차 {self.vintage} → 지금 {self.vintage_now}")
         for f in moved:
@@ -78,7 +115,8 @@ class MilestoneDiff:
 
     def to_dict(self) -> dict:
         """명령줄 --json과 같은 사전."""
-        return {"name": self.name, "same": self.same, "vintage": self.vintage, "vintage_now": self.vintage_now, "files": self.files, "diff": self.diff}
+        return {"name": self.name, "same": self.same, "defs_same": self.defs_same, "vintage": self.vintage, "vintage_now": self.vintage_now,
+                "files": self.files, "diff": self.diff}
 
 
 def _root(p) -> str:
@@ -103,21 +141,33 @@ def _text(data: Optional[bytes]) -> str:
 
 
 def _defs(p) -> List[str]:
-    from ..work.history import tracked
-    from .records import ADOPTED
-    return tracked(p.root, [b.file for b in p.config.blocks.values()] + [ADOPTED])
+    from .records import definition_files
+    return definition_files(p)
 
 
 def load(p, name: str) -> Milestone:
     """이정표 하나를 읽는다. 없으면 ProjectError."""
-    path = os.path.join(_root(p), name, "milestone.json")
+    path = os.path.join(_root(p), str(name), "milestone.json")
     if not NAME_RE.match(str(name)) or not os.path.isfile(path):
         have = ", ".join(m.name for m in list_all(p)) or "없음"
         raise ProjectError(f"이정표가 없습니다: {name} (있는 것: {have})")
-    with open(path, encoding="utf-8") as f:
-        d = json.load(f)
-    return Milestone(d["name"], d.get("note", ""), d.get("created", ""), d.get("who", ""), d.get("vintage"), d.get("files") or {},
-                     d.get("records") or [], os.path.join(FOLDER, name).replace(os.sep, "/"))
+    rel = os.path.join(FOLDER, name, "milestone.json").replace(os.sep, "/")
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError) as e:
+        raise ProjectError(f"이정표 {name}를 읽을 수 없습니다({rel}) — {e}") from None
+    files = d.get("files") if isinstance(d, dict) else None
+    if not isinstance(d, dict) or not isinstance(files or {}, dict) or not all(isinstance(v, str) for v in (files or {}).values()):
+        raise ProjectError(f"이정표 {name}가 손상되었습니다({rel}) — 형식이 다릅니다")
+    bad = [k for k in (files or {}) if not _safe_rel(k)]
+    if bad:
+        raise ProjectError(f"이정표 {name}가 손상되었습니다({rel}) — 프로젝트의 정의 자리가 아닌 경로: {', '.join(map(repr, bad[:3]))}")
+    files = {k: v for k, v in (files or {}).items() if not k.startswith(("notes/", "reports/"))}   # 옛 이정표의 글은 견주지 않는다
+    recs = d.get("records") if isinstance(d.get("records"), list) else []
+    return Milestone(str(d.get("name") or name), str(d.get("note") or ""), str(d.get("created") or ""), str(d.get("who") or ""),
+                     d.get("vintage") if isinstance(d.get("vintage"), str) else None, files, [str(r) for r in recs],
+                     os.path.join(FOLDER, name).replace(os.sep, "/"))
 
 
 def list_all(p) -> List[Milestone]:
@@ -127,7 +177,10 @@ def list_all(p) -> List[Milestone]:
     if os.path.isdir(base):
         for n in os.listdir(base):
             if NAME_RE.match(n) and os.path.isfile(os.path.join(base, n, "milestone.json")):
-                out.append(load(p, n))
+                try:
+                    out.append(load(p, n))
+                except ProjectError:           # 손상된 이정표는 목록·정리·묶음을 막지 않는다(milestone show가 까닭을 알린다)
+                    continue
     return sorted(out, key=lambda m: m.created)
 
 
@@ -135,8 +188,8 @@ def make(p, name: str, note: str = None, who: str = None) -> Milestone:
     """이정표를 만든다 — 정의 파일의 사본과 자료 회차·고정한 기록. 같은 이름은 거절한다."""
     from ..work.store import detect_who, move_into_place
     from .records import store_of
-    if not NAME_RE.match(str(name)):
-        raise ProjectError(f"이정표 이름 {name!r} — 영문으로 시작하고 영문·숫자·_만(예: fc_2026_11)")
+    if not NAME_RE.match(str(name)) or len(str(name)) > MAX_NAME or str(name).lower() in RESERVED:
+        raise ProjectError(f"이정표 이름 {name!r} — 영문으로 시작하고 영문·숫자·_만, {MAX_NAME}자까지(예: fc_2026_11 — con·nul 같은 이름은 안 됨)")
     dest = os.path.join(_root(p), name)
     if os.path.exists(dest):
         raise ProjectError(f"이미 있는 이정표입니다: {name}")
@@ -173,7 +226,12 @@ def diff(p, name: str) -> MilestoneDiff:
     for rel in sorted(set(m.files) | now):
         old = _read(os.path.join(base, *rel.split("/"))) if rel in m.files else None
         cur = _read(os.path.join(p.root, rel)) if rel in now else None
-        if old is not None and cur is not None and hashlib.sha256(cur).hexdigest() == m.files[rel]:
+        if rel in m.files and old is None:
+            rows.append({"path": rel, "status": "missing", "plus": 0, "minus": 0})      # 이정표에 사본이 없다 — 손상
+            continue
+        if rel == "equion.toml":
+            cur = _with_vintage(cur, m.vintage)            # 회차 줄은 견주지 않는다
+        if old is not None and cur is not None and (hashlib.sha256(cur).hexdigest() == m.files[rel] or cur == old):
             rows.append({"path": rel, "status": "same", "plus": 0, "minus": 0})
             continue
         status = "changed" if old is not None and cur is not None else ("added" if old is None else "removed")
@@ -190,19 +248,29 @@ def restore(p, name: str, files: List[str] = None, who: str = None, command: str
     """정의를 이정표 때로 되돌린다 — 그때 있던 파일은 그때 내용으로, 그 뒤에 생긴 정의 파일은 지운다(files를 주면 그 파일만).
     바뀜 기록 하나로 남는다(그것도 되돌릴 수 있다). 바뀐 것이 없으면 None."""
     from .records import history_of
+    from .config import project_path
     m = load(p, name)
     d = diff(p, name)
     moved = {f["path"]: f["status"] for f in d.files if f["status"] != "same"}
-    if files:
+    if files is not None:
+        files = [str(f).replace("\\", "/") for f in files]
+        if not files:
+            raise ProjectError("되돌릴 파일이 없습니다 — files를 빼면 모두")
         unknown = [f for f in files if f not in moved and f not in m.files]
         if unknown:
             raise ProjectError(f"이정표 {name}와 견줄 수 없는 파일: {', '.join(unknown)}")
         moved = {k: v for k, v in moved.items() if k in files}
+    broken = [k for k, v in moved.items() if v == "missing"]
+    if broken:
+        raise ProjectError(f"이정표 {name}가 손상되었습니다 — 사본이 없는 파일(되돌리지 않음): {', '.join(broken[:5])}")
     if not moved:
         return None
     base = os.path.join(p.root, FOLDER, name, "defs")
     new: Dict[str, Optional[bytes]] = {}
     for rel, status in moved.items():
+        project_path(p.root, rel, "이정표의 파일")         # 프로젝트 밖이면 거절(이중 확인)
         new[rel] = None if status == "added" else _read(os.path.join(base, *rel.split("/")))
+        if rel == "equion.toml" and new[rel] is not None:
+            new[rel] = _with_vintage(new[rel], p.vintage)      # 지금 회차는 그대로
     return history_of(p).write_files(new, who or "python", command or f"milestone restore {name}",
                                       note=f"이정표 {name}로 — 파일 {len(new)}")

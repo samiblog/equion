@@ -438,6 +438,13 @@ def main():
     check("한 줄: 틀린 명령은 종료 코드 3과 글 · Python 스크립트·새 프로젝트는 받지 않는다 · 따옴표 · JSON 출력",
           r4.code == 3 and "사용법" in r4.out and r5.code == 3 and r5.denied and "터미널" in r5.denied and r6.denied
           and r7.code == 3 and "따옴표" in r7.out and r8.code == 0 and isinstance(json.loads(r8.out), list), r4.out[:120])
+    other = quiet(eqn.Project.create, os.path.join(tmp, "line_other"))
+    esc = [run_line(lp.root, x) for x in (f"est demand:CN -p {other.root}", f"est demand:CN --proj={other.root}", f"an stats Y -p{other.root}",
+                                          "run FLOWS/monthly.eqs --threads 2", "run FLOWS/monthly.eqs --thr 2", "guide skill --install user",
+                                          "guide skill --inst project")]
+    check("한 줄: 다른 프로젝트(-p · --proj= · -pX) · 다시 띄우기(--threads · 줄인 --thr) · 스킬 설치는 받지 않는다 — 다른 프로젝트에 기록이 생기지 않는다(QA)",
+          all(r.code == 3 and r.denied for r in esc) and not os.path.isdir(os.path.join(other.root, "work", "est")),
+          str([(r.line, r.denied) for r in esc if not r.denied])[:300])
     cat = catalog()
     cmds = {c["command"]: c for c in cat}
     unit = cmds.get("an unitroot", {})

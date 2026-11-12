@@ -177,6 +177,15 @@ def get(name: str) -> Analysis:
     return ANALYSES[name]
 
 
+def names_project(tok: str) -> bool:
+    """낱말이 프로젝트를 고르는 선택지(`-p` · `-pX` · `--project` · `--project=X` · 줄인 `--proj`)인가."""
+    t = str(tok)
+    if t == "-p" or (t.startswith("-p") and not t.startswith("--")):
+        return True
+    head = t.split("=", 1)[0]
+    return len(head) >= 4 and head.startswith("--p") and "--project".startswith(head)
+
+
 def allowed(tokens: List[str], where: str = "note") -> Optional[str]:
     """명령 한 줄이 허용 목록에 있으면 None, 아니면 까닭.
 
@@ -185,6 +194,9 @@ def allowed(tokens: List[str], where: str = "note") -> Optional[str]:
     """
     if not tokens:
         return "빈 명령"
+    if any(names_project(t) for t in tokens[1:]):
+        return (f"{'노트' if where == 'note' else '스크립트'}의 줄은 그 프로젝트에서만 돈다 — -p/--project 로 다른 프로젝트를 고를 수 없습니다"
+                "(다른 프로젝트는 그 폴더의 노트·스크립트·터미널에서)")
     first = tokens[0]
     second = tokens[1] if len(tokens) > 1 and not tokens[1].startswith("-") else None
     known = ((first, None) in COMMANDS or (first, second) in COMMANDS)

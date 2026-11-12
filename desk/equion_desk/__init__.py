@@ -4,4 +4,4 @@
 의존은 `equion-desk → equion` 한쪽뿐이다(`equion`은 이 패키지를 import하지 않는다).
 """
 
-__version__ = "0.2.0.dev0"
+__version__ = "0.2.0rc1"

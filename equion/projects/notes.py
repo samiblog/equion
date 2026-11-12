@@ -278,8 +278,12 @@ def run_note(p, note: str, block: int = None, stale: bool = False, force: bool =
             if block is None:
                 stats.append(BlockStatus(b.n, b.lang, "skip", [], f"Python 블록은 고를 때만 — equion note run {rel} --block {b.n}"))
                 continue
+            if os.environ.get("EQUION_NO_PYTHON"):
+                stats.append(BlockStatus(b.n, b.lang, "denied", [],
+                                         f"Python 블록은 여기서 돌리지 않습니다 — 터미널에서 equion note run {rel} --block {b.n}"))
+                continue
             r = subprocess.run([sys.executable, "-c", "\n".join(b.code)], cwd=p.root, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace")
+                               encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
             body = f"```text\n{(r.stdout + (r.stderr if r.returncode else '')).strip()}\n```"
             edits.append((b, _region_text([], body, p.vintage)))
             stats.append(BlockStatus(b.n, b.lang, "run" if r.returncode == 0 else "error", [],
@@ -467,7 +471,8 @@ def add_block(p, note: str, lines=None, record: str = None, title: str = None, w
             raise ProjectError(f"{record}에는 명령이 적혀 있지 않습니다 — 노트에 담을 수 없습니다")
         clean.append(_clean_line(cmd))
         region = _region_text([record], card_for_note(rec, os.path.dirname(path)), (rec.meta.get("data") or {}).get("id") or p.vintage)
-    cur = read_text(path) if not new else f"# {title or os.path.splitext(os.path.basename(path))[0]}\n"
+    head = " ".join(str(title or "").replace("`", "'").split())[:120] or os.path.splitext(os.path.basename(path))[0]
+    cur = read_text(path) if not new else f"# {head}\n"
     text = cur.rstrip("\n") + "\n\n```equion\n" + "\n".join(clean) + "\n```\n" + ("\n" + "\n".join(region) + "\n" if region else "")
     n = len(parse(text))
     ch = history_of(p).write_files({rel: text}, _who(who), command or f"note add {rel}",

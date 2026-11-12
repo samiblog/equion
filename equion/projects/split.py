@@ -30,7 +30,7 @@ STEPS = ("자료", "가정", "식")
 
 def _solve(p, eqs, data, assume, tag: str):
     """식(eqs 기록) · 자료(data 기록) · 가정(assume 기록)으로 전망을 다시 푼다 → (수준 표(라벨), 연간 표, 알아서 한 것)."""
-    from .sim import _annual, _when
+    from .sim import _annual, _before, _between, _when
     asm = eqs.read_json("assembly.json")
     ds = data.meta["data"]
     wf = replay_workfile(p, ds, tag)
@@ -45,13 +45,28 @@ def _solve(p, eqs, data, assume, tag: str):
     rng = labels[i0:i1 + 1]
     notes: List[str] = []
     lv = assume.read_csv("levels.csv")
+    try:
+        fg = assume.read_csv("flags.csv")
+    except (OSError, ValueError):
+        fg = None
+    sd = assume.meta.get("scenario_def") or {}
+    sa, ea = assume.meta["range"]
     exo = [v for v in m.exogenous if v in wf.data.columns and v not in set(wf._data.indicators)]
+    shocked = {}                                      # 시나리오가 외생 경로에 준 충격의 기간(가정이다 — 실측 칸이어도)
+    for sh in sd.get("shocks") or []:
+        if sh.get("var") in exo and sh.get("kind") != "add_factor":
+            shocked.setdefault(sh["var"], []).append((_when(sh["from"], sa, ea, F), _when(sh["to"], sa, ea, F)))
     held = []
     for v in exo:
         vals = wf._data.data[v].to_numpy(dtype=float).copy()
         src = lv[v] if v in lv.columns else None
+        kind = fg[v] if fg is not None and v in fg.columns else None
         for j, lab in enumerate(rng, start=i0):
-            if src is not None and lab in src.index and np.isfinite(src.loc[lab]):
+            if src is None or lab not in src.index or not np.isfinite(src.loc[lab]):
+                continue
+            # 가정 · 채움 칸과 시나리오 충격 칸만 기록의 값으로 — 실측 칸(전망 구간 안의 외생 실측)은 자료를 준 기록의 값(그 개정은 '자료'의 몫)
+            if (kind is None or str(kind.get(lab, "")) in ("가정", "채움")
+                    or any(_between(lab, a_, b_, F) for a_, b_ in shocked.get(v, []))):
                 vals[j] = float(src.loc[lab])
         wf._data.data[v] = vals
         seg = vals[i0:i1 + 1]
@@ -73,15 +88,22 @@ def _solve(p, eqs, data, assume, tag: str):
             continue
         last = float(col.iloc[-1])
         path = np.array([float(col.loc[lab]) if lab in col.index else last for lab in rng])
-        sd = assume.meta.get("scenario_def") or {}
         for ad in sd.get("addfactor") or []:            # 시나리오의 식 보정 — 기록의 보정항 경로에는 들지 않는다
-            if ad.get("eq") == x["id"]:
-                a_, b_ = _when(ad["from"], s, e, F), _when(ad["to"], s, e, F)
+            if str(ad.get("eq", "")).lower() == x["id"].lower():
+                a_, b_ = _when(ad["from"], sa, ea, F), _when(ad["to"], sa, ea, F)
                 for k, lab in enumerate(rng):
-                    if a_ <= lab <= b_:
+                    if _between(lab, a_, b_, F):
                         path[k] += float(ad["value"])
         if np.any(path != 0):
             sc0.add_factor(target, pd.Series(path, index=wf.data.index[i0:i1 + 1]))
+    endo_set = set(m.endogenous)
+    for sh in sd.get("shocks") or []:                  # 내생변수의 충격 · 보정항 꼴 충격 — 풀 때 다시 준다(엔진은 보정항으로 푼다)
+        if sh.get("var") in endo_set or (sh.get("kind") == "add_factor" and sh.get("var") not in exo):
+            a_, b_ = _when(sh["from"], sa, ea, F), _when(sh["to"], sa, ea, F)
+            lo = s if _before(a_, s, F) else a_                     # 풀 구간과 겹치는 데만
+            hi = b_ if _before(b_, e, F) else e
+            if not _before(hi, lo, F):
+                sc0.shock(sh["var"], sh["value"], lo, hi, kind=sh["kind"])
     try:
         res = quiet(m.forecast, s, e, mode=mode, scenario="baseline")
     except ValueError as ex:
@@ -117,19 +139,24 @@ def split(p, target: str, vars: str = None) -> Tuple[dict, list, list, list, lis
     for r in recs:
         if r.kind != "sim":
             raise ProjectError(f"{r.id}: 요인 나누기는 전망 기록(sim:)끼리")
-    old, new = sorted(recs, key=lambda r: str(r.meta.get("created") or ""))
+    order = {d.get("id"): k for k, d in enumerate(store.log())}      # 같은 초에 만든 기록은 기록장의 차례로
+    old, new = sorted(recs, key=lambda r: (str(r.meta.get("created") or ""), order.get(r.id, 0)))
     if old.meta.get("scenario") != new.meta.get("scenario"):
         implicit_sc = [f"시나리오가 다릅니다({old.meta.get('scenario')} → {new.meta.get('scenario')}) — 그 차이는 '가정'의 몫에 든다"]
     else:
         implicit_sc = []
-    _, a0, n0 = _solve(p, old, old, old, "S0")
-    _, a1, n1 = _solve(p, old, new, old, "S1")
-    _, a2, n2 = _solve(p, old, new, new, "S2")
-    _, a3, n3 = _solve(p, new, new, new, "S3")
-    ra = old.read_csv("annual.csv")
-    rb = new.read_csv("annual.csv")
+    try:
+        _, a0, n0 = _solve(p, old, old, old, "S0")
+        _, a1, n1 = _solve(p, old, new, old, "S1")
+        _, a2, n2 = _solve(p, old, new, new, "S2")
+        _, a3, n3 = _solve(p, new, new, new, "S3")
+        ra = old.read_csv("annual.csv")
+        rb = new.read_csv("annual.csv")
+    except (FileNotFoundError, KeyError) as ex:
+        raise ProjectError(f"요인 나누기: 기록의 파일이 없습니다 — {ex} (기록이 손상되었거나 옛 판의 기록)") from None
     endo = list(new.meta.get("endogenous") or [])
-    want = [v.strip() for v in str(vars).replace(",", " ").split()] if vars else endo[:4]
+    by_low = {v.lower(): v for v in endo}
+    want = [by_low.get(v.strip().lower(), v.strip()) for v in str(vars).replace(",", " ").split()] if vars else endo[:4]
     unknown = [v for v in want if v not in endo]
     if unknown:
         raise ProjectError(f"{new.id}의 내생변수가 아닙니다: {', '.join(unknown)} (있는 것: {', '.join(endo[:12])})")

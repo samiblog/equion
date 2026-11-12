@@ -26,7 +26,7 @@ import pandas as pd
 
 from ..data import transform as tr
 from ..data.periods import PERIODS_PER_YEAR, format_period, normalize_freq, period_starts, to_period
-from ..data.source import SourceSpec, SourceTable, file_sha256, read_source, row_list
+from ..data.source import SourceSpec, SourceTable, _row_no, file_sha256, read_source, row_list
 from ..workfile.output import TableOutput, TextOutput, verbose
 from .config import NAME_RE, VID_RE, ProjectError
 
@@ -121,17 +121,21 @@ def load_defs(root: str, series_file: str, derived_file: Optional[str], freq: st
         fp = os.path.normpath(os.path.join(root, v["file"]))
         if not os.path.isfile(fp):
             problems.append(f"{where}: 원자료 파일이 없습니다 — {v['file']}")
-        if v.get("time_axis", "rows") not in ("rows", "columns"):
+        axis = str(v.get("time_axis", "rows")).strip().lower()
+        if axis not in ("rows", "columns"):
             problems.append(f"{where}: time_axis = {v.get('time_axis')!r} — \"rows\"(시점이 행으로) · \"columns\"(시점이 열로)")
             continue
+        name_col = v.get("name_col")
+        if isinstance(name_col, str) and "," in name_col:
+            name_col = [c.strip() for c in name_col.split(",") if c.strip()]
         try:
             rows = row_list(v.get("header_row", 1))
             sources[name] = SourceSpec(name=name, file=v["file"], path=fp, sheet=v.get("sheet"),
                                        header_row=rows[0] if len(rows) == 1 else rows,
-                                       unit_row=int(v["unit_row"]) if v.get("unit_row") else None,
-                                       time_col=v.get("time_col"), time_axis=v.get("time_axis", "rows"),
-                                       time_row=int(v["time_row"]) if v.get("time_row") else None,
-                                       name_col=v.get("name_col"), unit_col=v.get("unit_col"),
+                                       unit_row=_row_no(v["unit_row"], "unit_row") if v.get("unit_row") not in (None, "") else None,
+                                       time_col=v.get("time_col"), time_axis=axis,
+                                       time_row=_row_no(v["time_row"], "time_row") if v.get("time_row") not in (None, "") else None,
+                                       name_col=name_col, unit_col=v.get("unit_col"),
                                        missing=[str(x) for x in miss], thousands=v.get("thousands"),
                                        freq=normalize_freq(v["freq"]) if v.get("freq") else None)
         except (TypeError, ValueError) as e:
@@ -766,6 +770,8 @@ def _frame_spec(root: str, file: str, name: str = "preview", sheet=None, header_
         sheet = int(sheet)
     if isinstance(time_col, str) and time_col.strip().isdigit():
         time_col = int(time_col)
+    if isinstance(time_axis, str):
+        time_axis = time_axis.strip().lower()
     if time_axis not in (None, "", "rows", "columns"):
         raise ProjectError(f"time_axis = {time_axis!r} — rows(시점이 행으로) · columns(시점이 열로)")
     if isinstance(name_col, str) and "," in name_col:
@@ -773,10 +779,11 @@ def _frame_spec(root: str, file: str, name: str = "preview", sheet=None, header_
     try:
         rows = row_list(header_row or 1)
         return SourceSpec(name=name, file=rel, path=path, sheet=sheet if sheet not in ("", None) else None,
-                          header_row=rows[0] if len(rows) == 1 else rows, unit_row=int(unit_row) if unit_row else None,
+                          header_row=rows[0] if len(rows) == 1 else rows,
+                          unit_row=_row_no(unit_row, "unit_row") if unit_row not in (None, "") else None,
                           time_col=time_col if time_col not in ("", None) else None, missing=[str(m) for m in miss if str(m) != ""],
                           thousands=thousands or None, freq=normalize_freq(freq) if freq else None,
-                          time_axis=time_axis or "rows", time_row=int(time_row) if time_row not in (None, "") else None,
+                          time_axis=time_axis or "rows", time_row=_row_no(time_row, "time_row") if time_row not in (None, "") else None,
                           name_col=name_col if name_col not in (None, "", []) else None, unit_col=unit_col if unit_col not in (None, "") else None)
     except (TypeError, ValueError) as e:
         raise ProjectError(f"{file}: 틀을 읽을 수 없습니다 — {e}") from None

@@ -487,6 +487,7 @@ def _plain(value: Any) -> Any:
 
 def serve(root: str) -> int:
     """작업 프로세스의 본체. 표준 입력의 요청을 차례로 하고 표준 출력에 응답을 쓴다. 입력이 닫히면 끝난다."""
+    os.environ["EQUION_NO_PYTHON"] = "1"   # Python 단계·블록은 터미널에서(D57) — 명령 창·노트·흐름 모두
     out = os.fdopen(os.dup(1), "w", encoding="utf-8", newline="\n")
     sys.stdout = io.StringIO()            # 엔진이 쓰는 글이 응답 줄에 섞이지 않게 — 요청마다 따로 모은다
     inp = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")

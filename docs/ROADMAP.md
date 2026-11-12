@@ -143,6 +143,8 @@ Equion Desk 개발 계획(`DESK_DEVPLAN.md`)의 단계 E. 끝나면 Desk 없이�
       list·show·define·remove`) · 노트 화면(블록마다 상태·▶ 실행·노트 전체 실행·낡은 것만 — 패키지 `equion note add`) · 같은 분석의 두 기록 비교(판단이 바뀐 줄)
 - [x] 2차판 — 자료 쪽 셋(2026-11-12, D59~D61): 회차 비교의 요인 나누기(`an split` — 자료 → 가정 → 식, 전망 화면의 단추) · 시점이 열로 가는 표와 여러 줄 머리
       (`time_axis`·`time_row`·`name_col`·`unit_col`, `header_row = [3, 4]` — 불러오기 화면) · 이정표(`equion milestone`)와 묶어 보내기 · 묶음 열기(`equion bundle`)
+- [x] 2차판 출시 후보(2026-11-12, D62): 짜지 않은 눈의 적대적 시험 셋 · 사용자 관점 J8 · CI 조합을 이 PC에서 — 고친 것은 CHANGELOG '미공개',
+      Desk `0.2.0rc1` 사전 릴리스(`desk-v0.2.0rc1`). 영문 화면·CI는 사용자가 뒤에 정한다, Lectern 수정은 하지 않는다
 
 **2차판 나머지** — Lectern 수정(LC1~LC6 — 다른 저장소), 영문 화면
 

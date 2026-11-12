@@ -5,7 +5,7 @@ import { confirmDialog } from '../dialog.js';
 import { clear, flash, h, icon, when, WHO } from '../util.js';
 import { diffBlock } from './lists.js';
 
-const STATUS = { same: ['같음', ''], changed: ['고침', 'warn'], added: ['새로', 'accent'], removed: ['지움', 'warn'] };
+const STATUS = { same: ['같음', ''], changed: ['고침', 'warn'], added: ['새로', 'accent'], removed: ['지움', 'warn'], missing: ['사본 없음', 'warn'] };
 
 export function milestoneView(project, desc) {
   const name = desc.name;
@@ -47,12 +47,13 @@ export function milestoneView(project, desc) {
       h('div', {}, h('h1', {}, icon('pin'), h('span', { class: 'mono' }, name), m?.note ? h('span', { class: 'tag' }, m.note) : null),
         h('div', { class: 'sub' }, m ? [h('span', {}, when(m.created)), h('span', {}, WHO[m.who] || m.who || ''), h('span', { class: 'mono' }, `자료 ${m.vintage || '(자료 파일)'}`),
           h('span', {}, `정의 파일 ${m.files}`), h('span', {}, `고정한 기록 ${m.records.length}`)] : null)),
-      d && !d.same ? h('div', { class: 'tools' }, h('button', { class: 'btn primary', type: 'button', 'data-act': 'restore', disabled: project.busy, onclick: () => restore() }, icon('rewind'), '정의를 이때로 되돌리기')) : null));
+      d && !d.defs_same ? h('div', { class: 'tools' }, h('button', { class: 'btn primary', type: 'button', 'data-act': 'restore', disabled: project.busy, onclick: () => restore() }, icon('rewind'), '정의를 이때로 되돌리기')) : null));
     if (st.error) { el.append(h('div', { class: 'banner error' }, icon('alert'), h('div', {}, st.error))); return; }
     if (!d) { el.append(h('div', { class: 'empty-state' }, '읽는 중…')); return; }
     const moved = d.files.filter((f) => f.status !== 'same');
     el.append(h('div', { class: `banner ${d.same ? 'ok' : 'info'}` }, icon(d.same ? 'check' : 'info'),
-      h('div', {}, d.same ? '정의도 자료 회차도 이정표 때와 같습니다.' : `이정표 뒤에 바뀐 정의 파일 ${moved.length}개`,
+      h('div', {}, d.same ? '정의도 자료 회차도 이정표 때와 같습니다.' : d.defs_same ? '정의는 이정표 때와 같습니다 — 자료 회차만 다릅니다(되돌리기는 정의만, 회차는 자료 탭에서).'
+        : `이정표 뒤에 바뀐 정의 파일 ${moved.length}개`,
         d.vintage !== d.vintage_now ? [h('br'), `자료 회차 ${d.vintage} → 지금 ${d.vintage_now}`] : null)));
     if (moved.length) {
       el.append(h('div', { class: 'card-meta' }, moved.map((f) => {

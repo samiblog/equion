@@ -179,6 +179,24 @@ def load_scenario(p, name: str) -> dict:
     return out
 
 
+def _between(lab, s: str, e: str, freq: str) -> bool:
+    """기간 라벨 lab이 s~e 안인가 — 글자가 아니라 기간으로 견준다(월간 '2020M10'은 '2020M2' 뒤)."""
+    from ..data.periods import parse_period
+    try:
+        x = parse_period(str(lab).strip(), freq)
+        return parse_period(str(s), freq) <= x <= parse_period(str(e), freq)
+    except (ValueError, TypeError, KeyError):
+        return False
+
+
+def _before(lab, s: str, freq: str) -> bool:
+    from ..data.periods import parse_period
+    try:
+        return parse_period(str(lab).strip(), freq) < parse_period(str(s), freq)
+    except (ValueError, TypeError, KeyError):
+        return False
+
+
 def _when(token: str, s: str, e: str, freq: str) -> str:
     """시나리오의 기간 — 라벨 또는 start · end · start+N · end-N(전망 구간 기준)."""
     from ..data.periods import format_period, parse_period
@@ -406,13 +424,13 @@ def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vinta
                 warn.append(f"가정 {col}: 모형 {name_model}의 외생변수가 아님 — 쓰지 않음")
                 continue
             ser = A["values"][col].dropna()
-            before = [lab for lab in ser.index if lab < s]
+            before = [lab for lab in ser.index if _before(lab, s, F)]
             if before:
                 warn.append(f"가정 {col}: 전망 앞 기간({before[0]}~{before[-1]})은 실측 자리라 쓰지 않음")
             k = 0
             vals = wf._data.data[col].to_numpy(dtype=float).copy()
             for lab, v in ser.items():
-                if s <= lab <= e and lab in labels:
+                if lab in labels and _between(lab, s, e, F):
                     j = labels.index(lab)
                     vals[j] = v
                     flags[col][j] = "가정"
@@ -464,7 +482,7 @@ def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vinta
                     path[:] = val
             if x.id in jv.columns:
                 for lab, v in jv[x.id].dropna().items():
-                    if s <= lab <= e and lab in labels:
+                    if lab in labels and _between(lab, s, e, F):
                         path[labels.index(lab) - i0] = v
                         judgment += 1
             af_info[x.id] = {"rule": spec["rule"], "value": val, "half_life": spec.get("half_life"), "n": spec.get("n")}

@@ -12,6 +12,7 @@ test_journeys.py — 사용자의 관점에서 본 시나리오(docs/TEST_SCENAR
   J5. 이식성·재연: 공백·한글 경로·옮긴 프로젝트(절대 경로 없음)·다른 판·CRLF·BOM
   J6. 명령줄 사용성: 모든 --help·--json·cp949 출력·하위 폴더·오류의 다음 할 일
   J7. 규모: 기록 1,000개
+  J8. 2차판 — 달을 넘는 요인 나누기·이정표·다른 PC로 보내기·시점이 열로 가는 표의 개정·나쁜 묶음
 자료는 예제 자료를 코드로 바꾼 합성 표만 쓴다(D30).
 """
 
@@ -28,6 +29,7 @@ import sys
 import tempfile
 import time
 import traceback
+import zipfile
 
 import pandas as pd
 
@@ -137,6 +139,7 @@ def _main(tmp, t0):
     j5(tmp)
     j6(tmp)
     j7(tmp)
+    j8(tmp)
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:
@@ -519,6 +522,155 @@ def j7(tmp):
           and code == 0 and len(out.splitlines()) > 1000 and nxt == "syn_1000" and c2 == 0 and t_default < 3 and t_list < 8
           and t_next < 1 and t_check < 5,
           f"쓰기 {t_write:.1f}초 · 기본 목록 {t_default:.2f}초 · 전부 {t_list:.1f}초 · 다음 이름 {t_next:.2f}초 · 보고서 검사 {t_check:.1f}초")
+
+
+# ---------------------------------------------------------------------------
+def _split_rows(out):
+    """an split 카드의 '변수 연도 성장률 앞 → 뒤 (바뀜)  자료 · 가정 · 식' 줄."""
+    return [x.strip() for x in out.splitlines() if "성장률" in x and "자료" in x]
+
+
+def _leaks(folder, roots):
+    bad = []
+    for f in glob.glob(os.path.join(folder, "**", "*"), recursive=True):
+        if not os.path.isfile(f) or not f.endswith((".json", ".jsonl", ".md", ".toml", ".txt", ".eqs")):
+            continue
+        t = read(f)
+        for root in roots:
+            for form in (root, root.replace("\\", "/"), root.replace("\\", "\\\\")):
+                if form in t:
+                    bad.append(os.path.relpath(f, folder))
+    return sorted(set(bad))
+
+
+def _evil(path, entries, manifest=None, top="evil"):
+    """나쁜 묶음 — entries: [(zip 안의 이름, 내용)]."""
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr(f"{top}/bundle.json", json.dumps(manifest or {"format": "equion-bundle", "format_version": 1, "project": top}))
+        z.writestr(f"{top}/equion.toml", '[project]\nname = "evil"\n')
+        for name, text in entries:
+            z.writestr(name, text)
+
+
+def j8(tmp):
+    print("\n== J8. 2차판 — 달을 넘는 요인 나누기 · 이정표 · 다른 PC로 보내기 ==")
+    p, d = new_project(tmp, "보낼 모형")
+    monthly_file(d, 1)
+    codes = [run(["data", "build", "--inbox", "auto", "--use"], d)[0], run(["sim", "--as", "m1"], d)[0],
+             run(["hs", "main", "--as", "hs1"], d)[0], run(["work", "pin", "sim:m1"], d)[0]]
+    c, o, e = run(["milestone", "make", "fc_m1", "--note", "1달 전망 확정"], d)
+    codes += [c, run(["work", "unpin", "sim:m1"], d)[0]]
+    monthly_file(d, 2)
+    codes.append(run(["data", "build", "--inbox", "auto", "--use"], d)[0])
+    est = quiet(Project.open, d).est("CN c Y CN(-1) R", part="demand:CN")
+    codes += [run(["adopt", est.id], d)[0], run(["sim", "--as", "m2"], d)[0]]
+    c, o, e = run(["an", "split", "sim:m1 sim:m2", "--vars", "Y,CN"], d)
+    rows = _split_rows(o)
+    an1 = quiet(Project.open, d).work.records("an")[-1]
+    t1 = an1.read_csv("table_1.csv")
+    sums = None
+    if t1 is not None:
+        cols = [x for x in ("자료", "가정", "식", "나머지") if x in t1.columns]
+        sums = float((t1[cols].sum(axis=1) - t1["바뀜"]).abs().max())
+    check("J8.1 두 달의 전망 — 새 분기·개정(자료)과 바꾼 소비함수(식)의 몫이 따로, 몫의 합 = 바뀜",
+          codes == [0] * len(codes) and c == 0 and len(rows) >= 4 and sums is not None and sums <= 0.0025 + 1e-9
+          and t1 is not None and (t1["자료"].abs() > 1e-6).any() and (t1["식"].abs() > 1e-6).any(),
+          f"{codes} {c} 합 차이 {sums} {list(t1.columns) if t1 is not None else None} {(o + e)[-200:] if c else ''}")
+    blk = os.path.join(d, "EQUATIONS", "demand.txt")
+    write(blk, read(blk) + "# 다음 달에 볼 것\n")
+    ap = os.path.join(d, "ASSUMPTIONS", "base.csv")
+    a = pd.read_csv(ap, index_col=0)
+    a["POIL"] *= 1.2
+    a.to_csv(ap, lineterminator=chr(10))
+    c2, o2, _ = run(["an", "split", "sim:m1 sim:m2", "--vars", "Y,CN"], d)
+    check("J8.2 정의 파일을 고친 뒤에 다시 나눠도 같은 몫(기록만으로 푼다)", c2 == 0 and _split_rows(o2) == rows, "\n".join(_split_rows(o2)[:2]))
+    c, o, _ = run(["milestone", "show", "fc_m1"], d)
+    changed = [x for x in o.splitlines() if "EQUATIONS/adopted.toml" in x or "EQUATIONS/demand.txt" in x]
+    c3, o3, e3 = run(["milestone", "restore", "fc_m1", "--json"], d)
+    after = quiet(Project.open, d).milestone_diff("fc_m1")
+    chg = json.loads(o3).get("change") if c3 == 0 else None
+    c4, _, _ = run(["history", "revert", chg], d) if chg else (1, "", "")
+    back = quiet(Project.open, d).milestone_diff("fc_m1")
+    check("J8.3 이정표 — 그 뒤의 채택·식 고침이 차이로 보이고, 되돌리면 정의가 같고(자료 회차는 그대로), 되돌림을 되돌리면 다시 다르다",
+          c == 0 and len(changed) == 2 and c3 == 0 and after.defs_same and c4 == 0 and not back.defs_same, f"{changed} {(o3 + e3)[-200:]}")
+    run(["work", "pin", "hs:hs1"], d)
+    run(["work", "pin", "sim:m2"], d)
+    run(["work", "clean", "--yes"], d)
+    p = quiet(Project.open, d)
+    check("J8.4 고정을 푼 뒤 정리(work clean --yes)해도 이정표가 적은 기록(sim:m1)과 이정표가 남는다",
+          _exists(d, "sim:m1") and [m["name"] for m in p.milestones()] == ["fc_m1"], str([m["name"] for m in p.milestones()]))
+
+    zp = os.path.join(tmp, "보낼 묶음.zip")
+    c, o, e = run(["bundle", "make", "--out", zp, "--records", "all"], d)
+    other = os.path.join(tmp, "다른 PC", "받은 모형")
+    c2, o2, e2 = run(["bundle", "open", zp, other], tmp)
+    q = quiet(Project.open, other) if c2 == 0 else None
+    c3, o3, e3 = run(["hs", "--replay", "hs:hs1"], other) if q else (1, "", "")
+    c4, o4, _ = run(["an", "split", "sim:m1 sim:m2", "--vars", "Y,CN"], other) if q else (1, "", "")
+    leaks = _leaks(other, [d, tmp]) if q else ["(못 엶)"]
+    check("J8.5 묶어 보내고 다른 폴더(한글·공백)에서 열면 — 회차·이정표 그대로, HS 재연 같음, 요인 나누기 같음, 기록에 원래 PC의 경로 없음",
+          c == 0 and c2 == 0 and q is not None and q.vintage == p.vintage and [m["name"] for m in q.milestones()] == ["fc_m1"]
+          and c3 == 0 and ("같은 결과" in o3 or "같음" in o3) and c4 == 0 and _split_rows(o4) == rows and not leaks,
+          f"{c} {c2} {c3} {c4} 회차 {q.vintage if q else None}/{p.vintage} {_split_rows(o4)[:1]} {rows[:1]} {(o3 + e3)[-160:]} {leaks[:3]}")
+    zr = os.path.join(tmp, "raw.zip")
+    c, o, e = run(["bundle", "make", "--raw", "--out", zr, "--records", "none"], d)
+    other2 = os.path.join(tmp, "다른 PC", "원자료까지")
+    c2, _, _ = run(["bundle", "open", zr, other2], tmp)
+    c3, o3, e3 = run(["data", "build", "--json"], other2) if c2 == 0 else (1, "", "")
+    vid = json.loads(o3).get("id") if c3 == 0 else None
+    check("J8.6 원자료까지 묶으면 받은 쪽에서 회차를 다시 만들어도 같은 회차(내용 해시)", c == 0 and c2 == 0 and c3 == 0 and vid == p.vintage,
+          f"{vid} ≠ {p.vintage} {(o3 + e3)[-200:]}")
+
+    bad = []
+    outside = os.path.join(tmp, "밖에 생기면 안 됨.txt")
+    cases = [
+        ("zip-slip", [("evil/../../밖에 생기면 안 됨.txt", "x")], None),
+        ("절대 경로", [("evil/C:/x.txt", "x")], None),
+        ("역슬래시", [("evil\\..\\..\\x.txt", "x")], None),
+        ("새 판", [], {"format": "equion-bundle", "format_version": 99, "project": "evil"}),
+        ("다른 형식", [], {"format": "something", "format_version": 1}),
+    ]
+    for i, (label, entries, manifest) in enumerate(cases):
+        ez = os.path.join(tmp, f"evil{i}.zip")
+        _evil(ez, entries, manifest)
+        dest = os.path.join(tmp, "evil_out", str(i))
+        code, out, err = run(["bundle", "open", ez, dest], tmp)
+        if code != 3:
+            bad.append(f"{label}: 종료 코드 {code} {(out + err)[-120:]}")
+    full = os.path.join(tmp, "가득 찬 폴더")
+    write(os.path.join(full, "있던 파일.txt"), "x")
+    code, out, err = run(["bundle", "open", zp, full], tmp)
+    if code != 3 or sorted(os.listdir(full)) != ["있던 파일.txt"]:
+        bad.append(f"빈 폴더가 아님: {code}")
+    with zipfile.ZipFile(zp) as z:
+        names = z.namelist()
+    private = [n for n in names if "/work/history/" in n or "/work/desk/" in n or "/DATA/raw/" in n]
+    check("J8.7 나쁜 묶음(폴더 밖 경로 · 절대 경로 · 새 판 · 다른 형식) · 빈 폴더가 아니면 3, 밖에 아무것도 생기지 않음 · 기본 묶음에 바뀜 기록·화면 상태·원자료 없음",
+          not bad and not os.path.exists(outside) and not os.path.exists(os.path.join(tmp, "x.txt")) and not private, f"{bad} {private[:3]}")
+
+    w, wd = new_project(tmp, "통계표")
+    raw = os.path.join(wd, "DATA", "raw", "industry.csv")
+    head = "표 2. 산업별 생산(가상)\n항목,단위,2018 1/4,2018 2/4,2018 3/4,2018 4/4\n"
+    write(raw, head + "제조업,십억원,100,101,103,104\n서비스업,십억원,200,202,-,205\n")
+    c, o, e = run(["data", "define", "ind", "--file", "DATA/raw/industry.csv", "--time-axis", "columns", "--time-row", "2",
+                   "--name-col", "A", "--missing", "-", "--series", "MFG=제조업", "--series", "SVC=서비스업"], wd)
+    c2, _, _ = run(["data", "build", "--use"], wd)
+    v1 = quiet(Project.open, wd).vintage
+    new = os.path.join(tmp, "industry_2019Q1.csv")
+    write(new, "표 2. 산업별 생산(가상)\n항목,단위,2018 1/4,2018 2/4,2018 3/4,2018 4/4,2019 1/4\n"
+               "제조업,십억원,100,101.5,103,104,106\n서비스업,십억원,200,202,203,205,207\n")
+    c3, o3, e3 = run(["data", "add", new, "--source", "ind"], wd)
+    c4, _, _ = run(["data", "build", "--use"], wd)
+    c5, o5, e5 = run(["data", "diff", v1, "--json"], wd)
+    wf = quiet(Project.open, wd).workfile
+    dj = json.loads(o5) if c5 == 0 else {}
+    text = json.dumps(dj, ensure_ascii=False)
+    ch = {x.get("시리즈"): x for x in dj.get("changes", [])}
+    check("J8.8 시점이 열로 가는 통계표의 다음 판 — 정의 그대로 새 열(새 분기)·고친 칸(개정)·채운 결측이 회차 차이로",
+          [c, c2, c3, c4, c5] == [0] * 5 and wf["MFG"].loc[pd.Timestamp("2019-01-01")] == 106 and wf["MFG"].loc[pd.Timestamp("2018-04-01")] == 101.5
+          and wf["SVC"].loc[pd.Timestamp("2018-07-01")] == 203 and ch.get("MFG", {}).get("새 값") == 1 and ch.get("MFG", {}).get("개정") == 1
+          and ch.get("SVC", {}).get("새 값") == 2,
+          f"{[c, c2, c3, c4, c5]} {wf['MFG'].dropna().tolist()} {wf['SVC'].dropna().tolist()} {text[:300]}")
 
 
 def test_suite():
