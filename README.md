@@ -7,9 +7,9 @@
 **Equion**은 개별 회귀식부터 비선형 연립방정식 모델까지 **추정 → 연립 풀이 → 과거 재현(Historical Simulation) →
 전망·시나리오**를 수행하는 Python 패키지입니다. **방정식(회귀 체계)은 언제든 바뀌는 입력**이고, 엔진이
 그것을 견고하게 받아 같은 의미로 추정하고 풀도록 설계했습니다. 라이브러리(`import equion as eqn`)와
-명령줄(`equion run`)로 씁니다. Windows 데스크톱 앱 **Equion Desk**는 1차판 출시 후보(0.1.0rc1)입니다([`desk/`](desk/README.md) — 다른 PC 설치 점검이 남았습니다).
+명령줄(`equion run`)로 씁니다. Windows 데스크톱 앱 **Equion Desk**는 2차판 출시 후보(0.2.0rc2)입니다([`desk/`](desk/README.md) — 다른 PC 설치 점검이 남았습니다).
 
-- 버전: Equion **0.8.0** (2026-11-11)
+- 버전: Equion **0.9.0** (2026-11-12)
 - 스택: Python 3.12+ · numpy · pandas · scipy · openpyxl (회귀·검정은 자체 구현, 그래프는 내장 plotly.js)
 - 라이선스: [MIT](LICENSE)
 - **문서: [docs/README.md](docs/README.md)** — 설치 · [30분 첫 모델](docs/start/first-model.md) · 튜토리얼 8편 · 레시피 · 해설 · 참조 ·

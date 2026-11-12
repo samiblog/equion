@@ -51,7 +51,7 @@ print(eqn.datasets.names())        # 문서 예제가 쓰는 예제 자료
 ```
 <!-- out -->
 ```text
-0.8.0
+0.9.0
 ['klein_like', 'toy_a', 'toy_m', 'toy_q']
 ```
 

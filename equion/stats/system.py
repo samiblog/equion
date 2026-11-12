@@ -110,6 +110,15 @@ def _cov_sandwich(Xs, N, A_inv, S):
     return N @ A_inv @ meat @ A_inv @ N.T
 
 
+def _check_sigma(S: np.ndarray) -> None:
+    """SUR·3SLS·FIML의 잔차 공분산 — 잔차가 0인 식(완전히 맞는 식)이 있으면 특이하다. 그대로 두면 0 계수·0 표준오차가 나온다."""
+    d = np.diag(S)
+    scale = float(np.max(np.abs(d))) if d.size else 0.0
+    zero = [i + 1 for i, v in enumerate(d) if not v > 1e-14 * max(scale, 1e-300)]
+    if zero:
+        raise ValueError(f"식 {', '.join(map(str, zero))}의 잔차가 0입니다(완전히 맞는 식 — 항등식 꼴) — SUR·3SLS·FIML에서는 그 식을 빼세요")
+
+
 def fit_linear(ys: List[np.ndarray], Xs: List[np.ndarray], method: str = "ols", Zs: List[np.ndarray] = None,
                R=None, q=None, iterate: bool = False, maxiter: int = 1000, tol: float = 1e-10) -> SystemFit:
     """선형 시스템 추정. ys: 식마다 (T,), Xs: 식마다 (T, K), Zs: 식마다 도구 (T, Lᵢ) 또는 None."""
@@ -132,6 +141,8 @@ def fit_linear(ys: List[np.ndarray], Xs: List[np.ndarray], method: str = "ols", 
     E = _resid(ys, Xs, b)
     S = _sigma(E)
     it = 1
+    if method in ("sur", "3sls"):
+        _check_sigma(S)
     if method in ("ols", "tsls"):
         cov = _cov_sandwich(Xr, N, Ainv, S)
         return SystemFit(method, b, cov, E, S, it)
@@ -287,8 +298,11 @@ def fit_nonlinear(resid_fn, jac_fn, start, method: str = "ols", Zs: List[np.ndar
         if Zs is None or any(z is None for z in Zs):
             raise ValueError(f"{method}에는 도구변수가 필요합니다")
         Qs = [_basis(Z) for Z in Zs]
-        for i, G in enumerate(jac_fn(start)):
-            used = np.flatnonzero(np.any(np.asarray(G) != 0, axis=0))
+        probe = start + 0.123 + 0.071 * np.arange(K)                       # 시작값의 0(c(2)=0이면 ∂/∂c(3)=0)에 속지 않게 두 점에서
+        G0, G1 = jac_fn(start), jac_fn(probe)
+        for i in range(len(G0)):
+            nz = lambda g: np.any((np.asarray(g) != 0) | ~np.isfinite(np.asarray(g)), axis=0)   # noqa: E731
+            used = np.flatnonzero(nz(G0[i]) | nz(G1[i]))
             if Qs[i].shape[1] < len(used):
                 raise ValueError(f"식 {i + 1}: 도구변수({Qs[i].shape[1]}개)가 계수({len(used)}개)보다 적어 식별 불가")
 
@@ -308,7 +322,20 @@ def fit_nonlinear(resid_fn, jac_fn, start, method: str = "ols", Zs: List[np.ndar
                             xtol=1e-15, ftol=1e-15, gtol=1e-15, max_nfev=400 * (len(th0) + 1))
         if not sol.success or not np.all(np.isfinite(sol.x)):
             raise ValueError(f"비선형 시스템 추정({method}) 수렴 실패: {sol.message} — 시작값(start=…, 식의 @start)을 확인하세요")
+        b_ = b_of(sol.x)
+        if float(np.max(np.abs(b_))) > 1e10:
+            raise ValueError(f"비선형 시스템 추정({method})이 발산했습니다(계수 {float(np.max(np.abs(b_))):.3g}) — 시작값을 바꾸세요")
+        E_ = np.asarray(resid_fn(b_), dtype=float)
+        if not np.all(np.isfinite(E_)):
+            bad = int(np.sum(~np.all(np.isfinite(E_), axis=1)))
+            raise ValueError(f"비선형 시스템 추정({method}): 추정한 계수에서 식이 수가 아닌 기간이 {bad}기 — 식의 정의역(로그·거듭제곱·나눗셈)을 "
+                             "확인하거나 시작값을 바꾸세요")
         return sol
+
+    def identified(X) -> bool:
+        """해에서의 기울기(쌓은 것)가 계수를 다 가르는가 — 곱으로만 든 계수(c(2)*c(3)) 등은 아니다(열 길이를 맞춘 뒤 본다)."""
+        from .regression import _full_rank
+        return _full_rank(X)
 
     # 목적 벡터 — 제곱합이 목적함수가 되게
     def v_ols(th):
@@ -345,12 +372,16 @@ def fit_nonlinear(resid_fn, jac_fn, start, method: str = "ols", Zs: List[np.ndar
     if method in ("ols", "tsls"):
         G = [np.asarray(g, dtype=float) for g in jac_fn(b)]
         Xr = G if method == "ols" else [Qs[i] @ (Qs[i].T @ G[i]) for i in range(m)]
-        P, _ = pinv_svd(np.concatenate([X @ N for X in Xr], axis=0))
-        cov = _cov_sandwich(Xr, N, P @ P.T, S)
+        Xa = np.concatenate([X @ N for X in Xr], axis=0)
+        P, _ = pinv_svd(Xa)
+        ok_id = identified(Xa)
+        cov = _cov_sandwich(Xr, N, P @ P.T, S) if ok_id else np.full((K, K), np.nan)
         fit = SystemFit(method, b, cov, E, S, it)
-        fit.extra.update({"nonlinear": True, "converged": True, "nfev": nfev})
+        fit.extra.update({"nonlinear": True, "converged": bool(sol.success) and ok_id, "identified": ok_id, "nfev": nfev})
         return fit
+    _check_sigma(S)
     S_used = S
+    moved = 0.0
     while True:                                             # NL-SUR · NL-3SLS: Σ̂로 다시(반복 가능)
         S_used = S
         if method == "sur":
@@ -374,17 +405,23 @@ def fit_nonlinear(resid_fn, jac_fn, start, method: str = "ols", Zs: List[np.ndar
         S = S_new
     GN = [np.asarray(g, dtype=float) @ N for g in jac_fn(b)]
     if method == "sur":
-        P, _ = pinv_svd(_whiten(GN, _inv_sqrt(S_used)))
-        cov = N @ (P @ P.T) @ N.T
+        Xw = _whiten(GN, _inv_sqrt(S_used))
+        ok_id = identified(Xw)
+        P, _ = pinv_svd(Xw)
+        cov = N @ (P @ P.T) @ N.T if ok_id else np.full((K, K), np.nan)
     else:
         D = np.concatenate([Qs[i].T @ GN[i] for i in range(m)], axis=0)
+        ok_id = identified(D)
         A = D.T @ np.linalg.solve(SZ(S_used), D)
         try:
-            cov = N @ np.linalg.inv(A) @ N.T
+            cov = N @ np.linalg.inv(A) @ N.T if ok_id else np.full((K, K), np.nan)
         except np.linalg.LinAlgError:
-            cov = N @ np.linalg.pinv(A) @ N.T
+            cov, ok_id = np.full((K, K), np.nan), False
+    done = (not iterate) or moved <= tol * (1 + float(np.max(np.abs(b))))
+    if np.any(np.diag(cov) < 0):
+        done = False
     fit = SystemFit(method, b, cov, E, S_new, it - 1)
-    fit.extra.update({"sigma_used": S_used, "nonlinear": True, "converged": bool(it <= maxiter + 1), "nfev": nfev})
+    fit.extra.update({"sigma_used": S_used, "nonlinear": True, "converged": bool(done and ok_id), "identified": ok_id, "nfev": nfev})
     if method == "sur":
         fit.loglik = gaussian_loglik(E)
     return fit
@@ -431,7 +468,11 @@ def fit_fiml_nonlinear(resid_fn, jac_fn, J_fn, dJ_fn, start, R=None, q=None, max
     th0 = np.linalg.lstsq(N, start - b0, rcond=None)[0]
     if not np.isfinite(negll(th0)):
         raise ValueError("FIML: 시작값에서 로그우도를 계산할 수 없습니다(야코비안이 특이하거나 잔차가 수가 아님) — start를 확인하세요")
-    res = minimize(negll, th0, jac=neggrad, method="BFGS", options={"gtol": gtol, "maxiter": maxiter})
+    _check_sigma(_sigma(np.asarray(resid_fn(b0 + N @ th0), dtype=float)))
+    try:
+        res = minimize(negll, th0, jac=neggrad, method="BFGS", options={"gtol": gtol, "maxiter": maxiter})
+    except np.linalg.LinAlgError:
+        raise ValueError("FIML: 잔차 공분산이나 야코비안이 특이합니다(잔차가 0인 식 · 서로 같은 식) — 식을 확인하세요") from None
     if not np.isfinite(res.fun):
         raise ValueError("FIML: 로그우도를 계산할 수 없습니다(야코비안이 특이) — 시작값·식을 확인하세요")
     theta = res.x
@@ -454,15 +495,24 @@ def fit_fiml_nonlinear(resid_fn, jac_fn, J_fn, dJ_fn, start, R=None, q=None, max
             break
         theta = cand
     H = hessian(theta)
+    dH = np.abs(np.diag(H)) if np.all(np.isfinite(H)) else np.zeros(len(H))
+    if np.all(dH > 0):                                      # 대각으로 크기를 맞춘 헤시안(계수의 크기 차이에 휘둘리지 않게)
+        sv = np.linalg.svd(H / np.sqrt(np.outer(dH, dH)), compute_uv=False)
+        ok_id = bool(sv.size and sv[-1] > 1e-10)
+    else:
+        ok_id = False
     try:
-        cov_t = np.linalg.inv(H)
+        cov_t = np.linalg.inv(H) if ok_id else np.full(H.shape, np.nan)
     except np.linalg.LinAlgError:
-        cov_t = np.linalg.pinv(H)
+        cov_t, ok_id = np.full(H.shape, np.nan), False
     b = b0 + N @ theta
+    if float(np.max(np.abs(b))) > 1e10:
+        raise ValueError(f"FIML이 발산했습니다(계수 {float(np.max(np.abs(b))):.3g}) — 시작값을 바꾸세요")
     E, _ = parts(b)
     fit = SystemFit("fiml", b, N @ cov_t @ N.T, E, _sigma(E), int(res.nit), loglik=-float(negll(theta)))
     gnorm = float(np.max(np.abs(neggrad(theta))))
-    fit.extra.update({"converged": bool(gnorm < 1e-6), "message": str(res.message), "gradient_norm": gnorm, "nonlinear": True})
+    fit.extra.update({"converged": bool(gnorm < 1e-6) and ok_id and not np.any(np.diag(fit.cov) < 0), "message": str(res.message),
+                      "gradient_norm": gnorm, "nonlinear": True, "identified": ok_id})
     return fit
 
 

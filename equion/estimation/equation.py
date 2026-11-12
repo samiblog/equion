@@ -757,9 +757,14 @@ class Equation:
             finally:
                 Q = Q_
         sol = solve(x0)
+        what = "NL-2SLS" if Q is not None else "NLS"
         if not sol.success:
-            what = "NL-2SLS" if Q is not None else "NLS"
             raise ValueError(f"{what} 수렴 실패: {sol.message} (@start로 시작값을 지정해 보세요)")
+        r_end = (y - self._nls_rhs(sol.x)).to_numpy(dtype=float)
+        if not np.all(np.isfinite(r_end)) or not np.all(np.isfinite(self._nls_jacobian(sol.x))):
+            bad = int(np.sum(~np.isfinite(r_end)))
+            raise ValueError(f"{what}: 계수 {np.round(sol.x, 6).tolist()}에서 식이 수가 아닌 관측치가 {bad}개 — 식의 정의역(로그·거듭제곱·나눗셈)을 "
+                             "확인하거나 @start로 시작값을 바꾸세요")
         names = pd.Index(self.coef_names)
         if Q is not None:
             self._results = _reg.nltsls(y, pd.Series(sol.x, index=names), self._nls_rhs(sol.x),

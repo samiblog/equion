@@ -27,7 +27,7 @@ $ equion --version
 <!-- out -->
 ```text
 $ equion --version
-equion 0.8.0
+equion 0.9.0
 ```
 
 ## 이 가이드의 출력

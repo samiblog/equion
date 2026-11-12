@@ -361,6 +361,12 @@ def section_tabs(tmp: str, folder: str) -> None:
         check("F6-1 터미널 색 — 기본은 창의 바탕을 따르고, '늘 어둡게'(term_follow=false)는 첫 화면에 실려 온다. 형식이 틀리면 받지 않는다",
               follows and t2["term_follow"] is False and t3["term_follow"] is False and 'data-term-follow="false"' in c.get("/").text, str(t2))
         c.post("/api/settings", json={"term_follow": True})
+        f0 = s["term_font_size"]
+        f1 = c.post("/api/settings", json={"term_font_size": 17}).json["client"]["term_font_size"]
+        bad = [c.post("/api/settings", json={"term_font_size": v}).json["client"]["term_font_size"] for v in (9, 25, 16.5, True, "18")]
+        check("F6-2 터미널 글자 크기 — 기본 14px, 10~24 의 정수만 받는다(화면 글자 크기와 따로)",
+              f0 == 14 and f1 == 17 and bad == [17] * 5 and s["font_scale"] == 110, f"{f0} {f1} {bad}")
+        c.post("/api/settings", json={"term_font_size": 14})
         c.post("/api/tabs/active", json={"id": b["id"]})
     finally:
         state.close()

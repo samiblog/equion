@@ -102,7 +102,7 @@ print(p.note_check("notes/core.md").text())
    1 equion 실행     an:unitroot_0001
    2 equion 실행     an:coint_0001
   바뀜 기록  h0003
-<!-- equion:out an:unitroot_0001 · 2026-11-09T10:22:44 · d2026-11a {"records": ["an:unitroot_0001"], "h": "90960f7ba1b7"} -->
+<!-- equion:out an:unitroot_0001 · 2026-11-12T18:22:16 · d2026-11a {"records": ["an:unitroot_0001"], "h": "cd616e9eea4a"} -->
 **단위근 — 묶음 core(Y · CN · I)**
 
 | 항목 | 값 |
@@ -111,8 +111,8 @@ print(p.note_check("notes/core.md").text())
 | 명령 | `equion an unitroot core --trend ct` |
 | 자료 | data:d2026-11a |
 | 표본 | 1970Q1~2019Q4 |
-| 누가 · 언제 | Python · 2026-11-09T10:22:43 |
-| equion | 0.8.0 |
+| 누가 · 언제 | Python · 2026-11-12T18:22:16 |
+| equion | 0.9.0 |
 
 **단위근 검정**
 

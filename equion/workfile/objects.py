@@ -681,7 +681,8 @@ class EquationObject:
         wf = self._wf
         span = (f"{wf._label(res.index[0])} ~ {wf._label(res.index[-1])}" if res is not None and len(res)
                 else "-")
-        head = [f"종속변수: {eq.dependent_var}   목표변수: {eq.target}   추정법: {_METHOD_LABEL.get(eq.method, eq.method)}",
+        label = "비선형 2단계 최소제곱(NL-TSLS)" if (eq.kind == "nls" and eq.method == "tsls") else _METHOD_LABEL.get(eq.method, eq.method)
+        head = [f"종속변수: {eq.dependent_var}   목표변수: {eq.target}   추정법: {label}",
                 f"표본: {span} (관측치 {self.nobs})"]
         if eq.instruments:
             head.append("도구변수: " + " ".join(eq.instruments))

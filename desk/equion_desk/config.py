@@ -36,9 +36,11 @@ CLIENT: dict[str, Any] = {
     "term_follow": lambda v: isinstance(v, bool),      # 터미널 색이 창의 바탕(밝게·어둡게)을 따른다 — 끄면 늘 어둡게(D48)
     "right_split": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0.15 <= v <= 0.85,   # 오른쪽 열의 터미널 높이 비율(DESK_V2)
     "cmd_top": lambda v: isinstance(v, bool),          # 명령 창을 터미널 위에
+    "term_font_size": lambda v: isinstance(v, int) and not isinstance(v, bool) and 10 <= v <= 24,   # 터미널 글자 크기(px) — 화면 글자 크기와 따로
 }
 CLIENT_DEFAULTS: dict[str, Any] = {"theme": "auto", "font_scale": 100, "side_width": None, "term_width": None,
-                                   "side_visible": True, "term_visible": True, "term_follow": True, "right_split": 0.62, "cmd_top": False}
+                                   "side_visible": True, "term_visible": True, "term_follow": True, "right_split": 0.62, "cmd_top": False,
+                                   "term_font_size": 14}
 
 
 def config_dir() -> Path:

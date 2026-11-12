@@ -142,6 +142,11 @@ export function fileView(project, desc) {
   async function saveDraft() {
     if (draft == null) return;
     if (draft === text && !moved) { flash('바뀐 것이 없습니다'); return; }
+    if (moved) {
+      const body = h('div', { class: 'adopt' }, h('p', {}, '고치는 동안 이 파일이 밖(Claude · 편집기 · 다른 명령)에서 바뀌었습니다. 저장하면 그 바뀜을 지금 쓴 글로 덮습니다 — '
+        + '덮인 내용은 바뀜 기록에 남아 거기서 되돌릴 수 있습니다.'), h('p', { class: 'muted' }, '그 바뀜을 살리려면 그만두고 ‘다시 읽기’로 새 내용에서 다시 고치세요.'));
+      if (!(await confirmDialog({ title: '밖에서 바뀐 파일을 덮을까요', body, confirm: '덮어 저장', tone: 'danger' }))) return;
+    }
     if (problems.length) {
       const body = h('div', { class: 'adopt' }, h('p', {}, '읽을 수 없는 곳이 있습니다. 이대로 저장하면 이 파일에 기대는 계산이 멈출 수 있습니다.'),
         h('div', { class: 'diff' }, problems.slice(0, 8).map((x) => h('span', { class: 'dl del' }, `${x.line ? `${x.line}줄  ` : ''}${x.text}`))));

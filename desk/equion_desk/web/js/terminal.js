@@ -14,6 +14,17 @@ import { clear, h, icon } from './util.js';
 const X = { 'X-Term': TERM_SECRET };
 const FONT = '"Cascadia Mono", "D2Coding", Consolas, "Malgun Gothic", monospace';
 export const MAX_TERMS = 5;      // 프로젝트마다 터미널 수 (서버 terminal.MAX_SLOTS)
+// 터미널 글자 크기(px) — 설정 term_font_size(서버 config.CLIENT 와 같은 범위). 화면 글자 크기(font_scale)와 따로 둔다
+export const TERM_FONT = { base: 14, min: 10, max: 24 };
+let fontSize = TERM_FONT.base;
+
+/** 터미널 글자 크기를 정한다 — 바뀌었으면 true(열려 있는 터미널은 TermDeck.refont 로 바꾼다) */
+export function setTermFontSize(n) {
+  const v = Math.round(Math.min(TERM_FONT.max, Math.max(TERM_FONT.min, Number(n) || TERM_FONT.base)));
+  if (v === fontSize) return false;
+  fontSize = v;
+  return true;
+}
 
 // ---- 색: 창의 바탕을 따른다(Lectern 의 terminal.js 와 같은 방식 — 설정 term_follow, 끄면 늘 어둡게) -----------------------
 // 바탕·글자·커서·선택 색은 tokens.css 의 --term-* 에서(밝은 바탕·어두운 바탕·'늘 어둡게'가 거기서 갈린다), ANSI 16색은 밝기에 맞는 색표를 쓴다.
@@ -83,6 +94,7 @@ async function readAll() {
         if (out.reset) term.xterm.reset();
         if (out.data) term.xterm.write(out.data);
         term.next = out.next;
+        term.setStuck(out.alive ? out.stuck || [] : []);
         if (!out.alive) { reading.delete(sid); term.ended(`[셸이 끝났습니다 (종료 코드 ${out.exit ?? '?'}) — ‘다시 시작’을 누르세요]`); }
       }
     }
@@ -105,13 +117,22 @@ class Term {
     this.xterm = null;
     this.fit = null;
     this.disposed = false;
+    this.stuck = [];             // 시작하다 멈춘 프로그램 [{pid, name}] — 보안 프로그램(DRM)이 실행을 막을 때(Lectern D58)
+  }
+
+  /** 서버가 알린 '시작하다 멈춘 프로그램' — 바뀌었을 때만 다시 그린다 */
+  setStuck(list) {
+    const key = (xs) => (xs || []).map((p) => p.pid).sort().join(',');
+    if (key(list) === key(this.stuck)) return;
+    this.stuck = list || [];
+    this.deck.render();
   }
 
   /** 처음 보일 때 xterm 을 만든다 — 숨은 요소에서는 크기를 잴 수 없다. sid: 이미 돌고 있는 셸(화면을 다시 불러온 뒤) */
   async start(existing = null) {
     if (this.xterm) { this.refit(); return; }
     this.xterm = new window.Terminal({
-      fontFamily: FONT, fontSize: 13, lineHeight: 1.12, cursorBlink: true, scrollback: 8000, allowProposedApi: true, theme: theme(),
+      fontFamily: FONT, fontSize, lineHeight: 1.12, cursorBlink: true, scrollback: 8000, allowProposedApi: true, theme: theme(),
       minimumContrastRatio: MIN_CONTRAST,
     });
     this.fit = new window.FitAddon.FitAddon();
@@ -135,6 +156,13 @@ class Term {
   }
 
   retheme() { if (this.xterm) this.xterm.options.theme = theme(); }
+
+  /** 글자 크기를 바꾸면 칸 수가 달라진다 — 다시 맞추면 셸에도 새 크기가 간다(onResize) */
+  refont() {
+    if (!this.xterm || this.xterm.options.fontSize === fontSize) return;
+    this.xterm.options.fontSize = fontSize;
+    this.refit();
+  }
 
   async open(existing = null) {
     this.refit();
@@ -170,6 +198,7 @@ class Term {
     this.sid = null;
     if (old && this.alive) { try { await postJSON('/api/term/close', { t: old }, X); } catch { /* 이미 끝남 */ } }
     this.alive = false;
+    this.stuck = [];
     this.xterm.reset();
     return this.open();
   }
@@ -206,6 +235,10 @@ export class TermDeck {
       onclick: () => this.current?.restart() }, icon('refresh'));
     this.body = h('div', { class: 'term-body' });
     this.head = h('div', { class: 'term-head' }, h('b', { class: 'term-title' }, '터미널'), this.tabsBox, this.addBtn, h('span', { class: 'grow' }), this.restartBtn);
+    // 시작하다 멈춘 프로그램(D58 — 보안 프로그램이 프로세스 생성을 막음): 고른 터미널이 그러면 머리줄 아래에 붉은 띠, 탭에 표시
+    this.stuckText = h('span', { class: 'grow' });
+    this.stuckBand = h('div', { class: 'term-stuck', role: 'alert', hidden: true }, icon('alert'), this.stuckText,
+      h('button', { class: 'btn small', type: 'button', 'data-act': 'term-stuck-restart', onclick: () => this.current?.restart() }, icon('refresh'), '다시 시작'));
     this.tabsBox.addEventListener('wheel', (e) => { if (e.deltaY) { this.tabsBox.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
   }
 
@@ -273,7 +306,7 @@ export class TermDeck {
     for (const term of this.terms) {
       const on = term === this.current;
       tabs.append(h('button', {
-        class: `term-tab ${on ? 'on' : ''} ${term.alive ? '' : 'ended'}`.replace(/\s+/g, ' ').trim(), type: 'button', role: 'tab', 'aria-selected': String(on), 'data-n': String(term.n),
+        class: `term-tab ${on ? 'on' : ''} ${term.alive ? '' : 'ended'} ${term.alive && term.stuck.length ? 'stuck' : ''}`.replace(/\s+/g, ' ').trim(), type: 'button', role: 'tab', 'aria-selected': String(on), 'data-n': String(term.n),
         title: `${term.n + 1} · ${term.shell || 'PowerShell'}${term.n === 0 ? ' — Claude 맡기기·제안 받기는 이 터미널에 붙입니다' : ''}${term.alive ? '' : ' (끝남)'}`,
         onclick: () => { this.select(term); term.xterm?.focus(); },
         onauxclick: (e) => { if (e.button === 1) { e.preventDefault(); this.close(term); } },
@@ -285,11 +318,21 @@ export class TermDeck {
     this.addBtn.title = this.terms.length >= MAX_TERMS ? `터미널은 프로젝트마다 ${MAX_TERMS}개까지입니다` : `새 터미널 — 이 프로젝트 폴더에서 (프로젝트마다 ${MAX_TERMS}개까지)`;
     this.restartBtn.disabled = !this.current;
     this.tabsBox.querySelector('.term-tab.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const stuck = this.current?.alive ? this.current.stuck : [];
+    this.stuckBand.hidden = !stuck.length;
+    this.restartBtn.classList.toggle('attention', stuck.length > 0);
+    if (stuck.length) {
+      const names = [...new Set(stuck.map((p) => p.name))].join(', ');
+      this.stuckText.textContent = `셸에서 띄운 프로그램(${names})이 시작하다 멈췄습니다 — 보안 프로그램(DRM 등)이 프로그램 실행을 막을 때 생깁니다. `
+        + '‘다시 시작’은 이 셸과 멈춘 프로그램을 끝내고 새 셸을 엽니다(Claude Code 는 claude --continue 로 이어 갑니다).';
+    }
   }
 
   refit() { this.current?.refit(); }
 
   retheme() { for (const t of this.terms) t.retheme(); }
+
+  refont() { for (const t of this.terms) t.refont(); }
 
   /** 글을 1번 터미널에 붙이고 1번을 골라 보인다 — Enter 는 누르지 않는다(실행은 사람이 한다) */
   async paste(text) {

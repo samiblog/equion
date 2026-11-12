@@ -5,6 +5,7 @@ import { getJSON, listen, postJSON, ready } from './api.js';
 import { LOGO } from './icons.js';
 import { recolorCharts } from './md.js';
 import { Project } from './project.js';
+import { setTermFontSize, TERM_FONT } from './terminal.js';
 import { clear, cmdText, debounce, h, icon, kindPill, seconds, when, whoLabel } from './util.js';
 
 const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
@@ -13,7 +14,7 @@ const dark = window.matchMedia('(prefers-color-scheme: dark)');
 
 const app = {
   state: null,
-  settings: { theme: 'auto', font_scale: 100, side_width: null, term_width: null, side_visible: true, term_visible: true, term_follow: true, right_split: 0.62, cmd_top: false },
+  settings: { theme: 'auto', font_scale: 100, side_width: null, term_width: null, side_visible: true, term_visible: true, term_follow: true, right_split: 0.62, cmd_top: false, term_font_size: TERM_FONT.base },
   projects: new Map(),
   current: null,
   changes: new Map(),      // 프로젝트 → 아직 보지 않은 바뀜 수
@@ -35,7 +36,8 @@ const app = {
     $('btn-side').setAttribute('aria-pressed', String(s.side_visible));
     $('btn-term').setAttribute('aria-pressed', String(s.term_visible));
     root.dataset.cmdTop = String(!!s.cmd_top);
-    for (const p of this.projects.values()) { p.applyLayout(); if (termChanged) p.term.retheme(); }
+    const fontChanged = setTermFontSize(s.term_font_size);
+    for (const p of this.projects.values()) { p.applyLayout(); if (termChanged) p.term.retheme(); if (fontChanged) p.term.refont(); }
     if (changed) recolorCharts();
   },
 
@@ -303,6 +305,12 @@ const app = {
     }, ic ? icon(ic) : null, label)));
     const size = h('output', {}, `${s.font_scale}%`);
     const step = (d) => { const v = Math.min(140, Math.max(80, s.font_scale + d)); this.setSetting('font_scale', v); size.textContent = `${v}%`; };
+    const tsize = h('output', { 'data-key': 'term-font' }, `${s.term_font_size}px`);
+    const tstep = (d) => {
+      const v = Math.min(TERM_FONT.max, Math.max(TERM_FONT.min, s.term_font_size + d));
+      this.setSetting('term_font_size', v);
+      tsize.textContent = `${v}px`;
+    };
     const pop = h('div', { class: 'popover', role: 'dialog', 'aria-label': '설정' },
       h('h4', {}, '바탕'), seg('theme', [['auto', '자동', 'auto'], ['light', '밝게', 'sun'], ['dark', '어둡게', 'moon']]),
       h('h4', {}, '터미널 색'), seg('term_follow', [[true, '바탕에 맞춤'], [false, '늘 어둡게']]),
@@ -310,6 +318,10 @@ const app = {
         h('button', { class: 'btn small', type: 'button', 'aria-label': '작게', onclick: () => step(-5) }, icon('minus')), size,
         h('button', { class: 'btn small', type: 'button', 'aria-label': '크게', onclick: () => step(5) }, icon('plus')),
         h('button', { class: 'btn small quiet', type: 'button', onclick: () => step(100 - this.settings.font_scale) }, '기본')),
+      h('h4', {}, '터미널 글자 크기'), h('div', { class: 'stepper', 'data-key': 'term-font' },
+        h('button', { class: 'btn small', type: 'button', 'aria-label': '터미널 글자 작게', 'data-act': 'term-font-down', onclick: () => tstep(-1) }, icon('minus')), tsize,
+        h('button', { class: 'btn small', type: 'button', 'aria-label': '터미널 글자 크게', 'data-act': 'term-font-up', onclick: () => tstep(1) }, icon('plus')),
+        h('button', { class: 'btn small quiet', type: 'button', 'data-act': 'term-font-base', onclick: () => tstep(TERM_FONT.base - this.settings.term_font_size) }, '기본')),
       h('h4', {}, 'Claude Code'), h('div', { class: 'pop-actions' },
         h('button', { class: 'btn small', type: 'button', 'data-act': 'teach-claude', disabled: !this.current, title: '이 프로젝트에 Equion 스킬을 넣는 명령을 터미널에 붙인다(Enter 는 직접) — 한 번만 하면 된다',
           onclick: () => { pop.remove(); this.current?.sendToTerminal('equion guide skill --install project'); } }, icon('spark'), 'Claude Code 에 Equion 알려 주기')),

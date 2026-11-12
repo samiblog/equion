@@ -73,7 +73,8 @@ class SystemObject:
         """식을 더한다(여러 줄 글자도 됨). 추정식 꼴(`Y c X` — 계수 번호는 이어서 자동)이나 `c(n)` 꼴(`Y = c(1) + c(2)*X`)로 쓴다.
 
         같은 c(n)을 두 식에 쓰면 그 계수가 같게 묶인다(식 사이 제약). 식 끝의 `@inst …`는 그 식만의 도구, `@inst …`만 있는 줄은
-        모든 식의 도구다(상수항은 늘 포함). 계수에 선형인 식만 된다. 항등식은 넣지 않는다(모델에서 append).
+        모든 식의 도구다(상수항은 늘 포함). 계수에 비선형인 식도 된다(D64 — 시작값은 식 끝의 `@start …`). 항등식·`ar(…)`·`pdl(…)`·
+        `@smpl`·`@coef`는 넣지 않는다(항등식은 모델에서 append, 표본은 wf.smpl).
 
         예
             >>> wf = eqn.datasets.load("klein_like")
@@ -113,19 +114,28 @@ class SystemObject:
         parsed, used = [], set()
         for line in self._lines:                       # 1차: c(n) 꼴의 번호를 모은다
             body, d = extract_directives(line)
-            if classify_line(body) == "nls":
-                e = Equation(body, data, method="nls")
-                e._parse()
-                used |= set(e._coef_numbers)
-                parsed.append(("nls", line, body, d, e))
-            elif classify_line(body) == "identity":
-                raise ValueError(f"시스템에는 항등식을 넣지 않습니다(모델에서 .append) — {line}")
-            else:
+            if d.get("smpl") or d.get("coef"):
+                raise ValueError(f"시스템 식에는 @smpl·@coef를 쓰지 않습니다(표본은 wf.smpl, 계수는 추정한다) — {line}")
+            if re.search(r"\bar\s*\(", body, re.IGNORECASE):
+                raise ValueError(f"시스템 식에는 ar(…) 오차항을 쓸 수 없습니다 — {line}")
+            try:
+                if classify_line(body) == "nls":
+                    e = Equation(body, data, method="nls")
+                    e._parse()
+                    used |= set(e._coef_numbers)
+                    parsed.append(("nls", line, body, d, e))
+                    continue
+                if classify_line(body) == "identity":
+                    raise ValueError(f"시스템에는 항등식을 넣지 않습니다(모델에서 .append) — {line}")
                 e = Equation(body, data)
                 e._parse()
-                if e.ar_lags or e.kind != "estimated":
-                    raise ValueError(f"시스템 식에는 ar(…) 오차항을 쓸 수 없습니다 — {line}")
-                parsed.append(("ls", line, body, d, e))
+            except (KeyError, IndexError) as ex:
+                raise ValueError(f"시스템 식을 읽을 수 없습니다 — {line} ({ex})") from None
+            if e.ar_lags or e.kind != "estimated":
+                raise ValueError(f"시스템 식에는 ar(…) 오차항을 쓸 수 없습니다 — {line}")
+            if e.pdl_terms:
+                raise ValueError(f"시스템 식에는 pdl(…)을 쓸 수 없습니다(다항 분포시차는 식 하나에서) — {line}")
+            parsed.append(("ls", line, body, d, e))
         nxt = max(used, default=0) + 1
         out = []
         for kind, line, body, d, e in parsed:
@@ -222,7 +232,13 @@ class SystemObject:
         if start is not None:
             if isinstance(start, dict):
                 for key, v in start.items():
-                    k = int(str(key).strip().lower().removeprefix("c(").removesuffix(")")) if not isinstance(key, int) else key
+                    if isinstance(key, int) and not isinstance(key, bool):
+                        k = key
+                    else:
+                        mm = re.fullmatch(r"\s*(?:c\s*\(\s*(\d+)\s*\)|(\d+))\s*", str(key), re.IGNORECASE)
+                        if not mm:
+                            raise ValueError(f"시작값의 계수 이름 {key!r} — 'c(3)' 꼴이나 번호 3")
+                        k = int(mm[1] or mm[2])
                     if k not in coefs:
                         raise ValueError(f"시스템에 없는 계수의 시작값: c({k})")
                     vals[k] = float(v)
@@ -233,7 +249,7 @@ class SystemObject:
                 vals = dict(zip(coefs, arr))
         return np.array([vals.get(k, 0.0) for k in coefs], dtype=float)
 
-    def _nl_setup(self, inst_override=None, need_inst=False, need_jac=False):
+    def _nl_setup(self, inst_override=None, need_inst=False, need_jac=False, start=None):
         """계수에 비선형인 시스템의 표본과 함수들 — 잔차 · 기울기 ∂fᵢ/∂b(· FIML이면 Jₜ = ∂εₜ/∂yₜ와 ∂Jₜ/∂b)."""
         eqs = self._parse()
         wf = self._wf
@@ -262,7 +278,15 @@ class SystemObject:
         win = np.zeros(T_all, dtype=bool)
         win[s:e + 1] = True
         ok &= win
+        before = int(ok.sum())
+        for i, q in enumerate(eqs):                      # 좌변과 (시작값의) 우변이 수가 아닌 기간도 뺀다 — log(음수) 등
+            ok &= np.isfinite(lhs[i])
+            if start is not None:
+                c0 = {k: float(start[j]) for j, k in enumerate(coefs)}
+                with np.errstate(all="ignore"):
+                    ok &= np.isfinite(np.broadcast_to(ir.evaluate(q.rhs, get, c0, length=T_all), (T_all,)))
         rows = np.flatnonzero(ok)
+        dropped = before - len(rows)
         if len(rows) <= len(coefs) // len(eqs) + 1:
             raise ValueError(f"모든 식이 함께 관측되는 기간이 너무 짧습니다({len(rows)}기)")
         dnodes = [{k: ir.deriv(q.rhs, ir.Coef(k)) for k in q.coefs} for q in eqs]
@@ -283,7 +307,8 @@ class SystemObject:
                     G[:, pos[k]] = np.broadcast_to(ir.evaluate(node, get, c, length=T_all), (T_all,))[rows]
                 out.append(G)
             return out
-        a = {"coefs": coefs, "rows": rows, "resid": resid, "jac": jac, "Zs": [Z[rows] for Z in Zs] if need_inst else None}
+        a = {"coefs": coefs, "rows": rows, "resid": resid, "jac": jac, "Zs": [Z[rows] for Z in Zs] if need_inst else None,
+             "dropped": dropped}
         if need_jac:
             m = len(eqs)
             targets = [q.target for q in eqs]
@@ -332,16 +357,19 @@ class SystemObject:
             start = opts.pop("start", None)
             if start is None:
                 start = _sys.fit_linear(a["ys"], a["Xs"], "ols", R=R, q=q).params
-            elif np.size(start) != len(a["coefs"]):
-                raise ValueError(f"start 길이 {np.size(start)} ≠ 계수 {len(a['coefs'])}개"
-                                 f"({', '.join(f'c({k})' for k in a['coefs'])})")
-            fit = _sys.fit_fiml(a["ys"], a["Xs"], a["A"], a["B"], np.asarray(start, dtype=float), R=R, q=q)
+            else:
+                start = self._start(a["coefs"], start)
+            _sys._check_sigma(_sys._sigma(np.column_stack([a["ys"][i] - a["Xs"][i] @ start for i in range(len(a["ys"]))])))
+            try:
+                fit = _sys.fit_fiml(a["ys"], a["Xs"], a["A"], a["B"], np.asarray(start, dtype=float), R=R, q=q)
+            except np.linalg.LinAlgError:
+                raise ValueError("FIML: 잔차 공분산이나 야코비안이 특이합니다(잔차가 0인 식 · 서로 같은 식) — 식을 확인하세요") from None
         else:
             fit = _sys.fit_linear(a["ys"], a["Xs"], method, Zs=a["Zs"], R=R, q=q, **opts)
         self.fit, self._sample, self._coefs = fit, a["rows"], a["coefs"]
         key = "sur-it" if method == "sur" and opts.get("iterate") else method
         self.method = key
-        self.options = {"method": method, "restrict": list(restrict) if restrict else None,
+        self.options = {"method": method, "restrict": _restrict_list(restrict),
                         "inst": list(inst) if inst else None,
                         **{k: v for k, v in opts.items() if k in ("iterate",)}}
         self.version += 1
@@ -353,10 +381,11 @@ class SystemObject:
     def _run_nonlinear(self, method, restrict=None, inst=None, **opts):
         """계수에 비선형인 시스템(D64) — NL-OLS·NL-SUR·NL-2SLS·NL-3SLS·비선형 FIML."""
         iv = method in ("tsls", "3sls")
-        a = self._nl_setup(inst, need_inst=iv, need_jac=method == "fiml")
-        R, q = self._restrict(restrict, a["coefs"])
         given = opts.pop("start", None)
-        start = self._start(a["coefs"], given)
+        coefs = sorted(set().union(*(q_.coefs for q_ in self._parse())))
+        start = self._start(coefs, given)
+        a = self._nl_setup(inst, need_inst=iv, need_jac=method == "fiml", start=start)
+        R, q = self._restrict(restrict, a["coefs"])
         if method == "fiml":
             if given is None and not any(q_.start for q_ in self._parse()):
                 start = _sys.fit_nonlinear(a["resid"], a["jac"], start, "ols", R=R, q=q).params
@@ -367,7 +396,7 @@ class SystemObject:
         self.fit, self._sample, self._coefs = fit, a["rows"], a["coefs"]
         key = "sur-it" if method == "sur" and opts.get("iterate") else method
         self.method = key
-        self.options = {"method": method, "restrict": list(restrict) if restrict else None,
+        self.options = {"method": method, "restrict": _restrict_list(restrict),
                         "inst": list(inst) if inst else None,
                         **({"start": [float(x) for x in np.ravel(given)] if not isinstance(given, dict)
                             else {str(k): float(v) for k, v in given.items()}} if given is not None else {}),
@@ -375,8 +404,10 @@ class SystemObject:
         self.version += 1
         T = len(a["rows"])
         say(f"[{self.name}] {_LABEL[key]} — 비선형 · 식 {fit.resid.shape[1]} · 계수 {len(a['coefs'])} · 표본 {T}기"
+            + (f"(식이 수가 아닌 {a['dropped']}기는 뺐다)" if a.get("dropped") else "")
             + (f" · 로그우도 {fit.loglik:.2f}" if np.isfinite(fit.loglik) else "")
-            + ("" if fit.extra.get("converged", True) else " · ⚠ 수렴하지 않음(기울기가 남음)"))
+            + (" · ⚠ 식별되지 않는 계수가 있어 표준오차 없음(곱으로만 든 계수 등)" if not fit.extra.get("identified", True)
+               else "" if fit.extra.get("converged", True) else " · ⚠ 수렴하지 않음 — 시작값을 바꿔 보세요"))
         return self
 
     def ols(self, restrict=None, start=None):
@@ -628,6 +659,15 @@ class SystemObject:
             method = opts.pop("method")
             quiet(lambda: s._run(method, opts.pop("restrict", None), inst=opts.pop("inst", None), **opts))
         return s
+
+
+def _restrict_list(restrict):
+    """restrict(글자 'c(2) = c(5), c(3) = 0' · 목록) → 목록(저장·표 머리용). 없으면 None."""
+    if not restrict:
+        return None
+    if isinstance(restrict, str):
+        return [r.strip() for r in restrict.split(",") if r.strip()]
+    return [str(r) for r in restrict]
 
 
 def _split_inst(inst):

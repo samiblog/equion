@@ -200,6 +200,12 @@ svg.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor
 .term-head .icon-btn { color: var(--term-dim); width: 26px; height: 26px; }
 .term-head .icon-btn:hover { background: var(--term-line); color: var(--term-fg); }
 .term-body { flex: 1; min-height: 0; padding: 8px 0 4px 10px; }
+/* 시작하다 멈춘 프로그램(D58) — 머리줄 아래의 붉은 띠 */
+.term-stuck { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px 8px 14px; flex: none;
+  background: var(--bad-soft); color: var(--bad); font-size: var(--fs-s); line-height: 1.5; border-bottom: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
+.term-stuck[hidden] { display: none; }
+.term-stuck .btn { flex: none; }
+.term-head .icon-btn.attention { color: var(--bad); background: var(--bad-soft); }
 .term-body .note { padding: 12px 6px; color: var(--term-dim); font-size: var(--fs-s); line-height: 1.6; }
 /* 터미널의 스크롤바는 터미널의 색으로(창이 밝아도 '늘 어둡게'면 어둡게) */
 :root.term-dark .term { color-scheme: dark; }

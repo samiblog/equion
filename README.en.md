@@ -5,7 +5,7 @@ assemble them into a (non-linear) simultaneous system, solve it period by period
 forecasts and scenarios, and analyse the results. Equations are plain text in a compact time-series notation, and
 the engine is built to accept equation sets that change often — the model is an input, not code.
 
-- Version **0.8.0** (2026-11-11) · Python 3.12+ · numpy · pandas · scipy · openpyxl · [MIT licence](LICENSE)
+- Version **0.9.0** (2026-11-12) · Python 3.12+ · numpy · pandas · scipy · openpyxl · [MIT licence](LICENSE)
 - Use it as a **library** (`import equion as eqn`) or from the **command line** (`equion run script.py`).
 - Synthetic example data sets ship with the package (`eqn.datasets`: `toy_q`, `toy_a`, `toy_m`, `klein_like`), generated
   from known models, so every example and test runs anywhere and estimates can be compared with the truth.

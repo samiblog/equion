@@ -96,7 +96,7 @@ export class Project {
     const gSide = h('div', { class: 'gutter g-side', role: 'separator', 'aria-orientation': 'vertical' });
     const gTerm = h('div', { class: 'gutter g-term', role: 'separator', 'aria-orientation': 'vertical' });
     this.gSplit = h('div', { class: 'gutter g-split', role: 'separator', 'aria-orientation': 'horizontal', title: '끌어서 터미널과 명령 창의 높이를 바꾼다(두 번 누르면 기본)' });
-    this.termPane = h('div', { class: 'term', 'aria-label': '터미널' }, this.term.head, this.term.body);
+    this.termPane = h('div', { class: 'term', 'aria-label': '터미널' }, this.term.head, this.term.stuckBand, this.term.body);
     this.right = h('aside', { class: 'right', 'aria-label': '터미널과 명령 창' }, this.termPane, this.gSplit, this.command.el);
     this.el = h('section', { class: 'project', hidden: true, 'data-p': this.id },
       this.side.el,

@@ -341,6 +341,10 @@ def run(shots: str | None) -> int:
                       and "원자료 na" in page.inner_text(f"{pane} .banner.warn") and first in page.inner_text("#status"))
                 page.click(f"{pane} .banner.warn .btn")            # 자료 만들기
                 page.wait_for_selector(f"{pane} .diffbox table")
+                try:                                                # 그것을 쓰는 식(영향)은 차이 표 뒤에 따로 온다
+                    page.wait_for_function("() => (document.querySelector('.project:not([hidden]) .pane:not([hidden]) .diffbox')?.innerText || '').includes('demand:CN')", timeout=20000)
+                except Exception:
+                    pass
                 box = page.inner_text(f"{pane} .diffbox")
                 check("A6 자료 만들기 — 새 회차가 생기고(지금 회차는 그대로) 달라진 값과 그것을 쓰는 식을 보인다",
                       page.locator(f"{pane} .vint").count() == 2 and "지금" in page.inner_text(f"{pane} .vint.now") and first in page.inner_text(f"{pane} .vint.now")
@@ -880,6 +884,20 @@ def run(shots: str | None) -> int:
                 check("Y5-1 터미널 색이 창의 바탕을 따라 바뀐다 — 밝게 바꾸면 터미널도 밝게(열려 있던 터미널도 바로), '늘 어둡게'를 고르면 터미널만 어둡게, 되돌리면 다시 밝게",
                       light["bg"] > 0.9 and same(light) and always["bg"] < 0.12 and always["always"] and always["theme"] == "light" and same(always)
                       and (always["xfg"] is None or always["xfg"] > 0.7) and back["bg"] > 0.9 and not back["always"] and same(back), f"{light} {always} {back}")
+                TERM_FONT = """() => { const x = window.equionDesk.current.term.current.xterm;
+                    return { opt: x.options.fontSize, cols: x.cols, out: document.querySelector('.popover output[data-key="term-font"]')?.textContent }; }"""
+                f0 = page.evaluate(TERM_FONT)
+                for _ in range(3):
+                    page.click(".popover [data-act='term-font-up']")
+                page.wait_for_timeout(400)
+                f1 = page.evaluate(TERM_FONT)
+                saved = page.evaluate("() => fetch('/api/state').then((r) => r.json()).then((s) => s.client.term_font_size)")
+                page.click(".popover [data-act='term-font-base']")
+                page.wait_for_timeout(400)
+                f2 = page.evaluate(TERM_FONT)
+                check("Y5-2 터미널 글자 크기 — 기본 14px, 설정에서 키우면 열린 터미널도 바로 커지고(칸 수가 줄어든다) 설정에 남는다, '기본'으로 되돌린다",
+                      f0["opt"] == 14 and f0["out"] == "14px" and f1["opt"] == 17 and f1["out"] == "17px" and f1["cols"] < f0["cols"]
+                      and saved == 17 and f2["opt"] == 14 and f2["cols"] == f0["cols"], f"{f0} {f1} {saved} {f2}")
                 page.keyboard.press("Escape")
                 page.wait_for_timeout(150)
                 shot(page, "11-term-light")
@@ -1118,6 +1136,54 @@ def run(shots: str | None) -> int:
                 server.terminate()
                 server.wait(10)
 
+            print("C. Claude 와 함께 쓸 때 — 멈춘 프로그램의 띠 · 밖에서 바뀐 파일을 덮기 전에 묻기")
+            server = start_server(env)
+            try:
+                page = open_page(browser)
+                page.wait_for_selector("#status .dot.ok", timeout=30000)
+                page.evaluate("() => window.equionDesk.current.openTab({ type: 'file', path: 'EQUATIONS/price.txt', edit: true })")
+                page.wait_for_selector(f"{pane} textarea", timeout=20000)
+                page.click(f"{pane} textarea")
+                page.keyboard.press("Control+End")
+                page.keyboard.type("\n# 화면에서 쓰던 줄")
+                with open(os.path.join(folder, "EQUATIONS", "price.txt"), "a", encoding="utf-8", newline="\n") as f:
+                    f.write("# 밖(Claude)에서 더한 줄\n")
+                page.wait_for_timeout(4000)
+                page.click(f"{pane} [data-act='save']")
+                page.wait_for_selector(".dialog", timeout=5000)
+                asked = "밖에서 바뀐" in page.inner_text(".dialog")
+                shot(page, "26-overwrite-ask")
+                page.click(".dialog .btn:has-text('취소')")
+                page.wait_for_timeout(400)
+                kept = "밖(Claude)에서 더한 줄" in open(os.path.join(folder, "EQUATIONS", "price.txt"), encoding="utf-8").read()
+                check("C1 고치는 중인 파일이 밖에서 바뀐 뒤 저장하면 덮기 전에 묻는다(취소하면 밖의 고침이 그대로)", asked and kept)
+                if page.locator(f"{pane} .btn:has-text('그만두기')").count():
+                    page.click(f"{pane} .btn:has-text('그만두기')")
+                typed = page.locator(f"{active} .term-body .xterm").count() > 0
+                if typed and os.name == "nt":
+                    page.click(f"{active} .term-body")
+                    page.wait_for_timeout(1500)
+                    page.keyboard.type("python -c \"import subprocess,time; p=subprocess.Popen(['cmd','/c','exit'], creationflags=0x4); time.sleep(40); p.kill()\"")
+                    page.keyboard.press("Enter")
+                    try:
+                        page.wait_for_selector(f"{active} .term-stuck:not([hidden])", timeout=35000)
+                        seen = True
+                    except Timeout:
+                        seen = False
+                    band = page.inner_text(f"{active} .term-stuck") if seen else ""
+                    mark = page.locator(f"{active} .term-tab.stuck").count() > 0
+                    shot(page, "27-stuck")
+                    check("C2 셸에서 띄운 프로그램이 시작하다 멈추면(보안 프로그램 흉내) 붉은 띠·탭 표시·'다시 시작' 안내(D58)",
+                          seen and mark and "다시 시작" in band and "claude --continue" in band, band[:160])
+                    if seen:
+                        page.click(f"{active} [data-act='term-stuck-restart']")
+                        page.wait_for_timeout(2500)
+                    check("C3 '다시 시작'하면 띠가 사라진다", page.locator(f"{active} .term-stuck:not([hidden])").count() == 0)
+                page.close()
+            finally:
+                server.terminate()
+                server.wait(10)
+
             print("Q. 자료 쪽 셋 — 요인 나누기 · 시점이 열로 가는 표 · 이정표 · 묶어 보내기")
             server = start_server(env)
             try:
@@ -1157,9 +1223,17 @@ def run(shots: str | None) -> int:
                 shot(page, "24-milestone")
                 page.click(f"{active} .side .wb[data-key='forecast']")
                 page.wait_for_selector(f"{pane} [data-act='solve']", timeout=20000)
+                RID = "() => document.querySelector('.project:not([hidden]) .pane:not([hidden]) .fc-result .result-head .rid')?.textContent || ''"
+                before = page.evaluate(RID)
                 page.click(f"{pane} [data-act='solve']")
-                page.wait_for_selector(f"{pane} tr[data-sim] >> nth=1", timeout=60000)
-                page.click(f"{pane} tr[data-sim] >> nth=1 >> .check")
+                # 앞 절의 전망 기록이 이미 있으므로 줄이 보이는 것만으로는 풀기가 끝난 것이 아니다 — 새 기록이 보일 때까지(풀기가 끝나면 견줄 것을 비운다)
+                page.wait_for_function(f"(b) => {{ const t = ({RID})(); return t && t !== b; }}", arg=before, timeout=60000)
+                page.wait_for_selector(f"{pane} tr[data-sim] >> nth=1", timeout=20000)
+                page.wait_for_timeout(300)
+                # 앞 절(O6)에서 고른 시나리오가 남아 있으면 기준선과 함께 풀려 이미 나란히 견준다(st.compare 하나) — 그때는 고르지 않는다
+                paired = page.locator(f"{pane} tr[data-sim].vs").count() == 1
+                if not paired:
+                    page.click(f"{pane} tr[data-sim] >> nth=1 >> .check")
                 page.wait_for_selector(f"{pane} [data-act='split']", timeout=20000)
                 page.click(f"{pane} [data-act='split']")
                 page.wait_for_selector(f"{pane} .an-out .of-record", timeout=60000)

@@ -427,6 +427,21 @@ def liml(y: pd.Series, X: pd.DataFrame, Z: pd.DataFrame, exog=None) -> Results:
     return r
 
 
+def _full_rank(J) -> bool:
+    """기울기 행렬의 열이 서로 갈리는가 — 열마다 길이를 1로 맞춘 뒤(계수의 크기 차이에 휘둘리지 않게) 최소 특잇값 > 1e-10."""
+    J = np.asarray(J, dtype=float)
+    if J.ndim != 2 or J.shape[0] < J.shape[1] or not np.all(np.isfinite(J)):
+        return False
+    norm = np.linalg.norm(J, axis=0)
+    if not np.all(norm > 0):
+        return False
+    raw = np.linalg.svd(J, compute_uv=False)
+    if not raw.size or raw[-1] <= raw[0] * RCOND:         # 유사역행렬이 잘라 낼 방향이 있으면(그 계수의 표준오차가 0으로 나온다) — 식별되지 않음
+        return False
+    sv = np.linalg.svd(J / norm, compute_uv=False)
+    return bool(sv.size and sv[-1] > 1e-10)
+
+
 def nls(y: pd.Series, params: pd.Series, fitted: pd.Series, J: np.ndarray) -> Results:
     """비선형 최소제곱의 결과 객체를 만든다 — 해(params)·적합값과 해에서의 기울기 J(관측치 × 계수)로 표준오차를 계산한다.
 
@@ -443,7 +458,7 @@ def nls(y: pd.Series, params: pd.Series, fitted: pd.Series, J: np.ndarray) -> Re
     n, k = len(y), len(params)
     e = (y - fitted).to_numpy(dtype=float)
     try:
-        bread = np.linalg.inv(J.T @ J)
+        bread = np.linalg.inv(J.T @ J) if _full_rank(J) else np.full((k, k), np.nan)   # 곱으로만 든 계수 등 — 식별되지 않으면 표준오차 없음
     except np.linalg.LinAlgError:
         bread = np.full((k, k), np.nan)
     r = Results("NLS", params, y, fitted, n - k, (float(e @ e) / (n - k)) * bread, bread=bread, G=J)
@@ -474,7 +489,7 @@ def nltsls(y: pd.Series, params: pd.Series, fitted: pd.Series, J: np.ndarray, Z)
     Jhat = Zv @ (Pz @ np.asarray(J, dtype=float))
     e = (y - fitted).to_numpy(dtype=float)
     try:
-        bread = np.linalg.inv(Jhat.T @ Jhat)
+        bread = np.linalg.inv(Jhat.T @ Jhat) if _full_rank(Jhat) else np.full((k, k), np.nan)
     except np.linalg.LinAlgError:
         bread = np.full((k, k), np.nan)
     r = Results("NL-TSLS", params, y, fitted, n - k, (float(e @ e) / (n - k)) * bread, bread=bread, G=Jhat)

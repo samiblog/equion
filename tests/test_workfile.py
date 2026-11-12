@@ -510,6 +510,51 @@ def main():
         check("비선형 시스템: 저장·열기 — 같은 설정(start 포함)으로 다시 추정해 같은 계수",
               close(wn2.system("nlsys").coefs.to_numpy(), sn.coefs.to_numpy(), 1e-8))
 
+    # 출시 전 점검(QA)에서 고친 것
+    rng_ = np.random.default_rng(7)
+    wq = quiet(eqn.wfcreate, "qa", "Q", "1700Q1", "1899Q4")
+    if wq is not None:
+        n_ = len(wq.data)
+        x1 = rng_.uniform(1, 3, n_)
+        x2 = rng_.normal(size=n_)
+        y1 = 1 + 0.8 * x1 ** 0.5 + 0.3 * x2 + rng_.normal(scale=0.05, size=n_)
+        yp = np.exp(1.5 + 0.5 * x2 + rng_.normal(scale=0.05, size=n_))
+        yp[::40] = -1.0                                             # 표본 안 20기: log(YP)가 수가 아니다
+        wq["X1"], wq["X2"], wq["Y1"], wq["YP"] = x1, x2, y1, yp
+        sq_ = wq.system("dom")
+        quiet(sq_.append, "Y1 = c(1) + c(2)*X1^c(3) + c(4)*X2 @start 1 1 1 0", "log(YP) = c(5) + c(6)*X2")
+        quiet(sq_.sur)
+        check("비선형 시스템: 식이 수가 아닌 기간(log(음수))은 표본에서 뺀다 — 참값 가까이, 표준오차가 있다(QA)",
+              len(sq_._sample) == n_ - 20 and abs(float(sq_.coefs["c(3)"]) - 0.5) < 0.1 and np.isfinite(sq_.stderrs.to_numpy()).all(),
+              f"{len(sq_._sample)} {sq_.coefs.round(3).tolist()}")
+        su_ = wq.system("unid")
+        quiet(su_.append, "Y1 = c(1) + c(2)*c(3)*X1 + c(4)*X2 @start 1 1 1 0", "log(YP) = c(5) + c(6)*X2")
+        quiet(su_.ols)
+        check("비선형 시스템: 곱으로만 든 계수(c(2)*c(3))는 식별되지 않음 — 표준오차를 내지 않고 알린다(QA)",
+              not su_.fit.extra["identified"] and np.isnan(su_.stderrs["c(2)"]) and not su_.fit.extra["converged"])
+        sr_ = wq.system("rs")
+        quiet(sr_.append, "Y1 = c(1) + c(2)*X1^c(3) + c(4)*X2 @start 1 1 1 0", "log(YP) = c(5) + c(6)*X2")
+        quiet(sr_.sur, restrict="c(4) = c(6)")
+        check("restrict를 글자로 줘도 저장되는 설정은 제약 목록(QA)", sr_.options["restrict"] == ["c(4) = c(6)"]
+              and abs(float(sr_.coefs["c(4)"]) - float(sr_.coefs["c(6)"])) < 1e-10)
+        bad_lines = {"@smpl": "Y1 = c(1) + c(2)*X1 @smpl 1750Q1 1800Q4", "ar": "Y1 = c(1) + c(2)*X1 + ar(1)", "pdl": "Y1 c pdl(X1,4,2)"}
+        errs = {}
+        for key, line in bad_lines.items():
+            sb = wq.system(f"bad_{key.strip('@')}")
+            quiet(sb.append, line, "log(YP) = c(5) + c(6)*X2")
+            errs[key] = raises(lambda sb=sb: quiet(sb.ols), ValueError, key.strip("@"))
+        check("시스템 식의 @smpl · ar(…) · pdl(…)은 알기 쉬운 오류(말없이 무시하거나 엉뚱한 오류가 아니라)(QA)", all(errs.values()), str(errs))
+        check("시작값의 계수 이름은 'c(3)'·번호 — 'c3'은 알기 쉬운 오류 · 선형 FIML도 start 사전을 받는다(QA)",
+              raises(lambda: quiet(sq_.sur, start={"c3": 1}), ValueError, "계수 이름")
+              and quiet(wn.system("s2lin").append("I c Y(-1) R", "RL c R").fiml, start={"c(1)": 4}).method == "fiml")
+        wq["YX"] = 3 + 2 * x2
+        sz_ = wq.system("zero")
+        quiet(sz_.append, "YX c X2", "Y1 c X1 X2")
+        check("잔차가 0인 식(완전히 맞는 식)이 든 SUR은 0 계수·0 표준오차 대신 오류(QA)", raises(lambda: quiet(sz_.sur), ValueError, "잔차가 0"))
+        wq["XN"] = x1 - 2.0                                         # 음수가 섞인 설명변수의 분수 거듭제곱
+        check("식 하나의 NLS: 추정한 계수에서 식이 수가 아닌 관측치가 있으면 시작값을 그대로 돌려주지 않고 오류(QA)",
+              raises(lambda: quiet(wq.equation("neg").ls, "Y1 = c(1) + c(2)*XN^c(3) @start 1 0.8 0.5"), ValueError, "수가 아닌"))
+
     print("\n" + "=" * 80)
     total = len(PASS) + len(FAIL)
     print(f"  RESULT: {len(PASS)} PASS / {len(FAIL)} FAIL  (total {total})  — {time.time() - t0:.1f}s")

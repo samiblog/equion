@@ -184,6 +184,8 @@ button.rel:hover { box-shadow: inset 0 0 0 1px currentColor; }
 .term-tab.on { background: var(--term-line); color: var(--term-fg); }
 .term-tab .n { font: 700 11px/1 var(--font-mono); color: var(--term-lamp); }
 .term-tab.ended .n { color: var(--term-dim); }
+.term-tab.stuck .n { color: var(--bad); }
+.term-tab.stuck { box-shadow: inset 0 -2px 0 var(--bad); }
 .term-tab .name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .term-tab .x { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 4px; color: var(--term-dim); opacity: 0; }
 .term-tab:hover .x, .term-tab.on .x { opacity: 1; }

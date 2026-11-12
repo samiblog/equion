@@ -1,6 +1,6 @@
 # Equion API 참조
 
-Equion 0.8.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstring에서 만든다(손으로 고치지 말 것). 배우는 순서는 [시작하기](../start/first-model.md)와 [튜토리얼](../tutorial/README.md), 방정식 문법은 [방정식 문법](../explain/equations.md). 예제의 `eqn`·`np`·`pd`는 `import equion as eqn`·`numpy`·`pandas`다.
+Equion 0.9.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstring에서 만든다(손으로 고치지 말 것). 배우는 순서는 [시작하기](../start/first-model.md)와 [튜토리얼](../tutorial/README.md), 방정식 문법은 [방정식 문법](../explain/equations.md). 예제의 `eqn`·`np`·`pd`는 `import equion as eqn`·`numpy`·`pandas`다.
 
 *English: generated reference of the public API (signatures and docstrings, in Korean). See [README.en.md](../../README.en.md) and [docs/en](../en/README.md).*
 
@@ -2400,7 +2400,8 @@ sc.clear()
 식을 더한다(여러 줄 글자도 됨). 추정식 꼴(`Y c X` — 계수 번호는 이어서 자동)이나 `c(n)` 꼴(`Y = c(1) + c(2)*X`)로 쓴다.
 
 같은 c(n)을 두 식에 쓰면 그 계수가 같게 묶인다(식 사이 제약). 식 끝의 `@inst …`는 그 식만의 도구, `@inst …`만 있는 줄은  
-모든 식의 도구다(상수항은 늘 포함). 계수에 선형인 식만 된다. 항등식은 넣지 않는다(모델에서 append).  
+모든 식의 도구다(상수항은 늘 포함). 계수에 비선형인 식도 된다(D64 — 시작값은 식 끝의 `@start …`). 항등식·`ar(…)`·`pdl(…)`·  
+`@smpl`·`@coef`는 넣지 않는다(항등식은 모델에서 append, 표본은 wf.smpl).  
 
 **예**
 

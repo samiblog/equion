@@ -27,7 +27,7 @@ equion("--version")
 ```
 <!-- out -->
 ```text
-equion 0.8.0
+equion 0.9.0
 (종료 코드 0)
 ```
 
@@ -222,8 +222,8 @@ print(sorted(os.listdir("my_project")))
 스크립트: scripts/toy_forecast.py
 상태: ok
 종료 코드: 0
-시작: 2026-10-30T03:01:17
-소요(초): 0.174
+시작: 2026-11-12T18:22:24
+소요(초): 0.134
 매개변수:
   g_up: 10.0
   start: 1975Q1
@@ -237,7 +237,7 @@ print(sorted(os.listdir("my_project")))
   failed: 0
 출력 수: 4
 입력 파일: equion/datasets/toy_q.csv
-버전: 0.8.0
+버전: 0.9.0
 (종료 코드 0)
 새 프로젝트 my_project:
   README.md
