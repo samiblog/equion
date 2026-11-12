@@ -13,7 +13,7 @@
 이 블록만 풀기) · 블록 파일 고치기 · 흐름 화면(**스크립트를 화면에서 실행** — D3) → **터미널에서 친 명령의 기록이
 띠에 뜨고 카드로 열린다** → 전망과 작업 줄 → 밖에서 고친 정의 파일의 바뀜 알림과 차이 → **닫았다 열면 이어진다** → 어두운 바탕 →
 DESK_V2(세 열 1/3 · **변수에서 출발** — 여럿 고르기 · 메뉴 · 묶음 · 변수 창 · 분석 탭과 개별 식 · **명령 창** · 터미널 여러 개 · 기록 탭) →
-2차판 폼(**후보 묶음** · **시나리오 폼** · **노트 화면** · 같은 분석의 두 기록).
+2차판 폼(**후보 묶음** · **시나리오 폼** · **노트 화면** · 같은 분석의 두 기록) → 자료 쪽 셋(**요인 나누기** · 시점이 열로 가는 표 · **이정표** · 묶어 보내기).
 서버·작업 프로세스 시험은 `test_app.py`, 이 파일은 화면까지 이어 본다(pytest 가 모으지 않는다 — 브라우저가 있어야 한다).
 """
 from __future__ import annotations
@@ -130,8 +130,8 @@ def run(shots: str | None) -> int:
             try:
                 page = open_page(browser)
                 page.wait_for_selector("#welcome .welcome-card")
-                check("U1 프로젝트 없이 띄우면 첫 화면 — 폴더 열기·예제 만들기·도움말",
-                      page.locator("#welcome .btn").count() == 3 and page.locator("#activity").is_hidden())
+                check("U1 프로젝트 없이 띄우면 첫 화면 — 폴더 열기·예제 만들기·묶음 열기·도움말",
+                      page.locator("#welcome .btn").count() == 4 and page.locator("#activity").is_hidden())
                 shot(page, "01-welcome")
                 page.click("#welcome [data-act=help]")
                 page.wait_for_selector(".dialog.help .doc h1")
@@ -1113,6 +1113,66 @@ def run(shots: str | None) -> int:
                 page.wait_for_selector(f"{active} .side .row-item[data-key^='note:']", timeout=20000)
                 notes = page.locator(f"{active} .side .row-item[data-key^='note:']").count()
                 check("O8 분석 탭의 노트 — 노트마다 블록 수와 낡음·새 블록", notes >= 2, str(notes))
+                page.close()
+            finally:
+                server.terminate()
+                server.wait(10)
+
+            print("Q. 자료 쪽 셋 — 요인 나누기 · 시점이 열로 가는 표 · 이정표 · 묶어 보내기")
+            server = start_server(env)
+            try:
+                page = open_page(browser)
+                page.wait_for_selector("#status .dot.ok", timeout=30000)
+                with open(os.path.join(folder, "DATA", "raw", "wide.csv"), "w", encoding="utf-8", newline="\n") as f:
+                    f.write("표 2. 산업별 생산(가상)\n항목,단위,2018 1/4,2018 2/4,2018 3/4,2018 4/4,2019 1/4\n제조업,십억원,100,101,103,104,105\n서비스업,십억원,200,202,204,205,207\n")
+                page.evaluate("() => window.equionDesk.current.openTab({ type: 'import', file: 'DATA/raw/wide.csv' })")
+                page.wait_for_selector(f"{pane} [data-hint]", timeout=20000)
+                hints = page.locator(f"{pane} [data-hint]").all_inner_texts()
+                page.click(f"{pane} [data-hint]:has-text('열로 가는 표')")
+                page.wait_for_selector(f"{pane} .raw-grid.by-row", timeout=20000)
+                page.wait_for_selector(f"{pane} .pick", timeout=20000)
+                picks = page.locator(f"{pane} .pick").count()
+                check("Q1 시점이 열로 가는 표 — 틀을 권하는 단추로 읽고(시점 줄 · 이름 열), 줄마다 시리즈",
+                      any("열로 가는 표" in x for x in hints) and picks == 2 and "시점 줄 2" in page.inner_text(f"{pane} .banner"), str(hints))
+                shot(page, "23-wide-import")
+                page.click(f"{active} .side-tabs [data-side='records']")
+                page.click(f"{active} .rec-sub [data-sub='milestones']")
+                page.click(f"{active} [data-act='new-milestone']")
+                page.wait_for_selector(".dialog input")
+                page.fill(".dialog input >> nth=0", "fc_check")
+                page.fill(".dialog input >> nth=1", "화면 점검")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{pane} .milestone-view .banner.ok", timeout=20000)
+                made = os.path.isfile(os.path.join(folder, "work", "milestones", "fc_check", "milestone.json"))
+                with open(os.path.join(folder, "EQUATIONS", "price.txt"), "a", encoding="utf-8", newline="\n") as f:
+                    f.write("\n# 이정표 뒤에 더한 줄\n")
+                page.wait_for_selector(f"{pane} .milestone-view [data-act='restore']", timeout=20000)
+                page.click(f"{pane} .milestone-view [data-act='restore']")
+                page.wait_for_selector(".dialog .diff")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{pane} .milestone-view .banner.ok", timeout=20000)
+                check("Q2 이정표 — 기록 탭에서 만들고, 밖에서 고친 정의 파일이 차이로 보이고, '이때로 되돌리기'로 되돌린다",
+                      made and "이정표 뒤에" not in open(os.path.join(folder, "EQUATIONS", "price.txt"), encoding="utf-8").read()
+                      and page.locator(f"{active} .side .row-item[data-key='milestone:fc_check']").count() == 1)
+                shot(page, "24-milestone")
+                page.click(f"{active} .side .wb[data-key='forecast']")
+                page.wait_for_selector(f"{pane} [data-act='solve']", timeout=20000)
+                page.click(f"{pane} [data-act='solve']")
+                page.wait_for_selector(f"{pane} tr[data-sim] >> nth=1", timeout=60000)
+                page.click(f"{pane} tr[data-sim] >> nth=1 >> .check")
+                page.wait_for_selector(f"{pane} [data-act='split']", timeout=20000)
+                page.click(f"{pane} [data-act='split']")
+                page.wait_for_selector(f"{pane} .an-out .of-record", timeout=60000)
+                check("Q3 전망 화면의 '요인 나누기' — 고른 전망과 보는 전망의 바뀜을 자료 · 가정 · 식으로(분석 기록)",
+                      "요인 나누기" in page.inner_text(f"{pane} .an-out .result-head") and "자료" in page.inner_text(f"{pane} .an-out .of-record"))
+                shot(page, "25-split")
+                page.click(f"{active} .side .wb[data-key='home']")
+                page.click(f"{pane} [data-act='bundle']")
+                page.wait_for_selector(".dialog .check-row")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{active} .notice[data-key='bundle']", timeout=30000)
+                zips = [f for f in os.listdir(os.path.join(folder, "exports")) if f.endswith(".zip")]
+                check("Q4 묶어 보내기 — 고르고 묶으면 exports/ 에 zip, 알림에 경로", len(zips) >= 1 and ".zip" in page.inner_text(f"{active} .notice[data-key='bundle']"), str(zips))
                 page.close()
             finally:
                 server.terminate()

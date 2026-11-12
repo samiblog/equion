@@ -6,6 +6,16 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
 ## 미공개
 
 ### 추가
+- **요인 나누기(D59)**: `equion an split "sim:앞 sim:뒤" [--vars Y,CN]`이 두 전망 기록의 연간 성장률 바뀜을 **자료 → 가정 → 식** 차례로 하나씩 바꿔
+  다시 풀어 나눕니다 — 식은 기록의 조립 명세, 자료는 기록의 자료 회차, 가정은 기록에 적힌 외생·보정항 경로(지금 파일과 무관). 단계마다 다시 푼 값과,
+  기록과 다시 푼 값이 다르면 그 차이('나머지')도 보입니다. 레시피 R63.
+- **시점이 열로 가는 표 · 여러 줄 머리(D60)**: 불러오기 틀에 `time_axis = "columns"` · `time_row` · `name_col` · `unit_col` — 줄마다 시리즈 하나인 통계표를
+  읽습니다(시점 줄의 앞쪽 글 열은 건너뛰고 '단위' 열은 단위로, 칸 위치는 원래 표 기준). `header_row = [1, 2]`는 위 줄의 병합 칸을 이어 붙인 이름.
+  시점 꼴 `2018 1/4`(분기)도 읽습니다. `data preview·define`의 `--time-axis`·`--time-row`·`--name-col`·`--unit-col`, `--header-row 1,2`. 레시피 R64.
+- **이정표와 묶어 보내기(D61)**: `equion milestone make · list · show · restore`(`p.milestone_make`·`milestone_diff`·`milestone_restore`·`milestones`) —
+  그때의 정의 파일 사본 · 자료 회차 · 고정한 기록을 `work/milestones/이름/`에 두고, 지금과 견주고, 정의를 그때로 되돌립니다(바뀜 기록에 남는다).
+  `equion bundle make [--raw] [--records keep|all|none]`(`p.bundle`)이 정의 · 노트 · 보고서 · 지금 자료 회차 · 이정표 · 남길 기록을 zip 하나로,
+  `equion bundle open 묶음.zip 폴더`(`Project.from_bundle`)가 빈 폴더에 풀어 엽니다(폴더 밖을 가리키는 경로는 거절). 레시피 R65.
 - **시나리오를 명령으로(D55)**: `equion scenario list · show · define 이름 --shock POIL=+20% --shock R=+0.5@start:start+3 --addfactor demand:CN=-0.2 · remove 이름`
   (`p.scenarios()`·`p.scenario_define`·`p.scenario_remove`)이 `SCENARIOS/이름.toml`을 씁니다 — 충격 한 줄은 `변수=크기[%][@처음[:끝]]`, 준 것만 바꾸고 주석은 그대로,
   쓰기 전에 변수·식·가정 세트·모형·기간을 검사합니다. 바뀜 기록에 남습니다. 풀이(`sim`)가 시나리오를 읽을 때도 같은 검사를 씁니다. 레시피 R61.

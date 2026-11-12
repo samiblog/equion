@@ -176,3 +176,34 @@ def an_history(project: Any, record: str) -> dict:
     at = ids.index(record) if record in ids else -1
     return {"analysis": key[0], "label": m.get("label"), "target": key[1], "target_label": m.get("target_label"), "records": rows,
             "previous": ids[at - 1] if at > 0 else None, "next": ids[at + 1] if 0 <= at < len(ids) - 1 else None}
+
+
+# ---- 이정표 · 묶어 보내기 (D61) --------------------------------------------------------------------------
+
+def milestones(project: Any) -> dict:
+    return {"milestones": project.milestones()}
+
+
+def milestone_make(project: Any, name: str, note: str | None = None) -> dict:
+    m = project.milestone_make(name, note=note, who="desk")
+    return {**m.to_dict(), "files": len(m.files), "command": command("milestone", "make", name, *(["--note", note] if note else []))}
+
+
+def milestone_diff(project: Any, name: str) -> dict:
+    from equion.projects.milestones import load
+
+    d = project.milestone_diff(name)
+    m = load(project, name)
+    return {**d.to_dict(), "milestone": {**m.to_dict(), "files": len(m.files)}}
+
+
+def milestone_restore(project: Any, name: str, files: list | None = None) -> dict:
+    words = ["milestone", "restore", name, *[x for f in (files or []) for x in ("--file", f)]]
+    ch = project.milestone_restore(name, files=files or None, who="desk", command=command(*words))
+    return {"change": ch.id if ch else None, "files": list(ch.files) if ch else [], "command": command(*words)}
+
+
+def bundle(project: Any, raw: bool = False, records: str = "keep") -> dict:
+    res = project.bundle(raw=bool(raw), records=records, who="desk")
+    words = ["bundle", "make", *(["--raw"] if raw else []), *(["--records", records] if records != "keep" else [])]
+    return {**res.to_dict(), "command": command(*words), "folder": str(project.root)}

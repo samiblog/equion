@@ -217,3 +217,55 @@ value = -0.2
 `equion scenario remove 이름`(바뀜 기록에서 되돌릴 수 있습니다). Equion Desk의 시나리오 폼이 같은 일을 표로 합니다.
 
 관련: [R51](#r51-전망-기록--가정-세트보정항시나리오) · [파일 형식](../reference/formats.md#가정보정항시나리오assumptionsaddfactorsscenarios)
+
+## R63. 회차 비교의 요인 나누기 — 자료 · 가정 · 식의 몫
+
+지난달 전망과 이번 달 전망의 연간 성장률이 왜 달라졌는지 나눕니다(`an split`). 두 기록 사이에서 **자료 → 가정 → 식** 차례로 하나씩 바꿔 다시 풀고,
+그 차이를 몫으로 적습니다. 식은 기록의 조립 명세(식 글자 · 계수), 자료는 기록의 자료 회차, 가정은 기록에 적힌 외생 경로와 보정항 경로입니다 —
+지금 파일과 무관하게 기록만으로 풉니다.
+
+```python
+p = eqn.Project.create("split_prj", force=True)
+p.sim(as_name="oct")                                         # 지난달 기준선
+raw = pd.read_csv("split_prj/DATA/raw/toy_q.csv", index_col=0)    # 자료 개정(가상): 마지막 두 기의 소비 +1%
+raw.loc[raw.index[-2:], "CN"] *= 1.01
+raw.to_csv("split_prj/DATA/raw/toy_q.csv")
+p.data_build(use=True)
+a = pd.read_csv("split_prj/ASSUMPTIONS/base.csv", index_col=0)     # 가정: 유가 경로 +10%
+a["POIL"] *= 1.1
+a.to_csv("split_prj/ASSUMPTIONS/base.csv")
+p.adopt(p.est("CN c Y", part="demand:CN").id)                 # 식: 소비함수를 바꿔 채택
+p.sim(as_name="nov")
+print(p.an("split", "sim:oct sim:nov", vars="Y,CN").text())
+```
+<!-- out -->
+```text
+[split_prj] 자료 회차 d2026-11a를 만들었습니다
+[split_prj] 지금 자료 회차: d2026-11a
+[split_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[main] 채택 기록 없이 지금 자료로 추정: demand:CN, demand:I, price:P, finance:RL, finance:M2
+[split_prj] 기간 확장 → 2021Q4 (+8)
+[main] baseline(_0) dynamic 2020Q1~2021Q4: 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
+[split_prj] 자료 회차 d2026-11b를 만들었습니다
+[split_prj] 지금 자료 회차: d2026-11b (전: d2026-11a)
+[split_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[split_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[main] 채택 계수: demand:CN(est:cn_0001)
+[main] 채택 기록 없이 지금 자료로 추정: demand:I, price:P, finance:RL, finance:M2
+[split_prj] 기간 확장 → 2021Q4 (+8)
+[main] baseline(_0) dynamic 2020Q1~2021Q4: 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
+[split_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[an:split_0001] 요인 나누기 · sim:nov ← sim:oct · 2020Q1~2021Q4 · 자료 data:d2026-11b
+  Y 2020 성장률 0.89% → 5.19% (+4.30%p)  자료 +0.22 · 가정 +3.71 · 식 +0.38
+  Y 2021 성장률 1.74% → 3.16% (+1.42%p)  자료 -0.17 · 가정 +2.28 · 식 -0.70
+  CN 2020 성장률 0.87% → 5.58% (+4.70%p)  자료 -0.24 · 가정 +4.51 · 식 +0.44
+  CN 2021 성장률 1.65% → 3.04% (+1.39%p)  자료 -0.20 · 가정 +2.42 · 식 -0.84
+  알아서 한 것  차례: 자료 → 가정 → 식(하나씩 바꿔 다시 풀어 나눔 — 차례가 바뀌면 몫이 달라질 수 있다) · 앞 sim:oct · 뒤 sim:nov(만든 때 순) · 자료 data:d2026-11a → data:d2026-11b · 구간 2020Q1~2021Q4 → 2020Q1~2021Q4 · 가정은 기록에 적힌 외생 경로(가정·채움·시나리오 충격)와 보정항 경로 — 보정항 규칙 값의 변화도 '가정'의 몫에 든다 · 식은 기록의 조립 명세(식 글자·계수) — 지금 파일과 무관
+  기록   an:split_0001 (work/an/split_0001/summary.md)
+```
+
+위에서 '가정'의 몫이 큰 것은 유가 때문만이 아닙니다 — 예제의 소비 보정항은 마지막 잔차를 그대로 잇는 규칙(`last`)이라, 자료 개정으로 소비의 마지막 잔차가 커지면 보정항이 커지고
+그것이 '가정'의 몫에 듭니다(유가는 이 모형에서 물가만 움직입니다). 차례가 바뀌면 몫이 달라질 수 있습니다(경로 의존) — 차례는 늘 자료 → 가정 → 식이고 카드에 적힙니다. 두 기록을 다시 푼 값이 기록과 다르면 그 차이는
+'나머지'로 따로 보입니다. Equion Desk에서는 전망 화면에서 기록 하나를 고르고 '요인 나누기'를 누릅니다.
+
+관련: [R51](#r51-전망-기록--가정-세트보정항시나리오) · [R61](#r61-시나리오를-명령으로-쓰기--충격-표)

@@ -428,7 +428,7 @@ def keep(project: Any, record: str, name: str | None = None, replace: bool = Fal
 
 # ---- 불러오기(원자료의 열 ↔ 시리즈) ----------------------------------------------------------------
 
-FRAME_KEYS = ("sheet", "header_row", "unit_row", "time_col", "missing", "thousands", "freq")
+FRAME_KEYS = ("sheet", "header_row", "unit_row", "time_col", "missing", "thousands", "freq", "time_axis", "time_row", "name_col", "unit_col")
 SERIES_KEYS = ("unit", "desc", "convert", "denton", "seas", "scale", "fill")
 
 
@@ -444,7 +444,8 @@ def _seas_word(seas: Any) -> str:
 
 def _frame_of(spec: Any) -> dict:
     return {"sheet": spec.sheet, "header_row": spec.header_row, "unit_row": spec.unit_row, "time_col": spec.time_col,
-            "missing": list(spec.missing), "thousands": spec.thousands, "freq": spec.freq}
+            "missing": list(spec.missing), "thousands": spec.thousands, "freq": spec.freq, "time_axis": spec.time_axis,
+            "time_row": spec.time_row, "name_col": spec.name_col, "unit_col": spec.unit_col}
 
 
 def _frame_args(frame: dict | None) -> dict:
@@ -505,7 +506,10 @@ def define_command(source: str, file: str, frame: dict | None, desc: str | None,
         if key == "missing":
             for mark in value:
                 words += [flag, mark]
-        elif value not in ("", None) and not (key == "header_row" and value == 1):
+        elif isinstance(value, list):
+            if value:
+                words += [flag, ",".join(str(x) for x in value)]
+        elif value not in ("", None) and not (key == "header_row" and str(value) == "1") and not (key == "time_axis" and value == "rows"):
             words += [flag, value]
     if desc:
         words += ["--desc", desc]

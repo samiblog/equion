@@ -43,7 +43,11 @@ export function homeView(project) {
         o.criteria ? h('span', { title: 'equion.toml 의 [criteria] — 추정 기록마다 통과·걸러짐을 적는다' }, '판단 기준 있음') : null)),
       h('div', { class: 'tools' },
         h('button', { class: 'btn', type: 'button', onclick: () => project.openTab({ type: 'file', path: 'equion.toml' }) }, icon('doc'), 'equion.toml'),
-        h('button', { class: 'btn', type: 'button', onclick: () => project.openTab({ type: 'records' }) }, icon('list'), '작업 기록'))));
+        h('button', { class: 'btn', type: 'button', onclick: () => project.openTab({ type: 'records' }) }, icon('list'), '작업 기록'),
+        h('button', { class: 'btn quiet', type: 'button', 'data-act': 'new-milestone', title: '지금의 정의 · 자료 회차 · 고정한 기록을 이름으로 묶어 둔다 — 나중에 견주고 되돌린다',
+          onclick: async () => { const { makeMilestone } = await import('./milestone.js'); makeMilestone(project); } }, icon('pin'), '이정표'),
+        h('button', { class: 'btn quiet', type: 'button', 'data-act': 'bundle', title: '프로젝트를 zip 하나로 묶는다(다른 PC로 옮길 때)',
+          onclick: async () => { const { makeBundle } = await import('./milestone.js'); makeBundle(project); } }, icon('send'), '묶어 보내기'))));
     if (project.error) el.append(h('div', { class: 'banner error' }, icon('alert'), h('div', {}, '정의 파일에 문제가 있어 지난 내용을 보이고 있습니다.', h('pre', {}, project.error))));
     for (const w of o.warnings || []) el.append(h('div', { class: 'banner warn' }, icon('alert'), h('div', {}, w)));
 

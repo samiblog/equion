@@ -202,6 +202,34 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
         sp.add_argument("--json", action="store_true", help="결과를 JSON으로")
 
+    ms = sub.add_parser("milestone", help="이정표 — 중요한 때의 정의·자료 회차·고정한 기록을 이름으로 묶어 두고, 지금과 견주고, 되돌린다")
+    mssub = ms.add_subparsers(dest="milestone_command", metavar="동작")
+    mssub.required = True
+    msl = mssub.add_parser("list", help="이정표 목록")
+    msm = mssub.add_parser("make", help="이정표를 만든다(work/milestones/이름/ — 정의 파일은 바꾸지 않는다)")
+    msm.add_argument("name", metavar="이름")
+    msm.add_argument("--note", metavar="글", help="메모(예: 11월 전망 확정)")
+    mss = mssub.add_parser("show", help="이정표와 지금 — 바뀐 정의 파일과 차이, 자료 회차")
+    mss.add_argument("name", metavar="이름")
+    mss.add_argument("--diff", action="store_true", help="차이 글도 보인다")
+    msr = mssub.add_parser("restore", help="정의를 이정표 때로 되돌린다(바뀜 기록에 남는다 — 그것도 되돌릴 수 있다)")
+    msr.add_argument("name", metavar="이름")
+    msr.add_argument("--file", action="append", dest="files", metavar="경로", help="이 파일만(여러 번)")
+    bd = sub.add_parser("bundle", help="프로젝트 묶어 보내기(zip) · 묶음 열기 — 다른 PC로 옮길 때")
+    bdsub = bd.add_subparsers(dest="bundle_command", metavar="동작")
+    bdsub.required = True
+    bdm = bdsub.add_parser("make", help="정의·노트·보고서·지금 자료 회차·남길 기록을 zip 하나로(원자료는 --raw일 때만)")
+    bdm.add_argument("--out", metavar="파일", help="zip 경로(기본 exports/<프로젝트>_<날짜>.zip)")
+    bdm.add_argument("--raw", action="store_true", help="원자료(DATA/raw/)도 넣는다")
+    bdm.add_argument("--records", choices=("keep", "all", "none"), default="keep", help="기록 — keep: 채택·고정·가리키는 것(기본) · all · none")
+    bdo = bdsub.add_parser("open", help="묶음을 빈 폴더에 풀어 프로젝트로")
+    bdo.add_argument("zip", metavar="묶음", help="묶음 파일(.zip)")
+    bdo.add_argument("dest", metavar="폴더", help="풀 폴더(없거나 비어 있어야 한다)")
+    for sp in (msl, msm, mss, msr, bdm):
+        sp.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
+    for sp in (msl, msm, mss, msr, bdm, bdo):
+        sp.add_argument("--json", action="store_true", help="결과를 JSON으로")
+
     sc = sub.add_parser("scenario", help="프로젝트의 시나리오(SCENARIOS/*.toml) — 목록·보기·쓰기·지우기(풀기는 equion sim)")
     scsub = sc.add_subparsers(dest="scenario_command", metavar="동작")
     scsub.required = True
@@ -256,12 +284,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     def _frame(sp):
         sp.add_argument("--sheet", metavar="시트", help="엑셀의 시트(이름 또는 번호 — 기본 첫 시트)")
-        sp.add_argument("--header-row", type=int, metavar="줄", help="열 이름이 있는 줄(1부터, 기본 1)")
+        sp.add_argument("--header-row", metavar="줄", help="열 이름이 있는 줄(1부터, 기본 1) — 여러 줄이면 3,4(이어 붙인 이름)")
         sp.add_argument("--unit-row", type=int, metavar="줄", help="단위가 있는 줄(없으면 생략)")
         sp.add_argument("--time-col", metavar="열", help="시점 열(이름·A·B… 또는 번호 — 기본 첫 열)")
         sp.add_argument("--missing", action="append", metavar="표시", help="결측으로 볼 글자(여러 번 — 예: --missing - --missing …)")
         sp.add_argument("--thousands", metavar="글자", help="천 단위 구분 글자(예: ,)")
         sp.add_argument("--freq", metavar="주기", help="원자료의 주기 Q·M·A(기본: 시점에서 읽는다)")
+        sp.add_argument("--time-axis", choices=("rows", "columns"), help="시점이 행으로(rows, 기본) · 열로(columns — 줄마다 시리즈)")
+        sp.add_argument("--time-row", type=int, metavar="줄", help="(columns) 시점이 적힌 줄(기본 1)")
+        sp.add_argument("--name-col", metavar="열", help="(columns) 시리즈 이름 열(A·번호 — 여러 열이면 A,B)")
+        sp.add_argument("--unit-col", metavar="열", help="(columns) 단위 열")
         return sp
 
     dpv = _frame(_common(dsub.add_parser("preview", help="원자료 파일을 미리 본다 — 읽은 그대로의 줄과 그 틀로 읽어 본 결과(쓰지 않는다)")))
@@ -708,6 +740,56 @@ def cmd_view(args) -> int:
     return EXIT_OK
 
 
+def cmd_milestone(args) -> int:
+    """equion milestone list · make · show · restore — 이정표."""
+    from ..projects import ProjectError
+    from ..work.store import detect_who
+    try:
+        p = _open_project(args.project)
+        act = args.milestone_command
+        if act == "list":
+            rows = p.milestones()
+            out = rows if args.json else (f"[milestone list] {p.name} — 이정표 {len(rows)}" + "".join(
+                f"\n  {r['name']:<16} {r['created'][:16]} · 자료 {r['vintage'] or '-'} · 정의 {r['files']} · 기록 {len(r['records'])}"
+                + (f"  — {r['note']}" if r["note"] else "") for r in rows))
+        elif act == "make":
+            m = p.milestone_make(args.name, note=args.note, who=detect_who("terminal"))
+            out = m.to_dict() if args.json else m.text()
+        elif act == "show":
+            d = p.milestone_diff(args.name)
+            out = d.to_dict() if args.json else d.text() + (("\n" + d.diff) if args.diff and d.diff else "")
+        else:
+            ch = p.milestone_restore(args.name, files=args.files, who=detect_who("terminal"), command=_cmdline(_ARGV))
+            out = ({"change": ch.id if ch else None} if args.json else
+                   (f"[milestone restore] {args.name} — 정의 파일 {len(ch.files)}개를 그때로\n  바뀜 기록  {ch.id}" if ch else
+                    f"[milestone restore] {args.name} — 지금과 같습니다(바꾼 것 없음)"))
+    except (ProjectError, KeyError, ValueError) as e:
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
+        return EXIT_INPUT
+    print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else out)
+    return EXIT_OK
+
+
+def cmd_bundle(args) -> int:
+    """equion bundle make · open — 프로젝트 묶어 보내기 · 묶음 열기."""
+    from ..projects import Project, ProjectError
+    from ..work.store import detect_who
+    try:
+        if args.bundle_command == "make":
+            p = _open_project(args.project)
+            res = p.bundle(out=args.out, raw=args.raw, records=args.records, who=detect_who("terminal"))
+            out = res.to_dict() if args.json else res.text()
+        else:
+            q = Project.from_bundle(args.zip, args.dest)
+            out = ({"path": q.root, "project": q.name, "vintage": q.vintage} if args.json else
+                   f"[bundle open] {q.root} — 프로젝트 {q.name} · 자료 회차 {q.vintage or '(자료 파일)'}\n  다음   cd {q.root} · equion assemble")
+    except (ProjectError, KeyError, ValueError, OSError) as e:
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
+        return EXIT_INPUT
+    print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else out)
+    return EXIT_OK
+
+
 def cmd_scenario(args) -> int:
     """equion scenario list · show · define · remove — 시나리오(SCENARIOS/*.toml)."""
     from ..projects import ProjectError
@@ -879,7 +961,8 @@ def cmd_data(args) -> int:
             code = EXIT_OK if all(x.ok for x in items) else EXIT_INPUT
         elif act == "preview":
             frame = dict(sheet=args.sheet, header_row=args.header_row, unit_row=args.unit_row, time_col=args.time_col,
-                         missing=args.missing, thousands=args.thousands, freq=args.freq)
+                         missing=args.missing, thousands=args.thousands, freq=args.freq, time_axis=args.time_axis,
+                         time_row=args.time_row, name_col=args.name_col, unit_col=args.unit_col)
             one = ({"column": args.column, **({"convert": args.convert} if args.convert else {}),
                     **({"seas": args.seas} if args.seas else {})} if args.column else None)
             res = p.data_preview(args.file, rows=args.rows, series=one, **frame)
@@ -900,7 +983,8 @@ def cmd_data(args) -> int:
                 series[name.strip()][key.strip()] = value
             res = p.data_define(args.source, file=args.file, sheet=args.sheet, header_row=args.header_row, unit_row=args.unit_row,
                                 time_col=args.time_col, missing=args.missing, thousands=args.thousands, freq=args.freq,
-                                desc=args.desc, series=series or None, replace=args.replace, who=who, command=cmdline)
+                                desc=args.desc, series=series or None, replace=args.replace, who=who, command=cmdline,
+                                time_axis=args.time_axis, time_row=args.time_row, name_col=args.name_col, unit_col=args.unit_col)
             out = res.to_dict() if args.json else res.text()
         elif act == "use":
             old = p.data_use(args.vintage, who=who, command=cmdline)
@@ -1024,6 +1108,10 @@ def _main(argv) -> int:
             return cmd_view(args)
         if args.command == "scenario":
             return cmd_scenario(args)
+        if args.command == "milestone":
+            return cmd_milestone(args)
+        if args.command == "bundle":
+            return cmd_bundle(args)
         if args.command == "desk":
             return cmd_desk(args)
         if args.command == "group":

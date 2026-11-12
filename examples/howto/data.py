@@ -102,3 +102,15 @@ r = p.data_define("kr", file="DATA/raw/kr.csv", header_row=2, unit_row=3, missin
 print(r.text())
 b = p.data_build(use=True)                                             # 정의만으로는 자료가 생기지 않는다 — 만들고, 바꾼다
 print(b.n_series, p.workfile["KCN"].dropna().round(1).tolist())
+
+# %% R64. 시점이 열로 가는 통계표 · 머리줄이 여러 줄인 표
+p = eqn.Project.create("wide_prj", force=True)
+with open("wide_prj/DATA/raw/kosis.csv", "w", encoding="utf-8") as f:   # 받은 표(가상): 시점이 오른쪽으로, 줄마다 시리즈
+    f.write("표 1. 산업별 생산(가상)\n항목,단위,2018 1/4,2018 2/4,2018 3/4,2018 4/4\n제조업,십억원,100,101,103,104\n서비스업,십억원,200,202,-,205\n")
+v = p.data_preview("DATA/raw/kosis.csv", time_axis="columns", time_row=2, name_col="A", missing=["-"])
+print(v.text())
+with open("wide_prj/DATA/raw/na2.csv", "w", encoding="utf-8") as f:     # 머리줄 두 줄 — 위 줄은 병합 칸
+    f.write("시점,국내총생산,,소비,\n,명목,실질,명목,실질\n2018Q1,10,9,6,5\n2018Q2,11,10,6.5,5.2\n2018Q3,12,11,7,5.4\n")
+print([c["name"] for c in p.data_preview("DATA/raw/na2.csv", header_row=[1, 2]).columns])
+print(p.data_define("kosis", file="DATA/raw/kosis.csv", time_axis="columns", time_row=2, name_col="A", missing=["-"],
+                    series={"MFG": "제조업"}).text())

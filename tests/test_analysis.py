@@ -110,12 +110,12 @@ def _main(tmp, t0):
     print("A. 등록부")
     print("=" * 80)
     names = [a.name for a in reg.analyses()]
-    check("분석 22개(등록 순)", names == ["summary", "unitroot", "coint", "diag", "fcsteval", "stability", "multipliers",
+    check("분석 23개(등록 순)", names == ["summary", "unitroot", "coint", "diag", "fcsteval", "split", "stability", "multipliers",
                                      "seas", "genr", "ecm", "var", "vecm", "system", "stats", "hist", "acf", "corr", "xcorr",
                                      "granger", "fevd", "convert", "stochastic"], str(names))
     check("대상 수(count) — 우클릭 메뉴가 고른 수로 거른다", {a.name: a.count for a in reg.analyses() if a.count != "any"} ==
           {"coint": "many", "seas": "one", "ecm": "many", "var": "many", "vecm": "many", "hist": "one", "acf": "one", "corr": "many",
-           "xcorr": "two", "granger": "many", "fevd": "many"})
+           "xcorr": "two", "granger": "many", "fevd": "many", "split": "two"})
     check("만드는 것", {a.name: a.makes for a in reg.analyses() if a.makes} ==
           {"seas": "definition", "genr": "derived", "ecm": "candidate", "var": "candidate", "vecm": "candidate",
            "system": "candidate"})
@@ -384,7 +384,7 @@ def _main(tmp, t0):
     print("=" * 80)
     _, dc = new_project(tmp, "cli")
     code, out, _ = run(["an", "list"], dc)
-    check("an list(0)", code == 0 and out.startswith("[an list] 분석 22") and "seas" in out)
+    check("an list(0)", code == 0 and out.startswith("[an list] 분석 23") and "seas" in out)
     code, out, _ = run(["an", "list", "--for", "model", "--json"], dc)
     check("an list --for --json", code == 0 and [x["분석"] for x in json.loads(out)] == ["stability", "multipliers", "stochastic"])
     code, out, _ = run(["an", "unitroot", "--help"], dc)
@@ -541,6 +541,46 @@ def _main(tmp, t0):
     code3, _, err3 = run(["note", "add", "notes/n2.md", "--line", "group remove core"], dj)
     check("명령줄: note add --line(거듭)·--title · --record --json · 허용 안 된 명령(3)",
           code == 0 and "새 노트 · 블록 1" in out and code2 == 0 and json.loads(out2)["block"] == 2 and code3 == 3 and "넣을 수 없는 명령" in err3, out + err3)
+
+    print("=" * 80)
+    print("L. 요인 나누기 — 두 전망 기록의 바뀜을 자료 → 가정 → 식으로 (D59)")
+    print("=" * 80)
+    ps = quiet(Project.create, os.path.join(tmp, "split_prj"))
+    old = quiet(ps.sim, as_name="old")
+    same = quiet(ps.sim, as_name="same")
+    sp0 = quiet(ps.an, "split", "sim:old sim:same")
+    check("같은 정의·자료·가정이면 몫이 모두 0이고 '나머지'도 없다(앞 기록을 다시 푼 값 = 기록)",
+          np.allclose(sp0.table(1)[["바뀜", "자료", "가정", "식"]].to_numpy(dtype=float), 0) and "나머지" not in sp0.table(1).columns, sp0.text()[:300])
+    raw = os.path.join(ps.root, "DATA", "raw", "toy_q.csv")
+    lines = read(raw).split("\n")
+    cells = lines[-3].split(",")
+    cells[1] = str(float(cells[1]) * 1.01)
+    lines[-3] = ",".join(cells)
+    write(raw, "\n".join(lines))
+    b = quiet(ps.data_build)
+    quiet(ps.data_use, b.id if hasattr(b, "id") else b.vintage)
+    ap = os.path.join(ps.root, "ASSUMPTIONS", "base.csv")
+    rows = read(ap).strip().split("\n")
+    j = rows[0].split(",").index("POIL")
+    write(ap, "\n".join([rows[0]] + [",".join(c if k != j else str(float(c) * 1.2) for k, c in enumerate(r.split(","))) for r in rows[1:]]) + "\n")
+    e = quiet(ps.est, "CN c Y", part="demand:CN")
+    quiet(ps.adopt, e.id)
+    quiet(ps.sim, as_name="new")
+    sp = quiet(ps.an, "split", "sim:new sim:old")
+    t1 = sp.table(1)
+    total = (t1["자료"] + t1["가정"] + t1["식"] + (t1["나머지"] if "나머지" in t1.columns else 0) - t1["바뀜"]).abs().max()
+    check("자료 개정 · 가정 · 식이 모두 바뀌면 — 몫의 합 = 바뀜(만든 때 순으로 앞·뒤), 셋 다 0이 아닌 줄이 있다",
+          total < 1e-6 and (t1["자료"].abs() > 1e-6).any() and (t1["가정"].abs() > 1e-6).any() and (t1["식"].abs() > 1e-6).any()
+          and "sim:new ← sim:old" in sp.text(), str(t1)[:500])
+    t2 = sp.table(2)
+    check("단계마다 다시 푼 성장률 표(S0~S3) — S0 = 앞 기록, S3 = 뒤 기록", list(t2.columns)[-4:] == ["S0 앞을 다시", "S1 자료만 뒤로", "S2 가정까지", "S3 식까지(뒤를 다시)"]
+          and np.allclose(t2["S0 앞을 다시"].to_numpy(dtype=float) - t1["앞"].to_numpy(dtype=float), 0, atol=1e-3)
+          and np.allclose(t2["S3 식까지(뒤를 다시)"].to_numpy(dtype=float) - t1["뒤"].to_numpy(dtype=float), 0, atol=1e-3), str(t2)[:300])
+    check("거절 — 기록이 둘이 아님 · 전망 기록이 아님 · 모르는 변수",
+          raises(lambda: ps.an("split", "sim:old"), ProjectError, "둘") and raises(lambda: ps.an("split", f"sim:old {e.id}"), ProjectError, "전망 기록")
+          and raises(lambda: ps.an("split", "sim:old sim:new", vars="NOPE"), ProjectError, "내생변수"))
+    code, out, _ = run(["an", "split", "sim:old sim:new", "--vars", "Y"], ps.root)
+    check("명령줄 an split --vars", code == 0 and "[an:split_" in out and "자료" in out and "CN 20" not in out, out[:300])
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:

@@ -430,6 +430,21 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
     def an_history(record: str) -> dict:
         return formops.an_history(holder.get(), record)
 
+    def milestones() -> dict:
+        return formops.milestones(holder.get())
+
+    def milestone_make(name: str, note: str | None = None) -> dict:
+        return formops.milestone_make(holder.get(), name, note)
+
+    def milestone_diff(name: str) -> dict:
+        return formops.milestone_diff(holder.get(), name)
+
+    def milestone_restore(name: str, files: list | None = None) -> dict:
+        return formops.milestone_restore(holder.get(), name, files)
+
+    def bundle(raw: bool = False, records: str = "keep") -> dict:
+        return formops.bundle(holder.get(), raw, records)
+
     def scan() -> dict | None:
         """명령 밖에서 고친 정의 파일을 '바깥' 바뀜으로 적는다(K7). 바뀐 것이 없으면 None."""
         change = holder.get().history.scan()
@@ -450,7 +465,9 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
             "variables": variables, "analysis_list": analysis_list, "group_define": group_define, "group_remove": group_remove,
             "part_add": part_add, "part_remove": part_remove, "line": line, "catalog": catalog,
             "est_batch": est_batch, "scenario_info": scenario_info, "scenario_define": scenario_define, "scenario_remove": scenario_remove,
-            "notes": notes, "note_view": note_view, "note_run": note_run, "note_add": note_add, "an_history": an_history}
+            "notes": notes, "note_view": note_view, "note_run": note_run, "note_add": note_add, "an_history": an_history,
+            "milestones": milestones, "milestone_make": milestone_make, "milestone_diff": milestone_diff, "milestone_restore": milestone_restore,
+            "bundle": bundle}
 
 
 def _plain(value: Any) -> Any:

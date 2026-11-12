@@ -243,7 +243,7 @@ def section_worker(tmp: str, folder: str) -> None:
         host.wait(10)
         gone = False
         for _ in range(50):
-            out = subprocess.run(["tasklist", "/FI", f"PID eq {child}", "/NH"], capture_output=True, text=True).stdout
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {child}", "/NH"], capture_output=True, text=True, errors="replace").stdout or ""
             if str(child) not in out:
                 gone = True
                 break
@@ -847,7 +847,7 @@ def section_import(tmp: str) -> None:
               str(one.get("series", {}).get("implicit")) + str(bad.get("series_error")))
         codes = [c.post(f"{api}/data/preview", json=j).status_code for j in (
             {"file": "equion.toml"}, {"file": "DATA/series.toml"}, {"file": "../x.csv"}, {"file": "DATA/raw/nope.csv"}, {},
-            {"file": "DATA/raw/kr.csv", "rows": 100000}, {"file": "DATA/raw/kr.csv", "frame": {"header_row": "2"}},
+            {"file": "DATA/raw/kr.csv", "rows": 100000}, {"file": "DATA/raw/kr.csv", "frame": {"header_row": "2;x"}},
             {"file": "DATA/raw/kr.csv", "frame": {"missing": "-"}}, {"file": "DATA/raw/kr.csv", "series": {"unit": "x"}})]
         inbox_ok = c.post(f"{api}/data/preview", json={"file": "DATA/raw/inbox/later.csv"}).json
         check("L5 원자료 폴더(DATA/raw/)의 파일만 — 다른 파일·바깥 경로·틀린 형식의 틀은 거절, 받은 상자의 파일은 미리 볼 수 있다",
@@ -883,7 +883,8 @@ def section_import(tmp: str) -> None:
                                                                                                              "KI": {"column": "투자"}}}).json["result"]
         same = c.post(f"{api}/data/define", json={"source": "kr", "file": "DATA/raw/kr.csv", "frame": frame, "series": {}, "dry": True}).json
         check("L9 다시 열면 저장한 틀과 짝지은 시리즈가 그대로 — 있는 시리즈는 고친 키만, 새 열은 더한다. 바뀐 것이 없으면 그렇게 알린다",
-              again["ok"] and again["source"] == {"name": "kr", "frame": {**frame, "sheet": None, "unit_row": 3, "time_col": None, "thousands": ",", "freq": None}}
+              again["ok"] and again["source"] == {"name": "kr", "frame": {**frame, "sheet": None, "unit_row": 3, "time_col": None, "thousands": ",", "freq": None,
+                                                                "time_axis": "rows", "time_row": None, "name_col": None, "unit_col": None}}
               and again["mapped"]["민간소비"]["name"] == "KCN" and edit["changed"] == ["KCN"] and edit["added"] == ["KI"] and 'desc = "민간소비(실질)"' in read()
               and 'unit = "십억원"\ndesc = "민간소비(실질)"' not in read() and same["same"] is True, str(again.get("source")) + str(edit))
         text = read()
@@ -1494,6 +1495,70 @@ def section_forms(tmp: str) -> None:
         state.close()
 
 
+def section_data3(tmp: str) -> None:
+    print("S. 자료 쪽 셋 — 요인 나누기(분석)·시점이 열로 가는 표와 여러 줄 머리(불러오기)·이정표·묶어 보내기·묶음 열기")
+    from equion_desk.server import create_app
+
+    folder = example(tmp, "data3")
+    raw = os.path.join(folder, "DATA", "raw")
+    with open(os.path.join(raw, "wide.csv"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("표 1\n항목,단위,2018 1/4,2018 2/4,2018 3/4,2018 4/4,2019 1/4\n제조업,십억원,100,101,103,104,105\n서비스업,십억원,200,202,-,205,207\n")
+    with open(os.path.join(raw, "multi.csv"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("시점,국내총생산,,소비,\n,명목,실질,명목,실질\n2018Q1,10,9,6,5\n2018Q2,11,10,6.5,5.2\n2018Q3,12,11,7,5.4\n2018Q4,13,12,7.5,5.6\n")
+    state, pid = new_state(tmp, folder, "s.json")
+    api = f"/api/p/{pid}"
+    docs = os.path.join(tmp, "docs3")
+    os.environ["EQUION_DESK_DOCUMENTS"] = docs
+    try:
+        c = create_app(state).test_client()
+        c.get(f"{api}/overview")
+        a = c.post(f"{api}/line", json={"line": "sim --as a"}).json["result"]
+        b = c.post(f"{api}/line", json={"line": "sim --as b"}).json["result"]
+        sp = c.post(f"{api}/line", json={"line": "an split 'sim:a sim:b'"}).json["result"]
+        reg = {x["name"]: x for x in c.get(f"{api}/analyses").json["analyses"]}
+        check("S1 요인 나누기 — 분석으로 등록(대상 기록 둘), 명령 창으로 돌리면 기록 an: 이 남는다",
+              a["code"] == 0 and b["code"] == 0 and sp["code"] == 0 and sp["records"] and sp["records"][0].startswith("an:split_")
+              and reg["split"]["count"] == "two" and reg["split"]["targets"] == ["records"], str(sp)[:300])
+        frame = {"time_axis": "columns", "time_row": 2, "name_col": "A", "missing": ["-"]}
+        v = c.post(f"{api}/data/preview", json={"file": "DATA/raw/wide.csv", "frame": frame}).json
+        check("S2 시점이 열로 가는 표 미리보기 — 줄마다 시리즈(자리 '3줄'), 앞의 글 열(단위)은 건너뛰고, 결측 칸은 원래 표의 자리",
+              v["ok"] is True and v["axis"] == "columns" and [c_["name"] for c_ in v["columns"]] == ["제조업", "서비스업"]
+              and v["columns"][0]["letter"] == "3줄" and v["missing_cells"] == ["E4 '-'"] and "B" in v["note"], str(v.get("error") or v.get("note")))
+        v2 = c.post(f"{api}/data/preview", json={"file": "DATA/raw/multi.csv", "frame": {"header_row": "1,2"}}).json
+        bad = c.post(f"{api}/data/preview", json={"file": "DATA/raw/multi.csv", "frame": {"header_row": "1;x"}})
+        bad2 = c.post(f"{api}/data/preview", json={"file": "DATA/raw/wide.csv", "frame": {"time_axis": "diag"}})
+        check("S3 여러 줄 머리('1,2' — 병합 칸을 이어 붙인 이름) · 틀린 머리줄·방향은 400",
+              v2["ok"] is True and v2["columns"][1]["name"] == "국내총생산 실질" and bad.status_code == 400 and bad2.status_code == 400, str(v2.get("error")))
+        d = c.post(f"{api}/data/define", json={"source": "wide", "file": "DATA/raw/wide.csv", "frame": frame,
+                                               "series": {"MFG": {"column": "제조업"}}}).json["result"]
+        with open(os.path.join(folder, "DATA", "series.toml"), encoding="utf-8") as f:
+            text = f.read()
+        check("S4 정의 쓰기 — 명령에 --time-axis columns --time-row 2 --name-col A, series.toml 에 그 틀",
+              d["added"] == ["MFG"] and "--time-axis columns" in d["command"] and "--time-row 2" in d["command"] and 'time_axis = "columns"' in text, d.get("command", ""))
+        m = c.post(f"{api}/milestone/make", json={"name": "fc1", "note": "확정"}).json["result"]
+        lst = c.get(f"{api}/milestones").json["milestones"]
+        with open(os.path.join(folder, "EQUATIONS", "price.txt"), "a", encoding="utf-8", newline="\n") as f:
+            f.write("\n# 뒤에 더한 줄\n")
+        df = c.get(f"{api}/milestone?name=fc1").json
+        rs = c.post(f"{api}/milestone/restore", json={"name": "fc1"}).json["result"]
+        df2 = c.get(f"{api}/milestone?name=fc1").json
+        check("S5 이정표 — 만들기 · 목록 · 지금과(고친 파일·차이) · 되돌리기(바뀜 기록, 누가 Desk) 뒤에는 같다",
+              m["name"] == "fc1" and m["files"] > 5 and [x["name"] for x in lst] == ["fc1"] and not df["same"]
+              and any(f_["path"] == "EQUATIONS/price.txt" and f_["status"] == "changed" for f_ in df["files"]) and rs["change"]
+              and c.get(f"{api}/change?id={rs['change']}").json["who"] == "desk" and df2["same"] is True, str(df)[:300])
+        bd = c.post(f"{api}/bundle", json={"raw": False, "records": "keep"}).json["result"]
+        zp = os.path.join(folder, *bd["path"].split("/"))
+        check("S6 묶어 보내기 — exports/ 에 zip(원자료 넣지 않음, 명령 글)", os.path.isfile(zp) and bd["raw"] is False and bd["command"] == "equion bundle make", str(bd)[:200])
+        opened = c.post("/api/bundle/open", json={"zip": zp})
+        dest = os.path.join(docs, "Equion", os.path.splitext(os.path.basename(zp))[0])
+        check("S7 묶음 열기 — 문서 폴더의 Equion 아래에 풀고 새 탭으로 연다(zip 이 아니면 400)",
+              opened.status_code == 200 and len(opened.json["tabs"]) == 2 and os.path.isfile(os.path.join(dest, "equion.toml"))
+              and c.post("/api/bundle/open", json={"zip": os.path.join(folder, "equion.toml")}).status_code == 400, str(opened.json)[:200])
+    finally:
+        os.environ.pop("EQUION_DESK_DOCUMENTS", None)
+        state.close()
+
+
 def section_instance(tmp: str, folder: str) -> None:
     print("I. 창은 하나 — 또 실행하면 폴더를 떠 있는 창에 넘긴다")
     from equion_desk import instance
@@ -1532,6 +1597,7 @@ def run() -> int:
         section_review(tmp)
         section_side(tmp)
         section_forms(tmp)
+        section_data3(tmp)
         section_instance(tmp, folder)
     bad = [n for n, ok, _ in RESULTS if not ok]
     print(f"\nEquion Desk 앱 시험 {len(RESULTS) - len(bad)}/{len(RESULTS)}")

@@ -181,9 +181,11 @@ const app = {
       h('div', { class: 'actions' },
         h('button', { class: 'btn primary', type: 'button', disabled: !this.state?.can_pick, title: this.state?.can_pick ? '' : '폴더 고르기는 앱 창에서만 됩니다', onclick: () => this.openProject('/api/open') }, icon('folder'), '폴더 열기…'),
         h('button', { class: 'btn', type: 'button', onclick: () => this.openProject('/api/example') }, icon('spark'), '예제 프로젝트 만들기'),
+        h('button', { class: 'btn', type: 'button', 'data-act': 'open-bundle', disabled: !this.state?.can_pick_file, title: this.state?.can_pick_file ? '받은 묶음(zip)을 문서 폴더의 Equion 아래에 풀어 연다' : '파일 고르기는 앱 창에서만 됩니다',
+          onclick: () => this.openProject('/api/bundle/open') }, icon('inbox'), '묶음 열기…'),
         h('button', { class: 'btn quiet', type: 'button', 'data-act': 'help', title: '도움말 (F1)', onclick: () => this.openHelp() }, icon('info'), '도움말')),
       h('p', { class: 'hint' }, 'Equion 프로젝트 폴더는 ', h('code', {}, 'equion.toml'), ' 이 있는 폴더입니다. 예제는 문서 폴더의 ', h('code', {}, 'Equion/example1'),
-        ' 에 만듭니다(가상 분기 모형 — 실제 자료가 아닙니다).'),
+        ' 에 만듭니다(가상 분기 모형 — 실제 자료가 아닙니다). 받은 묶음(zip)도 그 아래에 풉니다.'),
       this.notice ? h('div', { class: 'error' }, this.notice.text) : null,
       recent.length ? h('div', { class: 'recent' }, h('h2', {}, '최근 프로젝트'), recent.map((path) => h('button', {
         type: 'button', title: path, onclick: () => this.openProject('/api/open', { root: path }),

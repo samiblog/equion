@@ -370,6 +370,7 @@ def _main(tmp, t0):
     _desk_request_tests(tmp)
     _group_part_tests(tmp)
     _scenario_tests(tmp)
+    _wide_milestone_tests(tmp)
 
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
@@ -1069,6 +1070,105 @@ def _scenario_tests(tmp):
           code == 0 and "새 시나리오" in out and code2 == 0 and "rate1" in [x["name"] for x in json.loads(out2)]
           and code3 == 0 and "R +1 · start~start+3" in out3 and code4 == 3 and "변수=크기" in err4
           and code5 == 0 and "충격 1" in out5 and code6 == 0 and json.loads(out6)["removed"] is True, out + out3 + err4)
+
+
+def _wide_milestone_tests(tmp):
+    print("=" * 80)
+    print("O. 불러오기 확장 — 시점이 열로 가는 표 · 여러 줄 머리 (D60)")
+    print("=" * 80)
+    from equion.data.source import SourceSpec, read_source, row_list
+    P, d = new_project(tmp, "wide")
+    raw = os.path.join(d, "DATA", "raw")
+    write(os.path.join(raw, "wide.csv"), "표 1. 산업별 생산(가상)\n항목,단위,2018 1/4,2018 2/4,2018 3/4,2018 4/4,2019 1/4,2019 2/4\n"
+          "제조업,십억원,100,101,103,104,105,107\n서비스업,십억원,200,202,204,205,207,-\n건설업,십억원,50,51,52,52,53,54\n")
+    t = read_source(SourceSpec("w", "DATA/raw/wide.csv", os.path.join(raw, "wide.csv"), time_axis="columns", time_row=2, name_col="A", unit_col="B", missing=["-"]))
+    check("시점이 열로 가는 표 — 줄마다 시리즈, 시점 줄의 '2018 1/4'는 분기, 단위 열, 결측 칸은 원래 표의 자리로",
+          t.freq == "Q" and list(t.data.columns) == ["제조업", "서비스업", "건설업"] and t.data["제조업"].iloc[-1] == 107
+          and t.units["서비스업"] == "십억원" and t.missing_cells == ["H4 '-'"] and t.places["건설업"] == "5줄" and "시점 줄 2" in t.time_note, str(t.time_note))
+    write(os.path.join(raw, "multi.csv"), "시점,국내총생산,,소비,\n,명목,실질,명목,실질\n2018Q1,10,9,6,5\n2018Q2,11,10,6.5,5.2\n2018Q3,12,11,7,5.4\n2018Q4,13,12,7.5,5.6\n")
+    m = read_source(SourceSpec("m", "DATA/raw/multi.csv", os.path.join(raw, "multi.csv"), header_row=[1, 2]))
+    check("여러 줄 머리 — 위 줄의 병합 칸을 이어 붙인 이름, row_list(3 · '3,4' · '3-5')",
+          list(m.data.columns) == ["국내총생산 명목", "국내총생산 실질", "소비 명목", "소비 실질"] and "2줄을 이어 붙임" in m.time_note
+          and row_list(3) == [3] and row_list("3,4") == [3, 4] and row_list("3-5") == [3, 4, 5])
+    v = P.data_preview("DATA/raw/wide.csv", time_axis="columns", time_row=2, name_col="A", unit_col="B", missing=["-"])
+    check("미리보기 — 방향·시점 줄·시리즈(줄)마다 자리·결측 수", v.ok and v.axis == "columns" and v.time_row == 1 and v.time_col is None
+          and [(c["name"], c["letter"], c["missing"]) for c in v.columns] == [("제조업", "3줄", 0), ("서비스업", "4줄", 1), ("건설업", "5줄", 0)], v.error)
+    r = P.data_define("wide", file="DATA/raw/wide.csv", time_axis="columns", time_row=2, name_col="A", unit_col="B", missing=["-"],
+                      series={"MFG": {"column": "제조업", "convert": None}, "SVC": "서비스업"})
+    text = read(os.path.join(d, "DATA", "series.toml"))
+    b = quiet(P.data_build)
+    check("정의 쓰기 — time_axis·time_row·name_col·unit_col 이 [source.wide]에, 자료 만들기에 든다",
+          r.added == ["MFG", "SVC"] and 'time_axis = "columns"' in text and "time_row = 2" in text and 'name_col = "A"' in text
+          and "MFG" in b.text() or "시리즈 15" in b.text(), text[-300:])
+    r2 = P.data_define("multi", file="DATA/raw/multi.csv", header_row="1,2", series={"GDPR": "국내총생산 실질"})
+    check("정의 쓰기 — 여러 줄 머리는 header_row = [1, 2]", "header_row = [1, 2]" in read(os.path.join(d, "DATA", "series.toml")) and r2.added == ["GDPR"])
+    check("거절 — 모르는 time_axis · 표 밖의 이름 열",
+          raises(lambda: P.data_preview("DATA/raw/wide.csv", time_axis="diag"), ProjectError, "time_axis")
+          and not P.data_preview("DATA/raw/wide.csv", time_axis="columns", time_row=2, name_col="ZZ").ok)
+    code, out, _ = run(["data", "preview", "DATA/raw/wide.csv", "--time-axis", "columns", "--time-row", "2", "--name-col", "A", "--missing", "-"], d)
+    code2, out2, _ = run(["data", "preview", "DATA/raw/multi.csv", "--header-row", "1,2", "--json"], d)
+    check("명령줄 data preview --time-axis --time-row --name-col · --header-row 1,2", code == 0 and "시점 줄 2" in out and code2 == 0
+          and json.loads(out2)["columns"][0]["name"] == "국내총생산 명목", out[:200])
+
+    print("=" * 80)
+    print("P. 이정표 · 묶어 보내기 · 묶음 열기 (D61)")
+    print("=" * 80)
+    P, d = new_project(tmp, "mile")
+    e = quiet(P.est, "demand:CN")
+    P.work.mark(e.id, pinned=True)
+    ms = P.milestone_make("fc1", note="11월 확정", who="tester")
+    check("이정표 — 정의 파일 사본·자료 회차·고정한 기록, 같은 이름은 거절",
+          os.path.isfile(os.path.join(d, "work", "milestones", "fc1", "defs", "equion.toml")) and ms.vintage == P.vintage and ms.records == [e.id]
+          and "EQUATIONS/price.txt" in ms.files and raises(lambda: P.milestone_make("fc1"), ProjectError, "이미"))
+    write(os.path.join(d, "EQUATIONS", "price.txt"), "\n# 이정표 뒤에 더한 줄\n", "a")
+    quiet(P.scenario_define, "rr", shocks=["R=+1"])
+    df = P.milestone_diff("fc1")
+    st = {f["path"]: f["status"] for f in df.files if f["status"] != "same"}
+    check("이정표와 지금 — 고침·새로와 차이", st == {"EQUATIONS/price.txt": "changed", "SCENARIOS/rr.toml": "added"} and not df.same
+          and "+# 이정표 뒤에 더한 줄" in df.diff, str(st))
+    one = P.milestone_restore("fc1", files=["SCENARIOS/rr.toml"])
+    check("이 파일만 되돌리기 — 그 뒤에 생긴 파일은 지운다", one is not None and not os.path.exists(os.path.join(d, "SCENARIOS", "rr.toml"))
+          and "이정표 뒤에" in read(os.path.join(d, "EQUATIONS", "price.txt")))
+    ch = P.milestone_restore("fc1", who="tester")
+    check("정의를 이정표 때로 — 바뀜 기록 하나(되돌릴 수 있다), 그 뒤에는 같다", ch is not None and P.milestone_diff("fc1").same
+          and "이정표 뒤에" not in read(os.path.join(d, "EQUATIONS", "price.txt")) and P.milestone_restore("fc1") is None)
+    from equion.cli.workcmds import _referenced
+    check("이정표가 적은 기록은 정리에서 빠진다", e.id in _referenced(P, P.work))
+    quiet(P.sim, as_name="b1")
+    bd = P.bundle(raw=False)
+    import zipfile
+    with zipfile.ZipFile(os.path.join(d, bd.path)) as z:
+        names = z.namelist()
+        manifest = json.loads(z.read("mile/bundle.json"))
+    check("묶어 보내기 — 정의·지금 자료 회차·이정표·남길 기록(고정·이정표), 원자료와 바뀜 기록은 빼고",
+          bd.path.startswith("exports/mile_") and "mile/equion.toml" in names and f"mile/work/data/{P.vintage}/series.csv" in names
+          and "mile/work/milestones/fc1/milestone.json" in names and not any(n.startswith("mile/DATA/raw/") for n in names)
+          and not any(n.startswith("mile/work/history") for n in names) and manifest["records"] == [e.id] and manifest["format"] == "equion-bundle"
+          and not any("/sim/b1/" in n for n in names), str(manifest)[:300])
+    bd2 = P.bundle(out=os.path.join(tmp, "mile_all.zip"), raw=True, records="all")
+    with zipfile.ZipFile(bd2.path) as z:
+        names2 = z.namelist()
+    check("--raw --records all — 원자료와 모든 기록", any(n.startswith("mile/DATA/raw/") for n in names2) and any("/sim/b1/" in n for n in names2))
+    q = Project.from_bundle(os.path.join(d, bd.path), os.path.join(tmp, "mile_copy"))
+    sim2 = quiet(q.sim)
+    check("묶음 열기 — 같은 자료 회차로 바로 이어 한다(전망 풀기), 고정 기록과 이정표가 따라온다",
+          q.vintage == P.vintage and sim2.meta["counts"] and q.work.marks().get(e.id, {}).get("pinned") and [m["name"] for m in q.milestones()] == ["fc1"])
+    bad = os.path.join(tmp, "evil.zip")
+    with zipfile.ZipFile(bad, "w") as z:
+        z.writestr("x/bundle.json", json.dumps({"format": "equion-bundle", "format_version": 1}))
+        z.writestr("x/../escape.txt", "no")
+    check("묶음 열기 거절 — 폴더 밖을 가리키는 경로 · 비지 않은 폴더 · 묶음이 아닌 zip",
+          raises(lambda: Project.from_bundle(bad, os.path.join(tmp, "evil_out")), ProjectError, "경로")
+          and not os.path.exists(os.path.join(tmp, "escape.txt"))
+          and raises(lambda: Project.from_bundle(os.path.join(d, bd.path), d), ProjectError, "빈 폴더"))
+    code, out, _ = run(["milestone", "list"], d)
+    code2, out2, _ = run(["milestone", "show", "fc1", "--json"], d)
+    code3, out3, _ = run(["bundle", "make", "--out", os.path.join(tmp, "cli.zip")], d)
+    code4, out4, _ = run(["bundle", "open", os.path.join(tmp, "cli.zip"), os.path.join(tmp, "cli_copy")], d)
+    code5, _, err5 = run(["milestone", "show", "nope"], d)
+    check("명령줄 milestone list·show --json · bundle make --out · bundle open · 없는 이정표(3)",
+          code == 0 and "fc1" in out and code2 == 0 and json.loads(out2)["same"] is True and code3 == 0 and code4 == 0
+          and "[bundle open]" in out4 and code5 == 3 and "없습니다" in err5, out + out3)
 
 
 def test_suite():

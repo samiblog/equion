@@ -68,3 +68,17 @@ print(r.text())
 with open(f"{p.root}/SCENARIOS/oil_rate.toml", encoding="utf-8") as f:
     print(f.read())
 print(p.sim("oil_rate").text())
+
+# %% R63. 회차 비교의 요인 나누기 — 자료 · 가정 · 식의 몫
+p = eqn.Project.create("split_prj", force=True)
+p.sim(as_name="oct")                                         # 지난달 기준선
+raw = pd.read_csv("split_prj/DATA/raw/toy_q.csv", index_col=0)    # 자료 개정(가상): 마지막 두 기의 소비 +1%
+raw.loc[raw.index[-2:], "CN"] *= 1.01
+raw.to_csv("split_prj/DATA/raw/toy_q.csv")
+p.data_build(use=True)
+a = pd.read_csv("split_prj/ASSUMPTIONS/base.csv", index_col=0)     # 가정: 유가 경로 +10%
+a["POIL"] *= 1.1
+a.to_csv("split_prj/ASSUMPTIONS/base.csv")
+p.adopt(p.est("CN c Y", part="demand:CN").id)                 # 식: 소비함수를 바꿔 채택
+p.sim(as_name="nov")
+print(p.an("split", "sim:oct sim:nov", vars="Y,CN").text())

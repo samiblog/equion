@@ -50,6 +50,7 @@ export class Side {
     this.reloadRegistry = debounce(() => this.loadRegistry(), 600);
     this.reloadChanges = debounce(() => { if (this.changes) this.loadChanges(); }, 300);
     this.notes = null;           // 노트(notes/**/*.md)와 블록 상태의 수 — 분석 탭
+    this.milestones = null;      // 이정표 — 기록 탭의 셋째 칸
     this.reloadNotes = debounce(() => { if (this.notes) this.loadNotes(); }, 500);
     this.build();
   }
@@ -103,7 +104,7 @@ export class Side {
     this.stars = new Set(strs(s.stars, 200));
     this.folded = new Set(strs(s.folded, 100));
     this.recFilter = typeof s.recFilter === 'string' ? s.recFilter : 'all';
-    this.recSub = s.recSub === 'changes' ? 'changes' : 'results';
+    this.recSub = ['changes', 'milestones'].includes(s.recSub) ? s.recSub : 'results';
     this.drawSample();
   }
 
@@ -118,7 +119,7 @@ export class Side {
     this.p.el.classList.toggle('side-records', name === 'records');
     if (name === 'vars') { if (!this.vars) this.loadVars(); else this.drawVars(); }
     if (name === 'analysis') { if (!this.alist) this.loadAnalysisList(); else this.drawAnalysis(); if (!this.notes) this.loadNotes(); }
-    if (name === 'records') { this.drawRecords(); if (this.recSub === 'changes' && !this.changes) this.loadChanges(); }
+    if (name === 'records') { this.drawRecords(); if (this.recSub === 'changes' && !this.changes) this.loadChanges(); if (this.recSub === 'milestones' && !this.milestones) this.loadMilestones(); }
     if (name === 'files') this.p.openFiles();
     if (save) this.save();
   }
@@ -146,6 +147,11 @@ export class Side {
     try { this.alist = await this.p.get('analysis-list'); this.alistError = null; } catch (err) { this.alistError = err.message; }
     this.drawTabs();
     if (this.tab === 'analysis') this.drawAnalysis();
+  }
+
+  async loadMilestones() {
+    try { this.milestones = (await this.p.get('milestones')).milestones; } catch { this.milestones = this.milestones || []; }
+    if (this.tab === 'records') this.drawRecords();
   }
 
   async loadNotes() {
@@ -579,13 +585,16 @@ export class Side {
     const sub = h('div', { class: 'segmented small rec-sub', role: 'tablist' },
       h('button', { type: 'button', 'aria-pressed': String(this.recSub === 'results'), 'data-sub': 'results', onclick: () => { this.recSub = 'results'; this.save(); this.drawRecords(); } }, '결과', h('span', { class: 'c' }, p.records.length || '')),
       h('button', { type: 'button', 'aria-pressed': String(this.recSub === 'changes'), 'data-sub': 'changes', onclick: () => { this.recSub = 'changes'; this.save(); if (!this.changes) this.loadChanges(); this.drawRecords(); } },
-        '바뀜 · 제안', p.unseenProps.size ? h('span', { class: 'dot prop' }) : nOpen ? h('span', { class: 'c' }, nOpen) : null));
+        '바뀜 · 제안', p.unseenProps.size ? h('span', { class: 'dot prop' }) : nOpen ? h('span', { class: 'c' }, nOpen) : null),
+      h('button', { type: 'button', 'aria-pressed': String(this.recSub === 'milestones'), 'data-sub': 'milestones', onclick: () => { this.recSub = 'milestones'; this.save(); if (!this.milestones) this.loadMilestones(); this.drawRecords(); } },
+        '이정표', this.milestones?.length ? h('span', { class: 'c' }, this.milestones.length) : null));
     box.append(h('div', { class: 'side-tools' }, sub, h('span', { class: 'grow' }),
       h('button', { class: 'icon-btn', type: 'button', title: this.recSub === 'results' ? '작업 기록 모두 보기(가운데 — 스크립트로 만들기)' : '바뀜 기록(가운데)', 'aria-label': '가운데에 열기',
         onclick: () => p.openTab({ type: this.recSub === 'results' ? 'records' : 'changes' }) }, icon('external'))));
     const body = h('div', { class: 'side-body' });
     box.append(body);
     if (this.recSub === 'results') this.drawResults(body);
+    else if (this.recSub === 'milestones') this.drawMilestones(body);
     else this.drawChanges(body);
   }
 
@@ -607,6 +616,25 @@ export class Side {
         title: `${r.id}\n${cmdText(r.command)}\n${WHO[r.who] || r.who || ''} · ${r.created || ''}${r.memo ? `\n“${r.memo}”` : ''}`, onclick: () => p.openRecord(r.id) },
       kindPill(r.kind), h('span', { class: 'label mono' }, String(r.id).split(':').slice(1).join(':')),
       h('span', { class: 'desc' }, r.pinned ? icon('pin') : null, r.metric || ''), h('span', { class: 'tail' }, whoLabel(r.who), h('span', { class: 'when' }, when(r.created, now)))));
+    }
+    p.markSide();
+  }
+
+  drawMilestones(body) {
+    const p = this.p;
+    body.append(h('div', { class: 'side-actions' },
+      h('button', { class: 'btn small', type: 'button', 'data-act': 'new-milestone', title: '지금의 정의 · 자료 회차 · 고정한 기록을 이름으로 묶어 둔다(equion milestone make)',
+        onclick: async () => { const { makeMilestone } = await import('./views/milestone.js'); if (await makeMilestone(p)) this.loadMilestones(); } }, icon('plus'), '이정표 만들기'),
+      h('button', { class: 'btn small quiet', type: 'button', 'data-act': 'bundle', title: '프로젝트를 zip 하나로(equion bundle make) — 다른 PC로 옮길 때',
+        onclick: async () => { const { makeBundle } = await import('./views/milestone.js'); makeBundle(p); } }, icon('send'), '묶어 보내기')));
+    const list = this.milestones;
+    if (!list) { body.append(h('div', { class: 'side-note' }, '읽는 중…')); return; }
+    if (!list.length) { body.append(h('div', { class: 'side-hint' }, '중요한 때(예: 전망 확정)에 이정표를 만들어 두면, 나중에 지금과 견주고 정의를 그때로 되돌릴 수 있습니다.')); return; }
+    const now = Date.now();
+    for (const m of [...list].reverse()) {
+      body.append(h('button', { class: 'row-item', type: 'button', 'data-key': `milestone:${m.name}`, title: `${m.name}${m.note ? ` — ${m.note}` : ''}\n자료 ${m.vintage || '(자료 파일)'} · 정의 파일 ${m.files} · 기록 ${m.records.length}`,
+        onclick: () => p.openTab({ type: 'milestone', name: m.name }) },
+      icon('pin'), h('span', { class: 'label mono' }, m.name), h('span', { class: 'desc' }, m.note || ''), h('span', { class: 'tail' }, h('span', { class: 'mono' }, m.vintage || ''), h('span', { class: 'when' }, when(m.created, now)))));
     }
     p.markSide();
   }
@@ -637,6 +665,7 @@ export class Side {
     if (e.type === 'defs') this.reloadRegistry();
     if (e.type === 'record' && ['an', 'est'].includes(e.record?.kind)) this.reloadList();
     if (e.type === 'change') this.reloadChanges();
+    if (e.type === 'tree' && this.milestones) this.loadMilestones();
     if (['change', 'tree', 'defs', 'data'].includes(e.type) || (e.type === 'record' && e.record?.kind === 'data')) this.reloadNotes();
     if (['record', 'records', 'proposal', 'change'].includes(e.type) && this.tab === 'records') this.drawRecords();
     if (['overview', 'record', 'records', 'proposal', 'change', 'data'].includes(e.type)) this.drawTabs();

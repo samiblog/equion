@@ -331,6 +331,8 @@ export function forecastView(project, desc) {
       h('span', { class: 'meta' }, h('b', {}, m.scenario === 'base' ? '기준선' : `시나리오 ${m.scenario}`), h('span', {}, `모형 ${m.model}`), h('span', {}, `${m.range?.[0]} – ${m.range?.[1]}`), m.who ? whoLabel(m.who) : null, h('span', {}, when(m.created)),
         v.vintage && vintage && v.vintage !== vintage ? h('span', { class: 'tag warn', title: `자료 회차 ${v.vintage} 로 풀었습니다 — 지금 회차는 ${vintage}` }, `다른 회차 ${v.vintage}`) : null),
       h('span', { class: 'grow' }),
+      st.compare.size === 1 ? h('button', { class: 'btn small', type: 'button', 'data-act': 'split', title: '고른 전망과 이 전망의 연간 성장률 바뀜을 자료 → 가정 → 식의 몫으로 나눈다(equion an split) — 하나씩 바꿔 다시 풀어',
+        onclick: () => project.openTab({ type: 'analysis', analysis: 'split', target: `${[...st.compare][0]} ${v.id}`, options: {}, smpl: '', run: true }) }, icon('diff'), '요인 나누기') : null,
       h('button', { class: 'btn small', type: 'button', 'data-act': 'to-report', title: '이 전망의 표를 보고서의 한 구역으로 보낸다', onclick: () => sendToReport(project, v.id, { rows: names, show: st.mode === 'annual' ? 'level' : st.mode, annual: st.mode === 'annual' }) }, icon('doc'), '보고서로'),
       h('button', { class: 'btn small quiet', type: 'button', 'data-act': 'to-xlsx', title: '값·값의 종류·출처를 엑셀로', onclick: () => exportXlsx(project, [v.id, ...st.compare]) }, icon('table'), '엑셀로')));
     if (m.implicit?.length) resultBox.append(h('details', { class: 'implicit-box' }, h('summary', {}, `알아서 한 것 ${m.implicit.length}`), h('ul', { class: 'implicit' }, m.implicit.map((x) => h('li', {}, x)))));

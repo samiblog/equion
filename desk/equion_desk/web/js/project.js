@@ -22,6 +22,7 @@ import { helpView } from './views/help.js';
 import { homeView } from './views/home.js';
 import { importView } from './views/importer.js';
 import { changesView, recordsView } from './views/lists.js';
+import { milestoneView } from './views/milestone.js';
 import { modelView } from './views/model.js';
 import { noteView } from './views/note.js';
 import { proposalsView } from './views/proposals.js';
@@ -29,7 +30,7 @@ import { reportsView } from './views/reports.js';
 import { scenarioView } from './views/scenario.js';
 import { variableView } from './views/variable.js';
 
-const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView, model: modelView, flow: flowView, forecast: forecastView, reports: reportsView, proposals: proposalsView, help: helpView, var: variableView, batch: batchView, scenario: scenarioView, note: noteView, ancompare: ancompareView };
+const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView, model: modelView, flow: flowView, forecast: forecastView, reports: reportsView, proposals: proposalsView, help: helpView, var: variableView, batch: batchView, scenario: scenarioView, note: noteView, ancompare: ancompareView, milestone: milestoneView };
 const MAX_TABS = 24;       // 가운데 탭 — 넘으면 가장 오래된 것부터 닫는다(작업대가 늘어 14에서 올렸다)
 const FILE_ICON = { md: 'doc', csv: 'table', toml: 'code', txt: 'equation', eqs: 'play', json: 'code', xlsx: 'table' };
 
@@ -284,6 +285,7 @@ export class Project {
     if (desc.type === 'scenario') return `scenario:${desc.name || '~new'}`;
     if (desc.type === 'note') return `note:${desc.path}`;
     if (desc.type === 'ancompare') return `ancompare:${desc.b}`;
+    if (desc.type === 'milestone') return `milestone:${desc.name}`;
     return desc.type;
   }
 

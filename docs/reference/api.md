@@ -3999,8 +3999,8 @@ s[:4].round(6).tolist()
 | [`data_diff`](#projectdata_diff) | `(a=None, b=None)` | 두 자료 회차의 차이 — 새·없어진 시리즈, 시리즈마다 새 기간과 개정(기간·크기). |
 | [`data_impact`](#projectdata_impact) | `(a=None, b=None)` | 회차를 바꾸면 영향받는 것 — 바뀐 시리즈를 쓰는 식(부품)과 모형. 다시 계산은 하지 않는다(사람이 시킬 때만). |
 | [`data_add`](#projectdata_add) | `(path, source=None, as_name=None, note=None, who=None, command=None)` | 원자료 넣기 — 파일을 DATA/raw/에 복사한다(받은 그대로, 같은 이름이면 날짜를 붙여 나란히). source를 주면 그 출처가 이 파일을 읽도록 series.toml을 고치되, 먼저 그 출처의 불러오기 틀로 읽어 보고 시리즈가 쓰는 열이 다 있고 주기가 같을 때만 넣고 고친다(틀 검사 — 맞지 않으면 아무것도 바꾸지 않고 `.problems`에 까닭). |
-| [`data_preview`](#projectdata_preview) | `(file, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, rows=30, series=None)` | 원자료 파일을 미리 본다 — 읽은 그대로의 앞쪽 줄과, 준 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위)로 읽어 본 결과. 아무것도 쓰지 않고 기록도 남기지 않는다. 틀이 맞지 않으면 예외가 아니라 `.ok`가 거짓이고 `.error`에 까닭(칸 위치와 함께). |
-| [`data_define`](#projectdata_define) | `(source, file=None, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, desc=None, series=None, replace=False, who=None, command=None)` | 자료 정의 쓰기 — `series.toml`에 출처(`[source.이름]` = 불러오기 틀)와 시리즈(`[series.이름]`)를 더하거나 고친다. 쓰기 전에 새 내용 전체와, 그 틀로 원자료를 읽어 시리즈가 쓰는 열이 다 있고 변환이 되는지 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 사람이 쓴 주석·순서는 그대로 두고(tomlkit) 바뀜 기록에 남긴다. 자료는 만들지 않는다 — 이어서 `data_build`, `data_use`. |
+| [`data_preview`](#projectdata_preview) | `(file, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, rows=30, series=None, time_axis=None, time_row=None, name_col=None, unit_col=None)` | 원자료 파일을 미리 본다 — 읽은 그대로의 앞쪽 줄과, 준 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위)로 읽어 본 결과. 아무것도 쓰지 않고 기록도 남기지 않는다. 틀이 맞지 않으면 예외가 아니라 `.ok`가 거짓이고 `.error`에 까닭(칸 위치와 함께). |
+| [`data_define`](#projectdata_define) | `(source, file=None, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, desc=None, series=None, replace=False, who=None, command=None, time_axis=None, time_row=None, name_col=None, unit_col=None)` | 자료 정의 쓰기 — `series.toml`에 출처(`[source.이름]` = 불러오기 틀)와 시리즈(`[series.이름]`)를 더하거나 고친다. 쓰기 전에 새 내용 전체와, 그 틀로 원자료를 읽어 시리즈가 쓰는 열이 다 있고 변환이 되는지 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 사람이 쓴 주석·순서는 그대로 두고(tomlkit) 바뀜 기록에 남긴다. 자료는 만들지 않는다 — 이어서 `data_build`, `data_use`. |
 | [`model_define`](#projectmodel_define) | `(name, blocks=None, include=None, exclude=None, desc=None, who=None, command=None)` | 모형 정의 쓰기 — `equion.toml`의 `[model.이름]`을 더하거나 고친다(블록·끼울 모형·뺄 식·설명). 준 것만 바꾸고(None은 그대로, 빈 목록·빈 글은 그 키를 지움), 쓰기 전에 새 설정 전체를 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 주석·순서는 그대로 두고 바뀜 기록에 남긴다. 조립은 하지 않는다 — 이어서 `assemble`. |
 | [`block_define`](#projectblock_define) | `(name, file=None, desc=None, who=None, command=None)` | 블록 더하기 — `equion.toml`의 `[block]`에 블록(방정식 파일 하나)을 더하거나 설명을 고친다. 새 블록의 파일이 아직 없으면 머리 주석만 있는 빈 블록 파일을 함께 만든다(file을 주지 않으면 `EQUATIONS/<이름>.txt`). 바뀜 기록에 남긴다. 식은 그 파일에 한 줄에 하나씩 적고, 모형에는 `model_define`으로 넣는다. |
 | [`group_define`](#projectgroup_define) | `(name, series=None, desc=None, transform=None, who=None, command=None)` | 묶음 저장 — equion.toml의 `[group]`에 이름 붙인 시리즈 묶음을 더하거나 고친다. 준 것만 바꾸고(None은 그대로, 빈 글은 그 키를 지움) 주석·순서는 그대로 두며, 시리즈 이름이 자료에 있는지 본 뒤 쓴다. 바뀜 기록에 남긴다. 묶음은 분석의 대상이 된다(`equion an corr 이름`). |
@@ -4008,6 +4008,12 @@ s[:4].round(6).tolist()
 | [`part_add`](#projectpart_add) | `(block, text, desc=None, from_part=None, who=None, command=None)` | 블록에 식 한 줄을 더한다 — 블록 파일 끝에 적는다(다른 줄·주석은 그대로). 쓰기 전에 식 문법과 '한 블록에 목표 하나'를 본다. from_part를 주면 그 식을 옮긴다: 원래 블록의 그 줄을 빼고(채택표의 줄도) 이 블록에 더한다 — 모형에 안 든 블록의 개별 식을 모형의 블록으로 넣을 때. 두 파일이 바뀜 기록 하나에 남는다. |
 | [`part_remove`](#projectpart_remove) | `(part, who=None, command=None)` | 블록에서 식 한 줄을 뺀다 — 그 줄만 지우고(다른 줄·주석은 그대로) 채택표의 그 부품 줄도 함께 지운다. 바뀜 기록에 남긴다. |
 | [`desk_show`](#projectdesk_show) | `(name, who=None)` | Equion Desk(데스크톱 앱)에 "이 화면을 열어 달라"고 알린다 — 화면 이동만 하고 아무것도 계산하거나 바꾸지 않는다. |
+| [`milestones`](#projectmilestones) | `()` | 이정표 목록(만든 때 순) — 이름·메모·만든 때·누가·자료 회차·정의 파일 수·고정한 기록. |
+| [`milestone_make`](#projectmilestone_make) | `(name, note=None, who=None)` | 이정표를 만든다(명령줄 `equion milestone make`) — 지금의 정의 파일 사본·자료 회차·고정한 기록을 `work/milestones/이름/`에. 정의 파일은 바꾸지 않는다. 이정표가 적은 기록은 정리(`work clean`)에서 빠진다. |
+| [`milestone_diff`](#projectmilestone_diff) | `(name)` | 이정표와 지금 — 정의 파일마다 같음·고침·새로·지움과 차이, 자료 회차(명령줄 `equion milestone show`). |
+| [`milestone_restore`](#projectmilestone_restore) | `(name, files=None, who=None, command=None)` | 정의를 이정표 때로 되돌린다(명령줄 `equion milestone restore`) — 그때 있던 파일은 그때 내용으로, 그 뒤에 생긴 정의 파일은 지운다(files를 주면 그 파일만). 바뀜 기록 하나로 남아 그것도 되돌릴 수 있다. 계산은 하지 않는다. |
+| [`bundle`](#projectbundle) | `(out=None, raw=False, records='keep', who=None)` | 프로젝트를 zip 하나로 묶는다(명령줄 `equion bundle make`) — 정의·노트·보고서·지금 자료 회차·이정표, 기록은 records (keep: 채택·고정·가리키는 것 · all · none), 원자료(DATA/raw/)는 raw=True일 때만. 바뀜 기록과 화면 상태는 넣지 않는다. |
+| [`from_bundle`](#projectfrom_bundle) | `(zip_path, dest)` | 묶음(zip)을 빈 폴더 dest에 풀고 프로젝트로 연다(명령줄 `equion bundle open`). zip 안의 경로가 폴더 밖을 가리키면 거절한다. |
 | [`scenarios`](#projectscenarios) | `()` | 시나리오 목록(`SCENARIOS/*.toml`, 이름순) — 이름·파일·설명·가정 세트·모형·충격·식 보정. 읽지 못한 파일은 `error`로. |
 | [`scenario_define`](#projectscenario_define) | `(name, desc=None, base=None, addfactors=None, model=None, shocks=None, addfactor=None, who=None, command=None)` | 시나리오를 더하거나 고친다 — `SCENARIOS/이름.toml`(명령줄 `equion scenario define`). 준 것만 바꾸고(글은 빈 글이면 그 키를 지움), shocks·addfactor는 목록을 주면 통째로 바꾼다. 쓰기 전에 새 내용 전체를 검사하고(자료에 없는 변수·없는 식·가정 세트·모형·기간), 주석은 그대로 두며 바뀜 기록에 남긴다. 시나리오는 풀지 않는다 — 풀기는 `sim`. |
 | [`scenario_remove`](#projectscenario_remove) | `(name, who=None, command=None)` | 시나리오 파일을 지운다(명령줄 `equion scenario remove`) — 바뀜 기록에 남아 되돌릴 수 있다. 그 시나리오로 푼 기록은 그대로다. |
@@ -4269,14 +4275,16 @@ r.copied, r.file
 
 ### Project.data_preview
 
-`data_preview(file, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, rows=30, series=None)`
+`data_preview(file, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, rows=30, series=None, time_axis=None, time_row=None, name_col=None, unit_col=None)`
 
 원자료 파일을 미리 본다 — 읽은 그대로의 앞쪽 줄과, 준 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위)로 읽어 본 결과. 아무것도 쓰지 않고 기록도 남기지 않는다. 틀이 맞지 않으면 예외가 아니라 `.ok`가 거짓이고 `.error`에 까닭(칸 위치와 함께).
 
 **매개변수**
 
 - `file`: 원자료 파일(csv·xlsx·xls — 프로젝트 기준 경로 또는 절대 경로)
-sheet · header_row · unit_row · time_col · missing · thousands · freq: 불러오기 틀(docs/reference/formats.md)  
+sheet · header_row · unit_row · time_col · missing · thousands · freq: 불러오기 틀(docs/reference/formats.md) —  
+header_row는 여러 줄도 된다([3, 4] · "3,4" — 이어 붙인 이름)  
+time_axis · time_row · name_col · unit_col: 시점이 열로 가는 표(time_axis="columns") — 시점 줄 · 이름 열 · 단위 열  
 - `rows`: 읽은 그대로 보일 줄 수
 - `series`: {column, convert, denton, seas, scale, fill} — 그 열을 변환대로 만들어 본 값을 `.series`에(자료 만들기와 같은 계산)
 
@@ -4306,7 +4314,7 @@ data_define · data_add · data_build
 
 ### Project.data_define
 
-`data_define(source, file=None, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, desc=None, series=None, replace=False, who=None, command=None)`
+`data_define(source, file=None, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, desc=None, series=None, replace=False, who=None, command=None, time_axis=None, time_row=None, name_col=None, unit_col=None)`
 
 자료 정의 쓰기 — `series.toml`에 출처(`[source.이름]` = 불러오기 틀)와 시리즈(`[series.이름]`)를 더하거나 고친다. 쓰기 전에 새 내용 전체와, 그 틀로 원자료를 읽어 시리즈가 쓰는 열이 다 있고 변환이 되는지 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 사람이 쓴 주석·순서는 그대로 두고(tomlkit) 바뀜 기록에 남긴다. 자료는 만들지 않는다 — 이어서 `data_build`, `data_use`.
 
@@ -4315,6 +4323,7 @@ data_define · data_add · data_build
 - `source`: 출처 이름(없으면 새로 — 그때 file이 있어야 한다)
 - `file`: 원자료 파일(프로젝트 안 — 보통 DATA/raw/)
 sheet · header_row · unit_row · time_col · missing · thousands · freq: 틀. 준 것만 바꾼다(None은 그대로, ""·0은 그 키를 지움)  
+time_axis · time_row · name_col · unit_col: 시점이 열로 가는 표(time_axis="columns" — "rows"면 그 키를 지운다)  
 - `desc`: 출처 설명
 - `series`: {시리즈 이름: 열 이름 또는 {column, unit, desc, convert, denton, seas, scale, fill}}
 - `replace`: 이미 있는 시리즈를 다른 열로 바꿔도 된다
@@ -4577,6 +4586,137 @@ p.desk_show("demand:CN")["kind"], p.desk_show("model:main")["kind"], p.desk_show
 관련  
 ```text
 propose · history
+```
+
+### Project.milestones
+
+`milestones()`
+
+이정표 목록(만든 때 순) — 이름·메모·만든 때·누가·자료 회차·정의 파일 수·고정한 기록.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.milestones()
+# []
+```
+
+### Project.milestone_make
+
+`milestone_make(name, note=None, who=None)`
+
+이정표를 만든다(명령줄 `equion milestone make`) — 지금의 정의 파일 사본·자료 회차·고정한 기록을 `work/milestones/이름/`에. 정의 파일은 바꾸지 않는다. 이정표가 적은 기록은 정리(`work clean`)에서 빠진다.
+
+**돌려주는 것**
+
+Milestone — .name · .vintage · .files(경로 → 해시) · .records  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+m = p.milestone_make("fc_2026_11", note="11월 전망 확정")
+m.name, m.vintage == p.vintage, "equion.toml" in m.files
+# ('fc_2026_11', True, True)
+```
+
+관련  
+```text
+milestone_diff · milestone_restore
+```
+
+### Project.milestone_diff
+
+`milestone_diff(name)`
+
+이정표와 지금 — 정의 파일마다 같음·고침·새로·지움과 차이, 자료 회차(명령줄 `equion milestone show`).
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = p.milestone_make("m1")
+p.milestone_diff("m1").same
+# True
+```
+
+### Project.milestone_restore
+
+`milestone_restore(name, files=None, who=None, command=None)`
+
+정의를 이정표 때로 되돌린다(명령줄 `equion milestone restore`) — 그때 있던 파일은 그때 내용으로, 그 뒤에 생긴 정의 파일은 지운다(files를 주면 그 파일만). 바뀜 기록 하나로 남아 그것도 되돌릴 수 있다. 계산은 하지 않는다.
+
+**돌려주는 것**
+
+바뀜 기록(Change) — 바뀐 것이 없으면 None  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = p.milestone_make("m1")
+with open(os.path.join(p.root, "EQUATIONS", "price.txt"), "a", encoding="utf-8") as f:
+    _ = f.write("# 이정표 뒤에 더한 줄" + chr(10))
+p.milestone_restore("m1") is not None, p.milestone_diff("m1").same
+# (True, True)
+```
+
+관련  
+```text
+milestone_make · milestone_diff · history
+```
+
+### Project.bundle
+
+`bundle(out=None, raw=False, records='keep', who=None)`
+
+프로젝트를 zip 하나로 묶는다(명령줄 `equion bundle make`) — 정의·노트·보고서·지금 자료 회차·이정표, 기록은 records (keep: 채택·고정·가리키는 것 · all · none), 원자료(DATA/raw/)는 raw=True일 때만. 바뀜 기록과 화면 상태는 넣지 않는다.
+
+**돌려주는 것**
+
+BundleResult — .path(기본 exports/<프로젝트>_<날짜>.zip) · .files · .bytes · .records · .raw · .left_out  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+b = p.bundle()
+b.path.startswith("exports/demo_"), b.raw
+# (True, False)
+```
+
+관련  
+```text
+Project.from_bundle
+```
+
+### Project.from_bundle
+
+`from_bundle(zip_path, dest)`
+
+묶음(zip)을 빈 폴더 dest에 풀고 프로젝트로 연다(명령줄 `equion bundle open`). zip 안의 경로가 폴더 밖을 가리키면 거절한다.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+b = p.bundle()
+q = eqn.Project.from_bundle(os.path.join(p.root, b.path), os.path.join(tempfile.mkdtemp(), "copy"))
+q.vintage == p.vintage
+# True
 ```
 
 ### Project.scenarios
@@ -5938,6 +6078,8 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `group` | --help | 프로젝트의 묶음 — equion.toml의 [group](이름 붙인 시리즈 묶음 — 분석의 대상) |
 | `desk` | --help | Equion Desk(데스크톱 앱)에 알린다 — 떠 있는 앱이 그 화면을 연다 |
 | `view` | --help | 프로젝트의 보기(VIEWS/*.toml) — 어느 시리즈를 어떤 모양으로 볼지 |
+| `milestone` | --help | 이정표 — 중요한 때의 정의·자료 회차·고정한 기록을 이름으로 묶어 두고, 지금과 견주고, 되돌린다 |
+| `bundle` | --help | 프로젝트 묶어 보내기(zip) · 묶음 열기 — 다른 PC로 옮길 때 |
 | `scenario` | --help | 프로젝트의 시나리오(SCENARIOS/*.toml) — 목록·보기·쓰기·지우기(풀기는 equion sim) |
 | `ident` | --check --help --json --project --range --strict --tol | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |
 | `data` | --help | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 |

@@ -986,31 +986,32 @@ def _jsonable_opts(opts) -> dict:
     return out
 
 
-def replay_hs(p, rid: str, vs: bool = True, as_name: str = None, who: str = None, command: str = None) -> HSRecord:
-    """HS 기록을 그때 그대로 다시 — 조립 명세의 식 글자·계수·자료(회차·해시)·구간·방식으로 푼다(지금 파일과 무관).
-    결과를 원래 기록의 풀린 값과 견주어 새 기록에 적는다."""
-    from ..estimation.equation import Equation
-    from ..workfile.objects import EquationObject
+def replay_workfile(p, ds: dict, tag: str = "replay"):
+    """기록의 자료 명세(data spec) → 그때의 자료로 연 워크파일. 회차는 내용 해시, 자료 파일은 파일 해시가 같아야 한다."""
     from ..workfile.workfile import wfopen
-    store = store_of(p)
-    rec = store.get(rid, "hs")
-    asm = rec.read_json("assembly.json")
-    ds = asm["data"]
     if ds["kind"] == "vintage":
         from .vintage import vintage_path
         vp = vintage_path(p.root, ds["id"])
-        with open(os.path.join(vp, "build.json"), encoding="utf-8") as f:
-            b = json.load(f)
+        try:
+            with open(os.path.join(vp, "build.json"), encoding="utf-8") as f:
+                b = json.load(f)
+        except OSError:
+            raise ProjectError(f"자료 회차 {ds['id']}가 없습니다 — 그때의 자료로 풀 수 없습니다") from None
         if ds.get("content_sha256") and b.get("content_sha256") != ds["content_sha256"]:
             raise ProjectError(f"자료 회차 {ds['id']}의 내용이 기록과 다릅니다(내용 해시) — 그대로 다시 돌릴 수 없습니다")
-        wf = quiet(wfopen, os.path.join(vp, "series.csv"), freq=ds.get("freq"), name=f"{p.name}_replay")
-    else:
-        from ..data.source import file_sha256
-        path = os.path.join(p.root, ds["file"])
-        if not os.path.isfile(path) or file_sha256(path) != ds.get("sha256"):
-            raise ProjectError(f"자료 파일 {ds['file']}이 기록 때와 다릅니다(해시) — 그대로 다시 돌릴 수 없습니다")
-        wf = quiet(wfopen, path, name=f"{p.name}_replay")
-    m = wf.model("replay")
+        return quiet(wfopen, os.path.join(vp, "series.csv"), freq=ds.get("freq"), name=f"{p.name}_{tag}")
+    from ..data.source import file_sha256
+    path = os.path.join(p.root, ds["file"])
+    if not os.path.isfile(path) or file_sha256(path) != ds.get("sha256"):
+        raise ProjectError(f"자료 파일 {ds['file']}이 기록 때와 다릅니다(해시) — 그대로 다시 돌릴 수 없습니다")
+    return quiet(wfopen, path, name=f"{p.name}_{tag}")
+
+
+def replay_model(wf, asm: dict, name: str = "replay"):
+    """조립 명세(assembly.json)의 식 글자·계수로 모형을 만든다(지금 파일과 무관)."""
+    from ..estimation.equation import Equation
+    from ..workfile.objects import EquationObject
+    m = wf.model(name)
     for x in asm["parts"]:
         if x["kind"] == "identity":
             m.append(x["expr"])
@@ -1023,6 +1024,18 @@ def replay_hs(p, rid: str, vs: bool = True, as_name: str = None, who: str = None
         wf._register(obj)
         obj._adopt(eq, x["expr"], loud=False)
         m.merge(obj)
+    return m
+
+
+def replay_hs(p, rid: str, vs: bool = True, as_name: str = None, who: str = None, command: str = None) -> HSRecord:
+    """HS 기록을 그때 그대로 다시 — 조립 명세의 식 글자·계수·자료(회차·해시)·구간·방식으로 푼다(지금 파일과 무관).
+    결과를 원래 기록의 풀린 값과 견주어 새 기록에 적는다."""
+    store = store_of(p)
+    rec = store.get(rid, "hs")
+    asm = rec.read_json("assembly.json")
+    ds = asm["data"]
+    wf = replay_workfile(p, ds)
+    m = replay_model(wf, asm)
     s, e = asm["range"]
     res = m.solve(s, e, mode=asm["mode"], **(asm.get("options") or {}))
     old = rec.read_csv("solved.csv")

@@ -392,13 +392,16 @@ class Project:
         return res
 
     def data_preview(self, file: str, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None,
-                     thousands=None, freq=None, rows: int = 30, series: dict = None) -> "SourcePreview":
+                     thousands=None, freq=None, rows: int = 30, series: dict = None, time_axis=None, time_row=None, name_col=None,
+                     unit_col=None) -> "SourcePreview":
         """원자료 파일을 미리 본다 — 읽은 그대로의 앞쪽 줄과, 준 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위)로 읽어 본 결과.
         아무것도 쓰지 않고 기록도 남기지 않는다. 틀이 맞지 않으면 예외가 아니라 `.ok`가 거짓이고 `.error`에 까닭(칸 위치와 함께).
 
         매개변수
             file: 원자료 파일(csv·xlsx·xls — 프로젝트 기준 경로 또는 절대 경로)
-            sheet · header_row · unit_row · time_col · missing · thousands · freq: 불러오기 틀(docs/reference/formats.md)
+            sheet · header_row · unit_row · time_col · missing · thousands · freq: 불러오기 틀(docs/reference/formats.md) —
+                header_row는 여러 줄도 된다([3, 4] · "3,4" — 이어 붙인 이름)
+            time_axis · time_row · name_col · unit_col: 시점이 열로 가는 표(time_axis="columns") — 시점 줄 · 이름 열 · 단위 열
             rows: 읽은 그대로 보일 줄 수
             series: {column, convert, denton, seas, scale, fill} — 그 열을 변환대로 만들어 본 값을 `.series`에(자료 만들기와 같은 계산)
 
@@ -419,19 +422,21 @@ class Project:
             data_define · data_add · data_build
         """
         from .vintage import _frame_spec, preview_series, preview_source
-        out = preview_source(self.root, file, sheet, header_row, unit_row, time_col, missing, thousands, freq, rows)
+        out = preview_source(self.root, file, sheet, header_row, unit_row, time_col, missing, thousands, freq, rows, time_axis, time_row,
+                             name_col, unit_col)
         if series and out.ok:
             given = dict(series)
             column = given.pop("column", None)
             if not column:
                 raise ProjectError("series에는 column(열 이름)이 있어야 합니다")
-            spec = _frame_spec(self.root, file, "preview", sheet, header_row, unit_row, time_col, missing, thousands, freq)
+            spec = _frame_spec(self.root, file, "preview", sheet, header_row, unit_row, time_col, missing, thousands, freq, time_axis,
+                               time_row, name_col, unit_col)
             out.series = preview_series(self.config.freq or out.freq, spec, column, **given)
         return out
 
     def data_define(self, source: str, file: str = None, sheet=None, header_row=None, unit_row=None, time_col=None,
                     missing=None, thousands=None, freq=None, desc: str = None, series: dict = None, replace: bool = False,
-                    who: str = None, command: str = None) -> "DefineResult":
+                    who: str = None, command: str = None, time_axis=None, time_row=None, name_col=None, unit_col=None) -> "DefineResult":
         """자료 정의 쓰기 — `series.toml`에 출처(`[source.이름]` = 불러오기 틀)와 시리즈(`[series.이름]`)를 더하거나 고친다.
         쓰기 전에 새 내용 전체와, 그 틀로 원자료를 읽어 시리즈가 쓰는 열이 다 있고 변환이 되는지 검사한다 — 문제가 있으면
         아무것도 쓰지 않는다. 사람이 쓴 주석·순서는 그대로 두고(tomlkit) 바뀜 기록에 남긴다. 자료는 만들지 않는다 —
@@ -441,6 +446,7 @@ class Project:
             source: 출처 이름(없으면 새로 — 그때 file이 있어야 한다)
             file: 원자료 파일(프로젝트 안 — 보통 DATA/raw/)
             sheet · header_row · unit_row · time_col · missing · thousands · freq: 틀. 준 것만 바꾼다(None은 그대로, ""·0은 그 키를 지움)
+            time_axis · time_row · name_col · unit_col: 시점이 열로 가는 표(time_axis="columns" — "rows"면 그 키를 지운다)
             desc: 출처 설명
             series: {시리즈 이름: 열 이름 또는 {column, unit, desc, convert, denton, seas, scale, fill}}
             replace: 이미 있는 시리즈를 다른 열로 바꿔도 된다
@@ -466,7 +472,8 @@ class Project:
         from .vintage import define_text
         c = self.config
         frame = {k: v for k, v in (("sheet", sheet), ("header_row", header_row), ("unit_row", unit_row), ("time_col", time_col),
-                                   ("missing", missing), ("thousands", thousands), ("freq", freq)) if v is not None}
+                                   ("missing", missing), ("thousands", thousands), ("freq", freq), ("time_axis", time_axis),
+                                   ("time_row", time_row), ("name_col", name_col), ("unit_col", unit_col)) if v is not None}
         text, res = define_text(c.root, c.series_file, c.derived_file, c.freq, source, file=file, frame=frame, desc=desc,
                                 series=series, replace=replace)
         names = ", ".join(res.added + res.changed)
@@ -737,6 +744,109 @@ class Project:
         """
         from .deskreq import request_show
         return request_show(self, name, who=who)
+
+    def milestones(self) -> List[dict]:
+        """이정표 목록(만든 때 순) — 이름·메모·만든 때·누가·자료 회차·정의 파일 수·고정한 기록.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> p.milestones()
+            []
+        """
+        from . import milestones
+        return [{**m.to_dict(), "files": len(m.files)} for m in milestones.list_all(self)]
+
+    def milestone_make(self, name: str, note: str = None, who: str = None):
+        """이정표를 만든다(명령줄 `equion milestone make`) — 지금의 정의 파일 사본·자료 회차·고정한 기록을 `work/milestones/이름/`에.
+        정의 파일은 바꾸지 않는다. 이정표가 적은 기록은 정리(`work clean`)에서 빠진다.
+
+        돌려주는 것
+            Milestone — .name · .vintage · .files(경로 → 해시) · .records
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> m = p.milestone_make("fc_2026_11", note="11월 전망 확정")
+            >>> m.name, m.vintage == p.vintage, "equion.toml" in m.files
+            ('fc_2026_11', True, True)
+
+        관련
+            milestone_diff · milestone_restore
+        """
+        from . import milestones
+        return milestones.make(self, name, note=note, who=who)
+
+    def milestone_diff(self, name: str):
+        """이정표와 지금 — 정의 파일마다 같음·고침·새로·지움과 차이, 자료 회차(명령줄 `equion milestone show`).
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = p.milestone_make("m1")
+            >>> p.milestone_diff("m1").same
+            True
+        """
+        from . import milestones
+        return milestones.diff(self, name)
+
+    def milestone_restore(self, name: str, files=None, who: str = None, command: str = None):
+        """정의를 이정표 때로 되돌린다(명령줄 `equion milestone restore`) — 그때 있던 파일은 그때 내용으로, 그 뒤에 생긴 정의 파일은
+        지운다(files를 주면 그 파일만). 바뀜 기록 하나로 남아 그것도 되돌릴 수 있다. 계산은 하지 않는다.
+
+        돌려주는 것
+            바뀜 기록(Change) — 바뀐 것이 없으면 None
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = p.milestone_make("m1")
+            >>> with open(os.path.join(p.root, "EQUATIONS", "price.txt"), "a", encoding="utf-8") as f:
+            ...     _ = f.write("# 이정표 뒤에 더한 줄" + chr(10))
+            >>> p.milestone_restore("m1") is not None, p.milestone_diff("m1").same
+            (True, True)
+
+        관련
+            milestone_make · milestone_diff · history
+        """
+        from . import milestones
+        return milestones.restore(self, name, files=files, who=who or detect_who("python"), command=command)
+
+    def bundle(self, out: str = None, raw: bool = False, records: str = "keep", who: str = None):
+        """프로젝트를 zip 하나로 묶는다(명령줄 `equion bundle make`) — 정의·노트·보고서·지금 자료 회차·이정표, 기록은 records
+        (keep: 채택·고정·가리키는 것 · all · none), 원자료(DATA/raw/)는 raw=True일 때만. 바뀜 기록과 화면 상태는 넣지 않는다.
+
+        돌려주는 것
+            BundleResult — .path(기본 exports/<프로젝트>_<날짜>.zip) · .files · .bytes · .records · .raw · .left_out
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> b = p.bundle()
+            >>> b.path.startswith("exports/demo_"), b.raw
+            (True, False)
+
+        관련
+            Project.from_bundle
+        """
+        from .bundle import make
+        return make(self, out=out, raw=raw, records=records, who=who or detect_who("python"))
+
+    @classmethod
+    def from_bundle(cls, zip_path: str, dest: str) -> "Project":
+        """묶음(zip)을 빈 폴더 dest에 풀고 프로젝트로 연다(명령줄 `equion bundle open`). zip 안의 경로가 폴더 밖을 가리키면 거절한다.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> b = p.bundle()
+            >>> q = eqn.Project.from_bundle(os.path.join(p.root, b.path), os.path.join(tempfile.mkdtemp(), "copy"))
+            >>> q.vintage == p.vintage
+            True
+        """
+        from .bundle import open_bundle
+        res = open_bundle(zip_path, dest)
+        return cls.open(res["path"])
 
     def scenarios(self) -> List[dict]:
         """시나리오 목록(`SCENARIOS/*.toml`, 이름순) — 이름·파일·설명·가정 세트·모형·충격·식 보정. 읽지 못한 파일은 `error`로.

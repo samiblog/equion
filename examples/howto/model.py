@@ -87,3 +87,15 @@ for c in p.history.list():
     print(c.text())
 rp = p.replay("hs:before")                                    # 파일이 바뀐 뒤에도 그때 그대로 — equion hs --replay hs:before
 print(rp.meta["replay"]["of"], "같은 결과" if rp.meta["replay"]["same"] else "다름")
+
+# %% R65. 이정표와 묶어 보내기 — 확정한 때를 남기고, 다른 PC로 옮기기
+p = eqn.Project.create("ms_prj", force=True)
+print(p.milestone_make("fc_2026_11", note="11월 전망 확정").text())
+with open("ms_prj/EQUATIONS/price.txt", "a", encoding="utf-8") as f:   # 이정표 뒤의 고침
+    f.write("# 이정표 뒤에 더한 주석\n")
+print(p.milestone_diff("fc_2026_11").text())
+print(p.milestone_restore("fc_2026_11") is not None, p.milestone_diff("fc_2026_11").same)
+b = p.bundle()
+print(b.text())
+q = eqn.Project.from_bundle("ms_prj/" + b.path, "ms_copy")             # 다른 PC에서 — equion bundle open 묶음.zip ms_copy
+print(q.name, q.vintage == p.vintage, [m["name"] for m in q.milestones()])

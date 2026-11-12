@@ -22,7 +22,17 @@ const UP = [['', '고르세요'], ['constant', '같은 값'], ['split', '고르�
 const SEAS = [['', '안 함'], ['stl', 'STL 가법'], ['stl:multiplicative', 'STL 승법'], ['classical', '고전 분해 가법'], ['classical:multiplicative', '고전 분해 승법']];
 const letter = (k) => { let s = ''; for (let n = k + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
 const FILL = [['', '안 함'], ['linear', '선형으로']];
-const EMPTY_FRAME = { sheet: '', header_row: 1, unit_row: '', time_col: '', missing: [], thousands: '', freq: '' };
+const EMPTY_FRAME = { sheet: '', header_row: 1, unit_row: '', time_col: '', missing: [], thousands: '', freq: '', time_axis: '', time_row: '', name_col: '', unit_col: '' };
+/** 열 글자(A) → 자리(0부터) */
+const colIndex = (s) => (/^[A-Za-z]+$/.test(String(s)) ? [...String(s).toUpperCase()].reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0) - 1 : (/^\d+$/.test(String(s)) ? Number(s) - 1 : -1));
+/** 머리줄 값(3 · [3, 4] · "3,4") → 줄 자리(0부터)들 */
+const headerRows = (v) => {
+  if (Array.isArray(v)) return v.map((x) => Number(x) - 1);
+  const text = String(v ?? '').trim() || '1';
+  const range = /^(\d+)\s*[-:~]\s*(\d+)$/.exec(text);
+  if (range) { const a = Number(range[1]); const b = Number(range[2]); return Array.from({ length: Math.abs(b - a) + 1 }, (_, i) => Math.min(a, b) + i - 1); }
+  return text.split(/[,\s]+/).filter(Boolean).map((x) => Number(x) - 1);
+};
 
 export function importView(project, desc) {
   const el = h('div', { class: 'view importer' });
@@ -201,8 +211,9 @@ export function importView(project, desc) {
   function frameRow() {
     const v = st.view;
     const f = frame();
+    const cols = f.time_axis === 'columns';
     const width = v ? Math.max(0, ...v.grid.map((r) => r.length)) : 0;
-    const head = v?.grid[(Number(f.header_row) || 1) - 1] || [];
+    const head = v?.grid[headerRows(f.header_row)[0]] || [];
     const num = (key, title, placeholder) => {
       const input = h('input', { class: 'mini-input num', type: 'number', min: '1', value: f[key] === '' || f[key] == null ? '' : String(f[key]), placeholder, 'data-frame': key, title });
       input.addEventListener('input', () => setFrame(key, input.value === '' ? '' : Math.max(1, parseInt(input.value, 10) || 1)));
@@ -219,11 +230,22 @@ export function importView(project, desc) {
     const miss = h('input', { class: 'mini-input text', type: 'text', value: (f.missing || []).join(' '), placeholder: '예: - … x', spellcheck: 'false', 'data-frame': 'missing',
       title: '결측으로 볼 글자 — 빈칸으로 띄워 여럿. 빈 칸은 늘 결측입니다' });
     miss.addEventListener('input', () => setFrame('missing', miss.value.split(/\s+/).filter(Boolean).slice(0, 12)));
+    const hdrText = h('input', { class: 'mini-input text', type: 'text', value: Array.isArray(f.header_row) ? f.header_row.join(',') : String(f.header_row ?? ''), placeholder: '1', spellcheck: 'false', 'data-frame': 'header_row',
+      title: '열 이름이 있는 줄 — 여러 줄이면 3,4(위 줄의 병합 칸은 이어 붙여 ‘국내총생산 실질’ 꼴). 표의 줄 번호를 눌러도 됩니다(Shift: 더하기)' });
+    hdrText.addEventListener('input', () => { const t = hdrText.value.trim(); if (!t || /^\d+(\s*[,\-:~]\s*\d+)*$/.test(t)) setFrame('header_row', /^\d+$/.test(t) ? Number(t) : t); });
+    const colPick = (key, title, none) => pick(key, [['', none], ...Array.from({ length: width }, (_, k) => [letter(k), `${letter(k)}${v?.grid.some((r) => r[k]) ? ` · ${(v.grid.find((r) => r[k]) || [])[k] || ''}`.slice(0, 22) : ''}`])], title);
     return h('div', { class: 'eq-opts an-opts frame-row' }, h('span', { class: 'lead' }, '② 틀'),
       v?.sheets?.length ? h('label', { class: 'opt' }, h('span', {}, '시트'), pick('sheet', [['', v.sheets[0]], ...v.sheets.slice(1).map((s) => [s, s])], '엑셀의 시트')) : null,
-      h('label', { class: 'opt' }, h('span', {}, '열 이름 줄'), num('header_row', '열 이름이 있는 줄(표의 줄 번호를 눌러도 됩니다)', '1')),
-      h('label', { class: 'opt' }, h('span', {}, '단위 줄'), num('unit_row', '단위가 적힌 줄 — 없으면 비워 둡니다', '없음')),
-      h('label', { class: 'opt' }, h('span', {}, '시점 열'), pick('time_col', [['', '첫 열(A)'], ...Array.from({ length: width }, (_, k) => [letter(k), `${letter(k)}${head[k] ? ` · ${head[k]}` : ''}`]).slice(1)], '시점(2003Q4·2003-10·2003년 4분기…)이 적힌 열')),
+      h('label', { class: 'opt' }, h('span', {}, '시점'), pick('time_axis', [['', '행으로 내려감'], ['columns', '열로 감']], '시점이 아래로 내려가는 표(보통) · 오른쪽으로 가는 표(줄마다 시리즈 하나인 통계표)')),
+      cols ? [
+        h('label', { class: 'opt' }, h('span', {}, '시점 줄'), num('time_row', '시점(2003Q4 · 2018 1/4 …)이 적힌 줄 — 표의 줄 번호를 눌러도 됩니다', '1')),
+        h('label', { class: 'opt' }, h('span', {}, '이름 열'), colPick('name_col', '시리즈 이름이 있는 열', '첫 열(A)')),
+        h('label', { class: 'opt' }, h('span', {}, '단위 열'), colPick('unit_col', '단위가 적힌 열 — 없으면 비워 둡니다', '없음')),
+      ] : [
+        h('label', { class: 'opt' }, h('span', {}, '열 이름 줄'), hdrText),
+        h('label', { class: 'opt' }, h('span', {}, '단위 줄'), num('unit_row', '단위가 적힌 줄 — 없으면 비워 둡니다', '없음')),
+        h('label', { class: 'opt' }, h('span', {}, '시점 열'), pick('time_col', [['', '첫 열(A)'], ...Array.from({ length: width }, (_, k) => [letter(k), `${letter(k)}${head[k] ? ` · ${head[k]}` : ''}`]).slice(1)], '시점(2003Q4·2003-10·2003년 4분기…)이 적힌 열')),
+      ],
       h('label', { class: 'opt' }, h('span', {}, '결측 표시'), miss),
       h('label', { class: 'opt' }, h('span', {}, '천 단위'), pick('thousands', [['', '없음'], [',', '쉼표 1,234']], '숫자의 천 단위 구분 글자')),
       h('label', { class: 'opt' }, h('span', {}, '주기'), pick('freq', [['', '시점에서 읽기'], ['Q', '분기'], ['M', '월'], ['A', '연']], '원자료의 주기 — 보통은 시점 꼴에서 읽습니다')));
@@ -236,7 +258,15 @@ export function importView(project, desc) {
     const out = [];
     const filled = (row) => row.filter((c) => c !== '').length;
     const width = Math.max(0, ...v.grid.map((r) => r.length));
-    const hdrNow = Number(f.header_row) || 1;
+    const hdrNow = headerRows(f.header_row)[0] + 1;
+    if (!v.ok && f.time_axis !== 'columns') {
+      // 줄마다 첫 칸이 글이고 위쪽 한 줄에 시점 꼴이 줄지어 있으면 — 시점이 열로 가는 표로 보인다
+      const timeLike = (c) => /^\d{4}\s*([.\-/ ]?\s*([Qq]?[1-4](\s*\/\s*4)?|[Mm]?\d{1,2})|년.*)?$/.test(c.trim());
+      const across = v.grid.findIndex((row) => row.filter((c) => c && timeLike(c)).length >= 3);
+      if (across >= 0 && v.grid.slice(across + 1).some((row) => row[0] && !timeLike(row[0]))) {
+        out.push([`시점이 ${across + 1}줄에서 열로 가는 표로 읽기`, () => { st.frame = { ...frame(), time_axis: 'columns', time_row: across + 1 }; reload(); }]);
+      }
+    }
     if (!v.ok) {
       const guess = v.grid.findIndex((row) => filled(row) >= Math.max(2, Math.ceil(width / 2))) + 1;
       if (guess && guess !== hdrNow) out.push([`${guess}줄을 열 이름 줄로`, () => setFrame('header_row', guess)]);
@@ -273,7 +303,9 @@ export function importView(project, desc) {
     const v = st.view;
     if (!v?.grid.length) return null;
     const f = frame();
-    const hdr = (Number(f.header_row) || 1) - 1;
+    if (f.time_axis === 'columns') return gridColumns();
+    const hdrs = headerRows(f.header_row);
+    const hdr = Math.max(...hdrs);
     const unit = f.unit_row ? Number(f.unit_row) - 1 : -1;
     const tcol = v.ok ? v.time_col : (/^[A-Za-z]+$/.test(String(f.time_col)) ? [...String(f.time_col).toUpperCase()].reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0) - 1 : 0);
     const marks = new Set(f.missing || []);
@@ -288,13 +320,43 @@ export function importView(project, desc) {
         return h('th', { class: `${k === tcol ? 'time' : ''} ${picked.has(k) ? 'picked' : ''}`.trim() },
           c ? h('button', { type: 'button', title: `${c.name} — 누르면 시리즈로 ${picked.has(k) ? '읽지 않습니다' : '읽습니다'}`, onclick: () => toggle(c.name) }, letter(k)) : letter(k));
       }))),
-      h('tbody', {}, v.grid.map((row, r) => h('tr', { class: r === hdr ? 'hdr' : r === unit ? 'unit' : r < hdr ? 'above' : '' },
-        h('th', {}, h('button', { type: 'button', title: `${r + 1}줄을 열 이름 줄로`, onclick: () => setFrame('header_row', r + 1) }, r + 1)),
+      h('tbody', {}, v.grid.map((row, r) => h('tr', { class: hdrs.includes(r) ? 'hdr' : r === unit ? 'unit' : r < hdr ? 'above' : '' },
+        h('th', {}, h('button', { type: 'button', title: `${r + 1}줄을 열 이름 줄로 — Shift 를 누르고 누르면 머리줄에 더한다`,
+          onclick: (e) => setFrame('header_row', e.shiftKey ? [...new Set([...hdrs, r])].sort((a, b) => a - b).map((x) => x + 1).join(',') : r + 1) }, r + 1)),
         Array.from({ length: width }, (_, k) => {
           const text = row[k] ?? '';
           const cls = [k === tcol ? 'time' : '', picked.has(k) ? 'picked' : '', r > hdr && r !== unit && k !== tcol && text && marks.has(text.trim()) ? 'miss' : ''].filter(Boolean).join(' ');
           return h('td', { class: cls, title: text.length > 14 ? text : null }, text);
         })))))));
+  }
+
+  /** 시점이 열로 가는 표 — 시점 줄 · 이름 열 · 단위 열과 고른 시리즈(줄)를 표시 */
+  function gridColumns() {
+    const v = st.view;
+    const f = frame();
+    const trow = v.ok && v.time_row != null ? v.time_row : (Number(f.time_row) || 1) - 1;
+    const ncol = colIndex(f.name_col || 'A');
+    const ucol = f.unit_col ? colIndex(f.unit_col) : -1;
+    const marks = new Set(f.missing || []);
+    const width = Math.max(...v.grid.map((r) => r.length));
+    const byRow = new Map(v.ok ? v.columns.map((c) => [c.col, c]) : []);
+    const picked = new Set(v.ok ? v.columns.filter((c) => st.picks[c.name]?.on).map((c) => c.col) : []);
+    return h('div', { class: 'raw-wrap' }, h('div', { class: 'raw-cap' }, h('b', {}, '읽은 그대로'), h('span', { class: 'muted' }, ` — 앞 ${v.grid.length}줄(모두 ${v.shape[0]}줄). 줄 번호를 누르면 그 줄이 시점 줄이 됩니다 · 줄마다 시리즈 하나.`),
+      h('span', { class: 'grow' }), h('span', { class: 'key time' }, '시점 줄'), h('span', { class: 'key hdr' }, '이름 열'), ucol >= 0 ? h('span', { class: 'key unit' }, '단위 열') : null, marks.size ? h('span', { class: 'key miss' }, '결측 표시') : null),
+    h('div', { class: 'raw-scroll', tabindex: '0' }, h('table', { class: 'raw-grid by-row' },
+      h('thead', {}, h('tr', {}, h('th', {}, ''), Array.from({ length: width }, (_, k) => h('th', { class: k === ncol ? 'name-col' : k === ucol ? 'unit-col' : '' },
+        h('button', { type: 'button', title: `${letter(k)}열을 이름 열로`, onclick: () => setFrame('name_col', letter(k)) }, letter(k)))))),
+      h('tbody', {}, v.grid.map((row, r) => {
+        const c = byRow.get(r);
+        return h('tr', { class: `${r === trow ? 'time-row' : ''} ${picked.has(r) ? 'picked' : ''} ${r < trow ? 'above' : ''}`.replace(/\s+/g, ' ').trim() },
+          h('th', {}, c ? h('button', { type: 'button', title: `${c.name} — 누르면 시리즈로 ${picked.has(r) ? '읽지 않습니다' : '읽습니다'}`, onclick: () => toggle(c.name) }, r + 1)
+            : h('button', { type: 'button', title: `${r + 1}줄을 시점 줄로`, onclick: () => setFrame('time_row', r + 1) }, r + 1)),
+          Array.from({ length: width }, (_, k) => {
+            const text = row[k] ?? '';
+            const cls = [k === ncol ? 'name-col' : '', k === ucol ? 'unit-col' : '', r > trow && k !== ncol && k !== ucol && text && marks.has(text.trim()) ? 'miss' : ''].filter(Boolean).join(' ');
+            return h('td', { class: cls, title: text.length > 14 ? text : null }, text);
+          }));
+      })))));
   }
 
   function toggle(column) {

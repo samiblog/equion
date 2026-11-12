@@ -312,3 +312,45 @@ print(b.n_series, p.workfile["KCN"].dropna().round(1).tolist())
 ([명령줄 참조](../reference/cli.md#equion-data)), Equion Desk에서는 자료 작업대의 '불러오기'가 같은 일을 합니다.
 
 관련: [튜토리얼 1](../tutorial/01-data.md) · [API: Workfile](../reference/api.md#3-워크파일-workfile) · [API: Project](../reference/api.md#21-프로젝트-eqnproject)
+
+## R64. 시점이 열로 가는 통계표 · 머리줄이 여러 줄인 표
+
+통계 사이트에서 받은 표는 시점이 오른쪽으로 가고(줄마다 시리즈 하나) 머리줄이 여러 줄인 경우가 많습니다. 파일은 고치지 않고 틀만 정합니다 —
+`time_axis="columns"`와 시점 줄 · 이름 열, 여러 줄 머리는 `header_row=[1, 2]`.
+
+```python
+p = eqn.Project.create("wide_prj", force=True)
+with open("wide_prj/DATA/raw/kosis.csv", "w", encoding="utf-8") as f:   # 받은 표(가상): 시점이 오른쪽으로, 줄마다 시리즈
+    f.write("표 1. 산업별 생산(가상)\n항목,단위,2018 1/4,2018 2/4,2018 3/4,2018 4/4\n제조업,십억원,100,101,103,104\n서비스업,십억원,200,202,-,205\n")
+v = p.data_preview("DATA/raw/kosis.csv", time_axis="columns", time_row=2, name_col="A", missing=["-"])
+print(v.text())
+with open("wide_prj/DATA/raw/na2.csv", "w", encoding="utf-8") as f:     # 머리줄 두 줄 — 위 줄은 병합 칸
+    f.write("시점,국내총생산,,소비,\n,명목,실질,명목,실질\n2018Q1,10,9,6,5\n2018Q2,11,10,6.5,5.2\n2018Q3,12,11,7,5.4\n")
+print([c["name"] for c in p.data_preview("DATA/raw/na2.csv", header_row=[1, 2]).columns])
+print(p.data_define("kosis", file="DATA/raw/kosis.csv", time_axis="columns", time_row=2, name_col="A", missing=["-"],
+                    series={"MFG": "제조업"}).text())
+```
+<!-- out -->
+```text
+[wide_prj] 자료 회차 d2026-11a를 만들었습니다
+[wide_prj] 지금 자료 회차: d2026-11a
+[data preview] DATA/raw/kosis.csv — 4줄 × 6열
+    1 | 표 1. 산업별 생산( |  |  |  |  |
+    2 | 항목 | 단위 | 2018 1/4 | 2018 2/4 | 2018 3/4 | 2018 4/4
+    3 | 제조업 | 십억원 | 100 | 101 | 103 | 104
+    4 | 서비스업 | 십억원 | 200 | 202 | - | 205
+  읽은 것  시점 줄 2('2018 1/4' 꼴) → Q 2018Q1~2018Q4 · 시리즈 2줄(시점이 열로 가는 표) · 글 열 B 건너뜀
+     3줄 제조업              2018Q1~2018Q4 · 값 4 · 십억원
+     4줄 서비스업             2018Q1~2018Q4 · 값 3 · 결측 표시 1 · 십억원
+['국내총생산 명목', '국내총생산 실질', '소비 명목', '소비 실질']
+[data define] [source.kosis] DATA/raw/kosis.csv — 새 출처
+  새 시리즈   MFG
+  바뀜 기록  h0002
+  다음   equion data build → equion data use <회차>
+```
+
+시점 줄의 앞쪽 글 열(단위 · 비고)은 건너뛰고, 그 줄에 '단위'라고 적힌 열은 단위로 읽습니다. 결측 칸의 위치는 원래 표 기준(`E4`)으로 알립니다.
+명령줄은 `equion data preview 파일 --time-axis columns --time-row 2 --name-col A` · `--header-row 1,2`. Equion Desk의 불러오기 화면은
+'시점 — 열로 감'을 고르거나, 그런 표를 알아보면 '열로 가는 표로 읽기' 단추를 권합니다.
+
+관련: [R59](#r59-새-원자료를-정의에--미리-보고-열을-시리즈로)

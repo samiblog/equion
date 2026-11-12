@@ -142,6 +142,13 @@ time_col = "A"                    # 시점 열 — 열 이름 · 엑셀 열 글�
 missing = ["–", "…"]              # 결측으로 볼 표시(빈 칸은 늘 결측)
 thousands = ","                   # 천 단위 구분 글자
 
+[source.kosis]                    # 시점이 열로 가는 통계표(줄마다 시리즈 하나)
+file = "DATA/raw/kosis.csv"
+time_axis = "columns"             # 기본 "rows"(시점이 행으로 내려간다)
+time_row = 2                      # 시점(2018 1/4 · 2018Q1 …)이 적힌 줄
+name_col = "A"                    # 시리즈 이름 열 — 여럿이면 ["A", "B"](이어 붙인다)
+unit_col = "B"                    # 단위 열(선택 — 시점 줄에 '단위'라고 적힌 열은 알아서 단위로)
+
 [series.CN]                       # 시리즈 하나 — 이름은 영문(한글은 desc)
 from = "na:민간소비"               # 원자료이름:열(열 이름은 대소문자 무시)
 unit = "조원"
@@ -158,8 +165,9 @@ convert = "mean"                  # 원자료 주기 ≠ 자료 주기면 꼭 �
 
 | 키 | 내용 |
 |---|---|
-| `[source.이름]` | `file`(csv·xlsx·xls) · `sheet` · `header_row` · `unit_row` · `time_col` · `missing` · `thousands` · `freq`(시점에서 추론이 안 될 때) · `desc` · `inbox`(받은 상자의 어떤 파일이 이 출처를 바꾸나 — 파일 이름 글롭, 예 `"국민계정_*.xlsx"`) |
-| 시점 꼴 | `2003Q4` · `2003M10` · `2003-10` · `2003` · ISO 날짜, 그리고 `2003.Q4` · `2003 Q4` · `2003년 4분기` · `2003년 4/4분기` · `2003년 10월` · `2003.10` |
+| `[source.이름]` | `file`(csv·xlsx·xls) · `sheet` · `header_row`(여러 줄이면 `[3, 4]` — 위 줄의 병합 칸을 이어 붙여 `국내총생산 실질` 꼴의 이름) · `unit_row` · `time_col` · `missing` · `thousands` · `freq`(시점에서 추론이 안 될 때) · `desc` · `inbox`(받은 상자의 어떤 파일이 이 출처를 바꾸나 — 파일 이름 글롭, 예 `"국민계정_*.xlsx"`) |
+| 시점이 열로 가는 표 | `time_axis = "columns"` · `time_row`(시점 줄) · `name_col`(이름 열, 여럿 가능) · `unit_col`(단위 열) — 시점 줄 아래의 줄마다 시리즈 하나. 시점 줄의 앞쪽 글 열(단위 · 비고)은 건너뛰고, 칸 위치는 원래 표 기준(`E4`) |
+| 시점 꼴 | `2003Q4` · `2003M10` · `2003-10` · `2003` · ISO 날짜, 그리고 `2003.Q4` · `2003 Q4` · `2003년 4분기` · `2003년 4/4분기` · `2003 4/4` · `2003년 10월` · `2003.10` |
 | 칸 | 천 단위 구분은 `thousands`, 괄호 숫자 `(12)`는 음수. 결측 표시와 숫자가 아닌 칸은 결측으로 보고 칸 위치(`D7`)와 함께 '알아서 한 것'에 적는다 |
 | `[series.이름]` | `from`(꼭) · `convert` · `denton`(denton의 conversion, 기본 sum) · `seas` · `scale`(곱할 수) · `fill = "linear"`(안쪽 결측 선형 보간) · `unit` · `desc` |
 | 하는 순서 | 읽기 → 주기 변환 → 배율 → 채움 → 계절조정 → (모든 시리즈를 모은 뒤) 파생식 |
@@ -207,6 +215,14 @@ period
 | `summary.md` | 사람이 읽는 요약 — 시리즈마다 출처·구간·값 수·설명, 알아서 한 것 |
 
 회차 이름은 `d연도-월` 뒤에 글자(`d2026-11a`, 같은 달 둘째는 `b`)입니다. `work/`는 다시 만들 수 있는 산출물이라 git에서 뺍니다(예제의 `.gitignore`).
+
+## 이정표(`work/milestones/`)와 묶음(`equion bundle`)
+
+이정표는 그때의 정의 파일 사본(`defs/`)과 `milestone.json`(이름 · 메모 · 만든 때 · 누가 · 자료 회차 · 정의 파일의 해시 · 고정한 기록)입니다
+(`equion milestone make · show · restore`). 묶음은 zip 하나로, 맨 위 폴더(프로젝트 이름) 아래에 정의 · 노트 · 보고서 · 지금 자료 회차(`work/data/<회차>/`) ·
+이정표 · 남길 기록과 그 기록의 `work/log.jsonl` 줄, 그리고 `bundle.json`(`format: equion-bundle`, `format_version` · 프로젝트 · 만든 때 · 회차 · 원자료를 넣었나 ·
+기록 · 뺀 것)이 듭니다. 원자료(`DATA/raw/`)는 `--raw`일 때만, 바뀜 기록과 Desk 화면 상태는 넣지 않습니다. 묶음 열기(`equion bundle open 묶음.zip 폴더`)는
+빈 폴더에만 풀고, 묶음의 명세는 `work/bundle.json`에 남습니다.
 
 ## 작업 기록(`work/`)
 

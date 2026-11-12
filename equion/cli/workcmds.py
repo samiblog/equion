@@ -187,7 +187,7 @@ def _metric(rec):
 
 
 def _referenced(p, store):
-    """정리에서 빠지는 기록 — 채택·고정·다른 기록이 가리키는 것(vs·replay·바꿔 끼우기)·제안이 미리 계산한 것."""
+    """정리에서 빠지는 기록 — 채택·고정·다른 기록이 가리키는 것(vs·replay·바꿔 끼우기)·제안이 미리 계산한 것·노트·보고서·이정표가 가리키는 것."""
     keep = set(p.adopted.values())
     keep |= {k for k, v in store.marks().items() if v.get("pinned")}
     for r in store.records():
@@ -203,6 +203,9 @@ def _referenced(p, store):
         keep |= set(pr.meta.get("previews") or [])
         keep |= {v for v in (pr.meta.get("parts") or {}).values() if str(v).startswith("est:")}
     keep |= _used_by_documents(p)
+    from ..projects import milestones                # 이정표가 적은 고정 기록(D61)
+    for m in milestones.list_all(p):
+        keep |= set(m.records)
     for r in store.records("run"):                  # 실행 기록이 남아 있으면 그 단계의 기록도(재연이 견준다)
         for s in r.meta.get("steps") or []:
             keep |= {x for x in s.get("records") or [] if not str(x).startswith("data:")}

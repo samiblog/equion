@@ -57,6 +57,8 @@
 | `group` | 프로젝트의 묶음 — equion.toml의 [group](이름 붙인 시리즈 묶음 — 분석의 대상) | list · define · remove |
 | `desk` | Equion Desk(데스크톱 앱)에 알린다 — 떠 있는 앱이 그 화면을 연다 | show |
 | `view` | 프로젝트의 보기(VIEWS/*.toml) — 어느 시리즈를 어떤 모양으로 볼지 | list · define |
+| `milestone` | 이정표 — 중요한 때의 정의·자료 회차·고정한 기록을 이름으로 묶어 두고, 지금과 견주고, 되돌린다 | list · make · show · restore |
+| `bundle` | 프로젝트 묶어 보내기(zip) · 묶음 열기 — 다른 PC로 옮길 때 | make · open |
 | `scenario` | 프로젝트의 시나리오(SCENARIOS/*.toml) — 목록·보기·쓰기·지우기(풀기는 equion sim) | list · show · define · remove |
 | `ident` | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |  |
 | `data` | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 | list · add · build · inbox · preview · define · use · diff · impact |
@@ -118,6 +120,7 @@ equion history list                                   # 정의 파일이 누가�
 | `coint` | 공적분 | 묶음 · 식(log(Y) 등) | — | 순위 검정 표 |
 | `diag` | 식 진단 | 부품(블록:목표) · 추정 기록 | — | 진단 검정 표·Chow·CUSUM 차트 |
 | `fcsteval` | 예측 평가 | 기록 여럿 | — | RMSE·MAE·Theil U·MSE 분해, Diebold-Mariano |
+| `split` | 요인 나누기 | 기록 여럿 | — | 변수·연도마다 앞·뒤·바뀜과 자료·가정·식의 몫 표, 단계마다 다시 푼 값, 막대 차트 |
 | `stability` | 동태 안정성 | 모형 | — | 고윳값 표·판정 |
 | `multipliers` | 충격 승수 | 모형 | — | 기간별 반응 표·차트 |
 | `seas` | 계절조정 | 시리즈 | 시리즈 정의(series.toml) | 실측·계절·추세·불규칙·조정 표와 차트 |

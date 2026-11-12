@@ -240,7 +240,7 @@ class AppState:
         self.sessions: dict[str, ProjectSession] = {}     # 탭 순서대로
         self.active: str | None = None
         self.pick_folder: Callable[[], str | None] | None = None   # 창 모드의 폴더 고르기 대화상자
-        self.pick_file: Callable[[], str | None] | None = None     # 창 모드의 파일 고르기 대화상자(원자료 넣기)
+        self.pick_file: Callable[..., str | None] | None = None    # 창 모드의 파일 고르기 대화상자(원자료 넣기 · kind="bundle" 묶음 열기)
         self.on_active: Callable[[ProjectSession | None], None] | None = None   # 고른 탭이 바뀌었을 때(창 제목)
         self._lock = threading.RLock()
 

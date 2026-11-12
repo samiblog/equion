@@ -159,6 +159,17 @@ def main() -> int:
                   (code, code2, code3, code4) == (200,) * 4 and "--shock POIL=+10%" in str(dry.get("command")) and len((made.get("result") or {}).get("made", [])) == 2
                   and (added.get("result") or {}).get("block") == 1 and (ran.get("result") or {}).get("ok") is True,
                   f"{code} {code2} {code3} {code4} {str(dry)[:120]} {str(ran)[:160]}")
+            http(f"/api/p/{pid}/line", {"line": "sim --as smoke_a"})
+            http(f"/api/p/{pid}/line", {"line": "sim --as smoke_b"})
+            code, sp = http(f"/api/p/{pid}/line", {"line": "an split 'sim:smoke_a sim:smoke_b'"})
+            code2, ms = http(f"/api/p/{pid}/milestone/make", {"name": "smoke1", "note": "설치본 점검"})
+            code3, bd = http(f"/api/p/{pid}/bundle", {"raw": False, "records": "keep"})
+            sp, ms, bd = (x if isinstance(x, dict) else {} for x in (sp, ms, bd))
+            zp = str((bd.get("result") or {}).get("path") or "")
+            check("9-6 자료 쪽 셋 — 요인 나누기(명령 창), 이정표 만들기, 묶어 보내기(zip)",
+                  (code, code2, code3) == (200,) * 3 and str(((sp.get("result") or {}).get("records") or [""])[0]).startswith("an:split_")
+                  and (ms.get("result") or {}).get("name") == "smoke1" and zp.endswith(".zip") and os.path.isfile(os.path.join(project, *zp.split("/"))),
+                  f"{code} {code2} {code3} {str(sp)[:160]} {str(bd)[:160]}")
         finally:
             server.terminate()
             try:

@@ -245,3 +245,12 @@ table.raw-grid tr.hdr td.picked { background: var(--accent-soft); }
 .try-chart .pad { padding: 12px 14px; }
 .banner .tips { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .banner span.tips { margin: 0 0 0 4px; vertical-align: middle; }
+
+/* 시점이 열로 가는 표 — 시점 줄 · 이름 열 · 단위 열 · 고른 시리즈(줄) (D60) */
+table.raw-grid.by-row tr.time-row td { background: var(--info-soft); color: var(--info); font-weight: 600; text-align: center; }
+table.raw-grid.by-row tr.time-row th { background: var(--info); color: var(--paper); }
+table.raw-grid.by-row td.name-col { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; text-align: left; font-family: var(--font-ui); }
+table.raw-grid.by-row th.name-col { color: var(--accent-ink); box-shadow: inset 0 -2px 0 var(--accent); }
+table.raw-grid.by-row td.unit-col { background: var(--canvas-2); color: var(--ink-2); text-align: center; font-family: var(--font-ui); }
+table.raw-grid.by-row tr.picked td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+table.raw-grid.by-row tr.picked th { color: var(--accent-ink); box-shadow: inset 3px 0 0 var(--accent); }

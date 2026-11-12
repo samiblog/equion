@@ -78,7 +78,7 @@ Equion Desk 개발 계획(`DESK_DEVPLAN.md`)의 단계 E. 끝나면 Desk 없이�
 - [x] E1 프로젝트·조립(2026-11-09): `equion.toml`·블록·이름·조립 검사·블록 HS·바꿔 끼우기·항등식 검사·`eqn.project()`, 예제 프로젝트
       `equion new --template desk`(가상 분기 모형) — `assemble`·`ident` (D32). 채택표는 기록과 함께 E3로 — 지금은 모형을 만들 때 지금 자료로 추정하고 알린다
 - [x] E2 자료 정의·회차(2026-11-09): 원자료·출처 해시, `series.toml`(불러오기 틀)·`derived.txt`, 회차·값의 종류, 틀 검사, 상대 기간 —
-      `data add·build·use·diff·impact` (D34). 시점이 열로 가는 표(`time_axis = "columns"`)는 다음 판
+      `data add·build·use·diff·impact` (D34). 시점이 열로 가는 표(`time_axis = "columns"`)는 2차판에서(D60)
 - [x] E3 작업 명령·기록(2026-11-09): `work/` 기록·조립 명세·알아서 한 것·`summary.md`(md 렌더러), 채택표 `adopted.toml`, 바뀜 기록·제안 —
       `est`·`adopt`·`compare`·`hs`·`sim`·`export`·`work`·`propose`·`history` (D33·D35)
 - [x] E4 분석·노트·보고서(2026-11-09): 등록부·`an`·`note`·`report`, 묶음 (D37). 블록 후보(VAR를 블록으로)·기초 통계는 2차판
@@ -141,9 +141,10 @@ Equion Desk 개발 계획(`DESK_DEVPLAN.md`)의 단계 E. 끝나면 Desk 없이�
 
 - [x] 2차판 — 혼자 하는 폼과 노트(2026-11-12, D55~D58): 후보 묶음(고를 칸의 조합 → 모두 추정 → 노트로 저장) · 시나리오 폼(충격 표 — 패키지 `equion scenario
       list·show·define·remove`) · 노트 화면(블록마다 상태·▶ 실행·노트 전체 실행·낡은 것만 — 패키지 `equion note add`) · 같은 분석의 두 기록 비교(판단이 바뀐 줄)
+- [x] 2차판 — 자료 쪽 셋(2026-11-12, D59~D61): 회차 비교의 요인 나누기(`an split` — 자료 → 가정 → 식, 전망 화면의 단추) · 시점이 열로 가는 표와 여러 줄 머리
+      (`time_axis`·`time_row`·`name_col`·`unit_col`, `header_row = [3, 4]` — 불러오기 화면) · 이정표(`equion milestone`)와 묶어 보내기 · 묶음 열기(`equion bundle`)
 
-**2차판 나머지** — 노트 ▶ 실행 화면, 후보 묶음·시나리오 폼, 기초 분석(기술 통계·히스토그램·상관·ACF·PACF), 두 기록 비교, 회차 비교 요인 나누기 화면,
-시점이 열인 표 불러오기, 묶어 보내기·이정표, Lectern 수정(LC1~LC6), 영문 화면
+**2차판 나머지** — Lectern 수정(LC1~LC6 — 다른 저장소), 영문 화면
 
 **배포를 넓힐 때** — 코드 서명(D29), 인터넷 없는 PC용 큰 설치본 · **미래** — scikit-learn 선택 확장 팩(Keras 제외)
 

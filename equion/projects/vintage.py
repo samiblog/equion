@@ -26,7 +26,7 @@ import pandas as pd
 
 from ..data import transform as tr
 from ..data.periods import PERIODS_PER_YEAR, format_period, normalize_freq, period_starts, to_period
-from ..data.source import SourceSpec, SourceTable, file_sha256, read_source
+from ..data.source import SourceSpec, SourceTable, file_sha256, read_source, row_list
 from ..workfile.output import TableOutput, TextOutput, verbose
 from .config import NAME_RE, VID_RE, ProjectError
 
@@ -111,8 +111,8 @@ def load_defs(root: str, series_file: str, derived_file: Optional[str], freq: st
         if not isinstance(v, dict) or not v.get("file"):
             problems.append(f"{where}: file이 없습니다")
             continue
-        unknown = set(v) - {"file", "sheet", "header_row", "unit_row", "time_col", "time_axis", "missing", "thousands",
-                            "freq", "desc", "inbox"}
+        unknown = set(v) - {"file", "sheet", "header_row", "unit_row", "time_col", "time_axis", "time_row", "name_col", "unit_col",
+                            "missing", "thousands", "freq", "desc", "inbox"}
         if unknown:
             problems.append(f"{where}: 알 수 없는 키 {', '.join(sorted(unknown))}")
         miss = v.get("missing", [])
@@ -121,11 +121,17 @@ def load_defs(root: str, series_file: str, derived_file: Optional[str], freq: st
         fp = os.path.normpath(os.path.join(root, v["file"]))
         if not os.path.isfile(fp):
             problems.append(f"{where}: 원자료 파일이 없습니다 — {v['file']}")
+        if v.get("time_axis", "rows") not in ("rows", "columns"):
+            problems.append(f"{where}: time_axis = {v.get('time_axis')!r} — \"rows\"(시점이 행으로) · \"columns\"(시점이 열로)")
+            continue
         try:
+            rows = row_list(v.get("header_row", 1))
             sources[name] = SourceSpec(name=name, file=v["file"], path=fp, sheet=v.get("sheet"),
-                                       header_row=int(v.get("header_row", 1)),
+                                       header_row=rows[0] if len(rows) == 1 else rows,
                                        unit_row=int(v["unit_row"]) if v.get("unit_row") else None,
                                        time_col=v.get("time_col"), time_axis=v.get("time_axis", "rows"),
+                                       time_row=int(v["time_row"]) if v.get("time_row") else None,
+                                       name_col=v.get("name_col"), unit_col=v.get("unit_col"),
                                        missing=[str(x) for x in miss], thousands=v.get("thousands"),
                                        freq=normalize_freq(v["freq"]) if v.get("freq") else None)
         except (TypeError, ValueError) as e:
@@ -739,13 +745,14 @@ def set_toml_value(path: str, table: List[str], key: str, value):
 
 # ---- 불러오기: 원자료 미리보기와 자료 정의 쓰기 ------------------------------------------------
 
-FRAME_KEYS = ("sheet", "header_row", "unit_row", "time_col", "missing", "thousands", "freq")
+FRAME_KEYS = ("sheet", "header_row", "unit_row", "time_col", "missing", "thousands", "freq", "time_axis", "time_row", "name_col", "unit_col")
 SERIES_KEYS = ("convert", "denton", "seas", "scale", "fill", "unit", "desc")
 
 
 def _frame_spec(root: str, file: str, name: str = "preview", sheet=None, header_row=None, unit_row=None, time_col=None,
-                missing=None, thousands=None, freq=None) -> SourceSpec:
-    """파일과 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위·주기)로 불러오기 틀 하나를 만든다. 문제는 ProjectError."""
+                missing=None, thousands=None, freq=None, time_axis=None, time_row=None, name_col=None, unit_col=None) -> SourceSpec:
+    """파일과 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위·주기 — 시점이 열로 가는 표는 time_axis·time_row·name_col·unit_col)로
+    불러오기 틀 하나를 만든다. 문제는 ProjectError."""
     from ..data.source import EXTENSIONS
     path = os.path.normpath(file if os.path.isabs(file) else os.path.join(root, file))
     if not os.path.isfile(path):
@@ -759,11 +766,18 @@ def _frame_spec(root: str, file: str, name: str = "preview", sheet=None, header_
         sheet = int(sheet)
     if isinstance(time_col, str) and time_col.strip().isdigit():
         time_col = int(time_col)
+    if time_axis not in (None, "", "rows", "columns"):
+        raise ProjectError(f"time_axis = {time_axis!r} — rows(시점이 행으로) · columns(시점이 열로)")
+    if isinstance(name_col, str) and "," in name_col:
+        name_col = [c.strip() for c in name_col.split(",") if c.strip()]
     try:
+        rows = row_list(header_row or 1)
         return SourceSpec(name=name, file=rel, path=path, sheet=sheet if sheet not in ("", None) else None,
-                          header_row=int(header_row or 1), unit_row=int(unit_row) if unit_row else None,
+                          header_row=rows[0] if len(rows) == 1 else rows, unit_row=int(unit_row) if unit_row else None,
                           time_col=time_col if time_col not in ("", None) else None, missing=[str(m) for m in miss if str(m) != ""],
-                          thousands=thousands or None, freq=normalize_freq(freq) if freq else None)
+                          thousands=thousands or None, freq=normalize_freq(freq) if freq else None,
+                          time_axis=time_axis or "rows", time_row=int(time_row) if time_row not in (None, "") else None,
+                          name_col=name_col if name_col not in (None, "", []) else None, unit_col=unit_col if unit_col not in (None, "") else None)
     except (TypeError, ValueError) as e:
         raise ProjectError(f"{file}: 틀을 읽을 수 없습니다 — {e}") from None
 
@@ -782,7 +796,9 @@ class SourcePreview:
     freq: Optional[str] = None
     span: Optional[List[str]] = None
     note: str = ""                         # "시점 열 A('1970Q1' 꼴) → Q 1970Q1~2019Q4"
-    time_col: Optional[int] = None         # 시점 열의 자리(0부터)
+    time_col: Optional[int] = None         # 시점 열의 자리(0부터 — 시점이 행으로 갈 때)
+    axis: str = "rows"                     # rows(시점이 행으로) · columns(시점이 열로 — 줄마다 시리즈)
+    time_row: Optional[int] = None         # 시점 줄의 자리(0부터 — 시점이 열로 갈 때)
     columns: List[dict] = field(default_factory=list)       # 열마다 name·col·letter·unit·n·first·last·missing·bad·name_ok
     missing_cells: List[str] = field(default_factory=list)  # 결측 표시로 읽은 칸('C42 "–"' 꼴)
     bad_cells: List[str] = field(default_factory=list)      # 숫자가 아니어서 결측으로 본 칸
@@ -792,7 +808,7 @@ class SourcePreview:
         """명령줄 --json과 같은 사전."""
         return {"file": self.file, "sheets": self.sheets, "shape": list(self.shape), "grid": self.grid, "frame": self.frame,
                 "ok": self.ok, "error": self.error, "freq": self.freq, "span": self.span, "note": self.note,
-                "time_col": self.time_col, "columns": self.columns, "missing_cells": self.missing_cells,
+                "time_col": self.time_col, "axis": self.axis, "time_row": self.time_row, "columns": self.columns, "missing_cells": self.missing_cells,
                 "bad_cells": self.bad_cells, "series": self.series}
 
     def text(self) -> str:
@@ -817,12 +833,11 @@ class SourcePreview:
 
 
 def preview_source(root: str, file: str, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None,
-                   thousands=None, freq=None, rows: int = 30) -> SourcePreview:
+                   thousands=None, freq=None, rows: int = 30, time_axis=None, time_row=None, name_col=None, unit_col=None) -> SourcePreview:
     """원자료 파일을 미리 본다 — 읽은 그대로의 앞쪽 줄과, 준 틀로 읽어 본 결과. 틀이 맞지 않아도 예외가 아니라 `.error`에 까닭."""
-    import re
-
-    from ..data.source import _cell_text, _read_grid, _time_index, col_letter
-    spec = _frame_spec(root, file, "preview", sheet, header_row, unit_row, time_col, missing, thousands, freq)
+    from ..data.source import _cell_text, _read_grid
+    spec = _frame_spec(root, file, "preview", sheet, header_row, unit_row, time_col, missing, thousands, freq, time_axis, time_row,
+                       name_col, unit_col)
     sheets: List[str] = []
     if not spec.path.lower().endswith(".csv"):
         try:
@@ -837,34 +852,26 @@ def preview_source(root: str, file: str, sheet=None, header_row=None, unit_row=N
     head = [[_cell_text(v) for v in row] for row in grid.iloc[:max(1, int(rows))].values.tolist()]
     out = SourcePreview(spec.file, sheets, (int(grid.shape[0]), int(grid.shape[1])), head,
                         {"sheet": spec.sheet, "header_row": spec.header_row, "unit_row": spec.unit_row, "time_col": spec.time_col,
-                         "missing": list(spec.missing), "thousands": spec.thousands, "freq": spec.freq})
+                         "missing": list(spec.missing), "thousands": spec.thousands, "freq": spec.freq, "time_axis": spec.time_axis,
+                         "time_row": spec.time_row, "name_col": spec.name_col, "unit_col": spec.unit_col})
+    out.axis = spec.time_axis
     try:
         t = read_source(spec)
-        names = [_cell_text(v) or f"열{col_letter(k)}" for k, v in enumerate(grid.iloc[spec.header_row - 1].tolist())]
-        tcol = _time_index(grid, names, spec)
     except ValueError as e:
         out.error = str(e)
         return out
-
-    def by_letter(cells: List[str]) -> Dict[str, int]:
-        count: Dict[str, int] = {}
-        for c in cells:
-            m = re.match(r"([A-Z]+)\d+", c)
-            if m:
-                count[m.group(1)] = count.get(m.group(1), 0) + 1
-        return count
-
-    miss, bad = by_letter(t.missing_cells), by_letter(t.bad_cells)
-    for k, nm in enumerate(names):
-        if k == tcol:
-            continue
+    for nm in t.data.columns:
         valid = t.data[nm].dropna()
-        out.columns.append({"name": nm, "col": k, "letter": col_letter(k), "unit": t.units.get(nm, ""), "n": int(len(valid)),
+        out.columns.append({"name": nm, "col": t.positions.get(nm), "letter": t.places.get(nm, ""), "unit": t.units.get(nm, ""), "n": int(len(valid)),
                             "first": format_period(valid.index[0], t.freq) if len(valid) else None,
                             "last": format_period(valid.index[-1], t.freq) if len(valid) else None,
-                            "missing": miss.get(col_letter(k), 0), "bad": bad.get(col_letter(k), 0),
-                            "name_ok": bool(NAME_RE.match(nm))})
-    out.ok, out.freq, out.time_col = True, t.freq, int(tcol)
+                            "missing": t.missing_by.get(nm, 0), "bad": t.bad_by.get(nm, 0),
+                            "name_ok": bool(NAME_RE.match(str(nm)))})
+    out.ok, out.freq = True, t.freq
+    if spec.time_axis == "columns":
+        out.time_row = int(t.time_pos)
+    else:
+        out.time_col = int(t.time_pos)
     out.span = [format_period(t.data.index[0], t.freq), format_period(t.data.index[-1], t.freq)]
     out.note = t.time_note.split(": ", 1)[-1]
     out.missing_cells, out.bad_cells = t.missing_cells[:200], t.bad_cells[:200]
@@ -952,7 +959,8 @@ def define_text(root: str, series_file: str, derived_file: Optional[str], freq: 
                 frame: dict = None, desc: str = None, series: dict = None, replace: bool = False) -> Tuple[str, DefineResult]:
     """`series.toml`에 출처(불러오기 틀)와 시리즈를 더하거나 고친 **새 내용**을 만든다 — 주석·순서는 그대로(tomlkit), 파일은 쓰지 않는다.
 
-    frame: 틀의 키(sheet·header_row·unit_row·time_col·missing·thousands·freq) — 준 키만 바꾸고, 빈 값·기본값이면 그 키를 지운다.
+    frame: 틀의 키(sheet·header_row·unit_row·time_col·missing·thousands·freq·time_axis·time_row·name_col·unit_col) — 준 키만 바꾸고,
+    빈 값·기본값이면 그 키를 지운다.
     series: {이름: 열 이름 또는 {column, unit, desc, convert, denton, seas, scale, fill}} — 없는 이름은 더하고, 있는 이름은 준 키만 고친다
     (다른 열로 바꾸는 것은 replace=True일 때만).
     검사: 이름·키·새 내용 전체(`load_defs`)·그 틀로 원자료를 읽어 이 출처의 시리즈가 쓰는 열이 다 있는지·변환이 되는지.
@@ -983,15 +991,27 @@ def define_text(root: str, series_file: str, derived_file: Optional[str], freq: 
             continue
         if k == "missing":
             v = [str(x) for x in ([v] if isinstance(v, str) else list(v or [])) if str(x) != ""]
-        elif k in ("header_row", "unit_row") and v not in (None, ""):
+        elif k == "header_row" and v not in (None, ""):
+            try:
+                rows = row_list(v)
+                v = rows[0] if len(rows) == 1 else rows
+            except (TypeError, ValueError):
+                problems.append(f"[source.{source}] {k} = {v!r} — 줄 번호(1부터) 또는 여럿(3,4)")
+                continue
+        elif k in ("unit_row", "time_row") and v not in (None, ""):
             try:
                 v = int(v)
             except (TypeError, ValueError):
                 problems.append(f"[source.{source}] {k} = {v!r} — 줄 번호(1부터)")
                 continue
+        elif k == "name_col" and isinstance(v, str) and "," in v:
+            v = [c.strip() for c in v.split(",") if c.strip()]
+        elif k == "time_axis" and v not in (None, "", "rows", "columns"):
+            problems.append(f"[source.{source}] time_axis = {v!r} — rows · columns")
+            continue
         elif k in ("sheet", "time_col") and isinstance(v, str) and v.strip().isdigit():
             v = int(v)
-        if v in (None, "", [], 0) or (k == "header_row" and v == 1):
+        if v in (None, "", [], 0) or (k == "header_row" and v == 1) or (k == "time_axis" and v == "rows"):
             if k in tb:
                 del tb[k]
         else:

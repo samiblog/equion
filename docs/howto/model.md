@@ -291,3 +291,46 @@ print(rp.meta["replay"]["of"], "같은 결과" if rp.meta["replay"]["same"] else
 [replay] baseline(_0) dynamic 2005Q1~2019Q4: 정상 60 · 일부식 제외 0 · 실패대체 0 · 실패 0
 hs:before 같은 결과
 ```
+
+## R65. 이정표와 묶어 보내기 — 확정한 때를 남기고, 다른 PC로 옮기기
+
+전망을 확정한 때처럼 중요한 때에 이정표를 만들어 두면(정의 파일 사본 · 자료 회차 · 고정한 기록), 나중에 지금과 견주고 정의를 그때로 되돌릴 수
+있습니다. 다른 PC로 옮길 때는 묶어 보내기(zip) — 정의 · 노트 · 보고서 · 지금 자료 회차 · 남길 기록이 들고, 원자료는 고를 때만 넣습니다.
+
+```python
+p = eqn.Project.create("ms_prj", force=True)
+print(p.milestone_make("fc_2026_11", note="11월 전망 확정").text())
+with open("ms_prj/EQUATIONS/price.txt", "a", encoding="utf-8") as f:   # 이정표 뒤의 고침
+    f.write("# 이정표 뒤에 더한 주석\n")
+print(p.milestone_diff("fc_2026_11").text())
+print(p.milestone_restore("fc_2026_11") is not None, p.milestone_diff("fc_2026_11").same)
+b = p.bundle()
+print(b.text())
+q = eqn.Project.from_bundle("ms_prj/" + b.path, "ms_copy")             # 다른 PC에서 — equion bundle open 묶음.zip ms_copy
+print(q.name, q.vintage == p.vintage, [m["name"] for m in q.milestones()])
+```
+<!-- out -->
+```text
+[ms_prj] 자료 회차 d2026-11a를 만들었습니다
+[ms_prj] 지금 자료 회차: d2026-11a
+[milestone] fc_2026_11 — 11월 전망 확정
+  만든 때 2026-11-12T13:27:22 · python
+  자료 회차 d2026-11a · 정의 파일 11 · 고정한 기록 0
+  폴더   work/milestones/fc_2026_11
+[milestone show] fc_2026_11 와 지금 — 바뀐 파일 1
+  고침  EQUATIONS/price.txt  +1 −0
+  되돌리기  equion milestone restore fc_2026_11
+True True
+[bundle make] exports/ms_prj_2026-11-12.zip — 파일 32 · 34KB
+  자료 회차 d2026-11a · 기록 0 · 원자료 넣지 않음
+  뺀 것   원자료 DATA/raw/ — 받은 쪽은 지금 자료 회차로 이어 한다(자료를 다시 만들려면 원자료를 따로 넣는다)
+  뺀 것   기록 — 남길 것만(모두 0개 가운데 0개)
+  뺀 것   바뀜 기록 work/history · Desk 화면 상태 — 그 PC의 것
+  받은 쪽  equion bundle open 묶음.zip 폴더
+ms_prj True ['fc_2026_11']
+```
+
+명령줄은 `equion milestone make · list · show · restore` · `equion bundle make [--raw] [--records keep|all|none]` · `equion bundle open 묶음.zip 폴더`.
+되돌리기는 바뀜 기록 하나로 남아 그것도 되돌릴 수 있습니다. Equion Desk에서는 기록 탭의 '이정표'와 개요의 '묶어 보내기', 첫 화면의 '묶음 열기'.
+
+관련: [R52](#r52-제안바뀜-기록그때-그대로-다시)

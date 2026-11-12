@@ -137,6 +137,12 @@ def create_app(state: AppState) -> Flask:
                 return jsonify(id=None)
         return open_folder(folder)
 
+    def documents() -> Path:
+        """예제와 받은 묶음을 두는 곳 — 문서 폴더의 Equion(시험은 EQUION_DESK_DOCUMENTS 로 바꾼다)."""
+        import os
+
+        return Path(os.environ.get("EQUION_DESK_DOCUMENTS") or (Path.home() / "Documents")) / "Equion"
+
     @app.post("/api/example")
     def api_example() -> Any:
         """예제 프로젝트(가상 분기 모형)를 문서 폴더 아래에 새로 만들어 연다."""
@@ -144,7 +150,7 @@ def create_app(state: AppState) -> Flask:
 
         from . import runtime
 
-        base = Path.home() / "Documents" / "Equion"
+        base = documents()
         base.mkdir(parents=True, exist_ok=True)
         n = 1
         while (base / f"example{n}").exists():
@@ -155,6 +161,35 @@ def create_app(state: AppState) -> Flask:
         if r.returncode != 0:
             return jsonify(error=(r.stderr or r.stdout).strip()), 500
         return open_folder(str(base / f"example{n}"))
+
+    @app.post("/api/bundle/open")
+    def api_bundle_open() -> Any:
+        """{zip?} — 묶음(zip)을 문서 폴더의 Equion/<이름> 에 풀어 연다(`equion bundle open`). zip 이 없으면 파일 고르기(창 모드)."""
+        import subprocess
+
+        from . import runtime
+
+        zip_path = text_arg(body(), "zip", 1024)
+        if zip_path is None:
+            if state.pick_file is None:
+                abort(501, description=t("파일 고르기는 앱 창에서만 됩니다"))
+            zip_path = state.pick_file("bundle")
+            if not zip_path:
+                return jsonify(id=None)
+        if not zip_path.lower().endswith(".zip") or not Path(zip_path).is_file():
+            abort(400, description=t("묶음(zip) 파일이 아닙니다: {name}", name=Path(zip_path).name))
+        base = documents()
+        base.mkdir(parents=True, exist_ok=True)
+        stem = re.sub(r"[^A-Za-z0-9_\-]+", "_", Path(zip_path).stem).strip("_") or "bundle"
+        dest, n = base / stem, 2
+        while dest.exists():
+            dest, n = base / f"{stem}_{n}", n + 1
+        r = subprocess.run([runtime.python_exe(), "-I", "-X", "utf8", "-m", "equion", "bundle", "open", zip_path, str(dest)],
+                           env=runtime.clean_env(), capture_output=True, text=True, encoding="utf-8",
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode != 0:
+            return jsonify(error=(r.stderr or r.stdout).strip().replace("equion: 오류: ", "")), 422
+        return open_folder(str(dest))
 
     @app.post("/api/tabs/close")
     def api_tab_close() -> Any:
@@ -380,7 +415,7 @@ def create_app(state: AppState) -> Flask:
                 return jsonify(result=None)
         return run(pid, "data_add", t("원자료 넣기 {name}", name=Path(chosen).name), path=chosen, source=source, inbox=from_inbox)
 
-    FRAME_KEYS = ("sheet", "header_row", "unit_row", "time_col", "missing", "thousands", "freq")
+    FRAME_KEYS = ("sheet", "header_row", "unit_row", "time_col", "missing", "thousands", "freq", "time_axis", "time_row", "name_col", "unit_col")
     SERIES_KEYS = ("column", "unit", "desc", "convert", "denton", "seas", "scale", "fill")
 
     def raw_file(pid: str, data: dict[str, Any], inbox: bool = False) -> str:
@@ -414,10 +449,29 @@ def create_app(state: AppState) -> Flask:
             if key == "missing":
                 if not isinstance(value, list) or len(value) > 12 or any(not isinstance(x, str) or len(x) > 12 for x in value):
                     abort(400)
-            elif key in ("header_row", "unit_row"):
+            elif key in ("unit_row", "time_row"):
                 if value in (None, ""):
                     value = ""
                 elif isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 1_000_000:
+                    abort(400)
+            elif key == "header_row":
+                if value in (None, ""):
+                    value = ""
+                elif isinstance(value, list):
+                    if not 0 < len(value) <= 6 or any(isinstance(x, bool) or not isinstance(x, int) or not 0 < x <= 1_000_000 for x in value):
+                        abort(400)
+                elif isinstance(value, str):
+                    if not re.fullmatch(r"\d{1,7}(\s*[,\-:~]\s*\d{1,7}){0,5}", value.strip()):
+                        abort(400, description=t("열 이름 줄은 줄 번호 — 여러 줄이면 3,4"))
+                elif isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 1_000_000:
+                    abort(400)
+            elif key == "time_axis":
+                if value in (None, ""):
+                    value = ""
+                elif value not in ("rows", "columns"):
+                    abort(400)
+            elif key == "name_col" and isinstance(value, list):
+                if len(value) > 4 or any(not isinstance(x, str) or not re.fullmatch(r"[A-Za-z]{1,3}|\d{1,4}", x) for x in value):
                     abort(400)
             elif value is None:
                 value = ""
@@ -1047,6 +1101,50 @@ def create_app(state: AppState) -> Flask:
         if not AN_RECORD.fullmatch(record):
             abort(400)
         return ask(pid, "an_history", record=record)
+
+    # ---- 프로젝트: 이정표 · 묶어 보내기 (D61) ----------------------------------------------------------------
+
+    @app.get("/api/p/<pid>/milestones")
+    def api_milestones(pid: str) -> Any:
+        """이정표 목록 — 이름·메모·만든 때·자료 회차·정의 파일 수·고정한 기록."""
+        return ask(pid, "milestones")
+
+    @app.post("/api/p/<pid>/milestone/make")
+    def api_milestone_make(pid: str) -> Any:
+        """{name, note?} — 이정표 만들기(`equion milestone make`): 정의 파일 사본·자료 회차·고정한 기록."""
+        data = body()
+        name = pick(data, "name", NAME)
+        if name is None:
+            abort(400, description=t("이정표 이름(영문으로 시작 — 영문·숫자·_)이 있어야 합니다"))
+        return run(pid, "milestone_make", t("이정표 {name}", name=name), name=name, note=text_arg(data, "note", 200))
+
+    @app.get("/api/p/<pid>/milestone")
+    def api_milestone(pid: str) -> Any:
+        """이정표와 지금 — 파일마다 같음·고침·새로·지움과 차이."""
+        name = request.args.get("name", "")
+        if not NAME.fullmatch(name):
+            abort(400)
+        return ask(pid, "milestone_diff", name=name)
+
+    @app.post("/api/p/<pid>/milestone/restore")
+    def api_milestone_restore(pid: str) -> Any:
+        """{name, files?} — 정의를 이정표 때로(`equion milestone restore`). 바뀜 기록에 남는다."""
+        data = body()
+        name = pick(data, "name", NAME)
+        files = data.get("files")
+        if name is None or (files is not None and (not isinstance(files, list) or len(files) > 200
+                                                    or any(not isinstance(f, str) or not 0 < len(f) <= 300 or ".." in f for f in files))):
+            abort(400)
+        return run(pid, "milestone_restore", t("이정표로 되돌리기 {name}", name=name), name=name, files=files)
+
+    @app.post("/api/p/<pid>/bundle")
+    def api_bundle(pid: str) -> Any:
+        """{raw?, records?} — 묶어 보내기(`equion bundle make`): exports/<프로젝트>_<날짜>.zip."""
+        data = body()
+        records = data.get("records", "keep")
+        if records not in ("keep", "all", "none"):
+            abort(400)
+        return run(pid, "bundle", t("묶어 보내기"), raw=data.get("raw") is True, records=records)
 
     @app.post("/api/p/<pid>/cancel")
     def api_cancel(pid: str) -> Any:

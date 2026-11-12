@@ -422,6 +422,13 @@ def _fcsteval(p, target, var=None):
                  inputs={"records": ids})
 
 
+def _split(p, target, vars=None):
+    from .split import split
+    payload, tables, charts, lines, implicit, (old, new) = split(p, target, vars)
+    return AnOut("요인 나누기", f"{new.id} ← {old.id}", tuple(new.meta["range"]), tables, charts, lines, implicit, payload,
+                 inputs={"records": [old.id, new.id]})
+
+
 def _stability(p, target, period=None):
     m = p.model(target)
     sv = m.stability(period)
@@ -834,6 +841,11 @@ register(Analysis("fcsteval", "예측 평가", "예측", ("records",),
                   [Opt("var", "str", None, help="견줄 변수(필수)", metavar="변수")], None,
                   "RMSE·MAE·Theil U·MSE 분해, Diebold-Mariano", "hs·sim·est(--sim) 기록의 풀린 값을 실측과 견준다",
                   "equion an fcsteval \"hs:hs_0001 hs:hs_0002\" --var Y", _fcsteval))
+register(Analysis("split", "요인 나누기", "예측", ("records",),
+                  [Opt("vars", "str", None, help="볼 변수(쉼표로 — 없으면 핵심 변수 넷)", metavar="변수들")], None,
+                  "변수·연도마다 앞·뒤·바뀜과 자료·가정·식의 몫 표, 단계마다 다시 푼 값, 막대 차트",
+                  "두 전망 기록(sim:)의 연간 성장률 바뀜을 자료 → 가정 → 식 차례로 하나씩 바꿔 다시 풀어 나눈다",
+                  "equion an split \"sim:2026-10_base sim:2026-11_base\"", _split, count="two"))
 register(Analysis("stability", "동태 안정성", "모형", ("model",),
                   [Opt("period", "str", None, help="선형화 시점(기본: 자료 끝)", metavar="기간")], None,
                   "고윳값 표·판정", "선형화 동반행렬의 고윳값 — 안정·단위근·불안정", "equion an stability main", _stability))
