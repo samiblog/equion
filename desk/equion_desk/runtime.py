@@ -11,7 +11,12 @@ from pathlib import Path
 
 # PC의 Python 설정 — 런타임에 섞이면 다른 판의 패키지를 읽는다. 셸·작업 프로세스로 넘기지 않는다
 FOREIGN = ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONEXECUTABLE", "PYTHONINSPECT",
-           "VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV", "CONDA_PYTHON_EXE", "__PYVENV_LAUNCHER__")
+           "VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV", "CONDA_PYTHON_EXE", "__PYVENV_LAUNCHER__",
+           # Desk를 Claude Code 안에서 띄웠을 때 물려받는 '그 세션'의 값 — 터미널의 claude 가 자식 세션으로 묶이거나, 사람이 친 명령이
+           # '누가 claude'로 남지 않게 지운다. 사용자의 설정(ANTHROPIC_* · CLAUDE_CONFIG_DIR · CLAUDE_CODE_USE_* 등)은 그대로 둔다
+           "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION",
+           "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
+           "CLAUDE_CODE_BRIDGE_SESSION_ID", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "EQUION_WHO")
 
 
 def python_exe() -> str:

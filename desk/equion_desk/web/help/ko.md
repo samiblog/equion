@@ -76,6 +76,8 @@ Equion Desk는 Equion 프로젝트(자료 → 식 → 조립 → 과거 재현 �
 | **제안 받기** | 아무것도 바뀌지 않습니다 — Claude가 제안만 남깁니다 | **제안** 탭: 바뀔 내용의 차이 · 까닭 · 미리 계산한 결과 → 적용 · 버림 |
 
 처음 한 번 **Claude ▾ → Claude Code에 Equion 알려 주기**를 눌러 이 프로젝트에 Equion 스킬을 넣어 두면 Claude가 명령과 규칙을 압니다.
+그 폴더에서 처음 `claude`를 띄우면 Claude Code가 '이 폴더를 믿는가'를 묻습니다 — 기본 선택이 **No, exit**이니 `↓`로 **Yes, I trust this folder**를
+고르고 Enter. Claude가 파일을 직접 고친 것은 '명령 밖에서(편집기·직접 편집)'의 바뀜으로 뜹니다 — 거기서 차이를 보고 되돌립니다.
 Claude가 `equion desk show <이름>`을 치면 그 기록·제안·식의 화면이 앞으로 옵니다.
 
 Claude Code가 없어도 화면의 모든 기능은 그대로입니다.

@@ -259,11 +259,14 @@ def section_terminal(tmp: str, folder: str) -> None:
 
     ours = runtime.bin_dirs()
     env = runtime.clean_env({"PATH": os.pathsep.join(["/somewhere", ours[0]]), "PYTHONPATH": "x", "PythonHome": "y",
-                             "CONDA_PREFIX": "z", "KEEP": "1"})
+                             "CONDA_PREFIX": "z", "KEEP": "1", "CLAUDECODE": "1", "CLAUDE_CODE_SESSION_ID": "s",
+                             "CLAUDE_CODE_MESSAGING_TOKEN": "t", "EQUION_WHO": "claude", "CLAUDE_CONFIG_DIR": "c", "ANTHROPIC_API_KEY": "k"})
     first = env["PATH"].split(os.pathsep)
-    check("E1 환경 — 런타임이 맨 앞(겹치지 않게), PYTHONPATH·PYTHONHOME·CONDA 지움, 나머지는 그대로",
+    check("E1 환경 — 런타임이 맨 앞(겹치지 않게), PYTHONPATH·PYTHONHOME·CONDA·물려받은 Claude 세션 값 지움, 사용자 설정·나머지는 그대로",
           first[:len(ours)] == ours and first.count(ours[0]) == 1 and "/somewhere" in first
-          and not any(k.upper() in runtime.FOREIGN for k in env) and env["KEEP"] == "1" and env["PYTHONNOUSERSITE"] == "1", str(env))
+          and not any(k.upper() in runtime.FOREIGN for k in env) and env["KEEP"] == "1" and env["PYTHONNOUSERSITE"] == "1"
+          and "CLAUDECODE" not in env and "CLAUDE_CODE_MESSAGING_TOKEN" not in env and "EQUION_WHO" not in env
+          and env["CLAUDE_CONFIG_DIR"] == "c" and env["ANTHROPIC_API_KEY"] == "k", str(env))
     from equion_desk.conpty import AVAILABLE
 
     if not AVAILABLE:
