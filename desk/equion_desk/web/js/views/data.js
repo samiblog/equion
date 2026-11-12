@@ -338,7 +338,8 @@ export function dataView(project, desc) {
           s.unit ? h('div', { class: 'pair' }, h('span', { class: 'k' }, '단위'), h('span', {}, s.unit)) : null,
           h('span', { class: 'grow' }),
           h('div', { class: 'pair' }, h('span', { class: 'k' }, '분석'), an('summary', '요약', '구간·결측·끝 값·수준 차트'), an('unitroot', '단위근', 'ADF·KPSS'),
-            s.kind === 'series' ? an('seas', '계절조정', '계절조정을 미리 보고, 마음에 들면 정의로 남긴다') : null)));
+            s.kind === 'series' ? an('seas', '계절조정', '계절조정을 미리 보고, 마음에 들면 정의로 남긴다') : null),
+          h('button', { class: 'btn small', type: 'button', 'data-act': 'var-window', title: '변수 창 — 차트 · 값 · 내력 · 그 변수에 돌린 분석', onclick: () => project.openTab({ type: 'var', names: [dt.name] }) }, icon('window'), '변수 창')));
       requestAnimationFrame(() => {
         disposeChart();
         disposeChart = drawLines(chart, { period: dt.period, height: 190, title: dt.name, empty: '값이 없습니다.',

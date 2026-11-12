@@ -10,6 +10,7 @@
 // 화면이 아는 분석은 없다: 이름·대상·옵션·도움말이 모두 등록부(`equion.registry`)에서 온다 — 분석이 늘면 여기도 늘어난다.
 
 import { confirmDialog } from '../dialog.js';
+import { toModel } from '../partops.js';
 import { renderDoc } from '../md.js';
 import { clear, cmdText, copyText, debounce, flash, h, icon, kindPill, put, when, whoLabel } from '../util.js';
 
@@ -408,7 +409,12 @@ export function analysisView(project, desc) {
     if (st.kept) {
       const k = st.kept;
       const made = k.kind === 'candidate'
-        ? h('div', {}, `식 후보 ${k.records.length}개를 남겼습니다 — `, k.records.map((r) => [h('button', { class: 'link mono', type: 'button', onclick: () => project.openRecord(r) }, r), ' ']), '채택은 식 작업대에서 합니다.')
+        ? h('div', {}, `식 후보 ${k.records.length}개를 남겼습니다 — 식 작업대에서 견주어 채택하거나, 바로 모형의 블록에 넣습니다.`,
+          h('div', { class: 'kept-list' }, k.records.map((r, i) => h('div', { class: 'kept-row' },
+            h('button', { class: 'link mono', type: 'button', onclick: () => project.openRecord(r) }, r),
+            mk?.equations?.[i]?.text ? h('code', {}, mk.equations[i].text) : null,
+            mk?.equations?.[i]?.text ? h('button', { class: 'btn small', type: 'button', 'data-act': 'to-model', title: '이 식을 모형이 쓰는 블록에 한 줄로 더하고 이 후보를 채택한다(equion block add · adopt)',
+              onclick: () => toModel(project, { text: mk.equations[i].text, record: r }) }, '모형에 넣기') : null))))
         : h('div', {}, h('b', {}, '정의로 남겼습니다.'), ` ${k.what.join(' · ')}`, h('br'), '값은 아직 없습니다 — ‘자료 만들기’로 새 회차를 만들면 들어갑니다.');
       outBox.append(h('div', { class: 'banner ok' }, icon('check'), made,
         k.kind === 'candidate' ? null : h('button', { class: 'btn small primary', type: 'button', onclick: () => project.openTab({ type: 'data', section: 'series' }) }, '자료 작업대로')));
@@ -433,7 +439,7 @@ export function analysisView(project, desc) {
   function render() {
     clear(el);
     el.append(h('div', { class: 'view-head' },
-      h('div', {}, h('h1', {}, '분석'), h('div', { class: 'sub' }, '자료와 식을 살펴봅니다. 돌려도 정의 파일은 바뀌지 않고, 결과는 기록으로 남습니다.')),
+      h('div', {}, h('h1', {}, '분석 실행'), h('div', { class: 'sub' }, '자료와 식을 살펴봅니다. 돌려도 정의 파일은 바뀌지 않고, 결과는 기록으로 남습니다.')),
       st.analysis && st.reg ? h('div', { class: 'tools' }, h('button', { class: 'btn quiet', type: 'button', title: '할 수 있는 분석을 모두 본다',
         onclick: () => { Object.assign(st, { analysis: null, shown: null, rec: null, kept: null, recError: null }); save(); render(); } }, icon('list'), '분석 모두 보기')) : null));
     if (st.error) el.append(h('div', { class: 'banner error' }, icon('alert'), h('div', {}, st.error)));
@@ -446,14 +452,21 @@ export function analysisView(project, desc) {
 
   render();
   return {
-    key: 'analysis', type: 'analysis', title: '분석', icon: 'flask', el,
+    key: 'analysis', type: 'analysis', title: '분석 실행', icon: 'flask', el,
     desc: () => ({ type: 'analysis', analysis: st.analysis, target: st.target, options: st.options, smpl: st.smpl, shown: st.shown }),
     show() { if (!loaded) load(); },
     open(next) {
       if (next.shown) { showRecord(next.shown); return; }
       if (!next.analysis) return;
-      if (!st.reg) { Object.assign(st, { analysis: next.analysis, target: next.target || '', options: {}, shown: null, autorun: !!next.run }); return; }
+      if (!st.reg) {
+        Object.assign(st, { analysis: next.analysis, target: next.target || '', options: { ...(next.options || {}) }, shown: null, autorun: !!next.run });
+        if (next.smpl !== undefined) st.smpl = next.smpl || '';
+        return;
+      }
       Object.assign(st, { shown: null, rec: null, kept: null, recError: null });
+      if (st.analysis !== next.analysis) { st.analysis = next.analysis; st.name = ''; }
+      st.options = { ...(next.options || {}) };                    // 메뉴·분석 탭에서 온 옵션(다시 돌리기) — 없으면 기본값
+      if (next.smpl !== undefined) st.smpl = next.smpl || '';       // 지금 표본(작업대 줄)을 따른다
       choose(next.analysis, { target: next.target ?? null, focus: !next.run });
       if (next.run) run();
     },

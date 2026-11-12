@@ -1,10 +1,13 @@
-// 프로젝트 탭 하나의 화면 — 사이드바(부품·파일) · 가운데 탭들 · 오른쪽 터미널. 프로젝트마다 한 벌씩 만들어 두고 고른 것만 보인다
-// (터미널의 글과 스크롤 자리가 탭을 오가도 그대로다).
+// 프로젝트 탭 하나의 화면 — 왼쪽 열(작업대 줄 · 변수 · 분석 · 모형 · 파일 · 기록) · 가운데 탭들 · 오른쪽 열(터미널 여러 개 + 명령 창).
+// 프로젝트마다 한 벌씩 만들어 두고 고른 것만 보인다(터미널의 글과 스크롤 자리가 탭을 오가도 그대로다).
 //
 // 화면 상태(연 탭·고른 탭·쓰던 식·펼친 폴더)는 바뀔 때마다 서버의 설정 파일에 적는다 — 닫았다 열면 이어진다.
 
 import { getJSON, papi, postJSON, query } from './api.js';
-import { Term } from './terminal.js';
+import { CommandPane } from './command.js';
+import { Side } from './side.js';
+import { TermDeck } from './terminal.js';
+import { bindVarClicks } from './varmenu.js';
 import { clear, debounce, flash, h, icon, kindClass, WHO } from './util.js';
 import { analysisView } from './views/analysis.js';
 import { benchView } from './views/bench.js';
@@ -20,8 +23,9 @@ import { changesView, recordsView } from './views/lists.js';
 import { modelView } from './views/model.js';
 import { proposalsView } from './views/proposals.js';
 import { reportsView } from './views/reports.js';
+import { variableView } from './views/variable.js';
 
-const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView, model: modelView, flow: flowView, forecast: forecastView, reports: reportsView, proposals: proposalsView, help: helpView };
+const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView, model: modelView, flow: flowView, forecast: forecastView, reports: reportsView, proposals: proposalsView, help: helpView, var: variableView };
 const MAX_TABS = 24;       // 가운데 탭 — 넘으면 가장 오래된 것부터 닫는다(작업대가 늘어 14에서 올렸다)
 const FILE_ICON = { md: 'doc', csv: 'table', toml: 'code', txt: 'equation', eqs: 'play', json: 'code', xlsx: 'table' };
 
@@ -38,7 +42,7 @@ export class Project {
     this.unseen = new Set();
     this.tabs = new Map();       // key → {view, pane, button}
     this.active = null;
-    this.side = 'parts';
+    this.cmdHistory = [];        // 명령 창의 지난 명령(화면 상태와 함께 적는다)
     this.expanded = new Set();   // 펼친 폴더(파일 나무)
     this.collapsed = new Set();  // 접은 블록(부품 나무)
     this.dirs = new Map();       // 폴더 → 항목
@@ -77,32 +81,28 @@ export class Project {
   build() {
     this.partsBox = h('div', { class: 'side-body' });
     this.filesBox = h('div', { class: 'side-body', hidden: true });
-    this.sideTabs = h('div', { class: 'side-tabs', role: 'tablist' },
-      h('button', { type: 'button', role: 'tab', 'data-side': 'parts', onclick: () => this.showSide('parts') }, '부품'),
-      h('button', { type: 'button', role: 'tab', 'data-side': 'files', onclick: () => this.showSide('files') }, '파일'));
+    this.side = new Side(this);
     this.tabbar = h('div', { class: 'tabbar', role: 'tablist' });
     this.panes = h('div', { class: 'panes' });
     this.notices = h('div', { class: 'notices', 'aria-live': 'polite' });
-    this.termBox = h('div', { class: 'term-body' });
-    this.termLamp = h('span', { class: 'lamp off' });
-    this.termShell = h('span', {});
-    this.term = new Term(this.termBox, this.id, ({ shell, alive }) => {
-      this.termLamp.classList.toggle('off', !alive);
-      this.termShell.textContent = shell ? `· ${shell}` : alive ? '' : '· 끝남';
-    });
+    this.term = new TermDeck(this.id);
+    this.termBox = this.term.body;
+    this.command = new CommandPane(this);
     const gSide = h('div', { class: 'gutter g-side', role: 'separator', 'aria-orientation': 'vertical' });
     const gTerm = h('div', { class: 'gutter g-term', role: 'separator', 'aria-orientation': 'vertical' });
+    this.gSplit = h('div', { class: 'gutter g-split', role: 'separator', 'aria-orientation': 'horizontal', title: '끌어서 터미널과 명령 창의 높이를 바꾼다(두 번 누르면 기본)' });
+    this.termPane = h('div', { class: 'term', 'aria-label': '터미널' }, this.term.head, this.term.body);
+    this.right = h('aside', { class: 'right', 'aria-label': '터미널과 명령 창' }, this.termPane, this.gSplit, this.command.el);
     this.el = h('section', { class: 'project', hidden: true, 'data-p': this.id },
-      h('aside', { class: 'side', 'aria-label': '사이드바' }, this.sideTabs, this.partsBox, this.filesBox),
+      this.side.el,
       gSide,
       h('section', { class: 'center' }, this.tabbar, this.panes, this.notices),
       gTerm,
-      h('aside', { class: 'term', 'aria-label': '터미널' },
-        h('div', { class: 'term-head' }, this.termLamp, h('b', {}, '터미널'), this.termShell, h('span', { class: 'grow' }),
-          h('button', { class: 'icon-btn', type: 'button', title: '셸을 끝내고 다시 띄운다', onclick: () => this.term.restart() }, icon('refresh'))),
-        this.termBox));
+      this.right);
     this.app.dragGutter(gSide, 'side');
     this.app.dragGutter(gTerm, 'term');
+    this.app.dragSplit(this.gSplit, this.right);
+    bindVarClicks(this, this.el);
     this.tabbar.addEventListener('wheel', (e) => { if (e.deltaY) { this.tabbar.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
     this.partsBox.append(h('div', { class: 'side-note' }, '작업 프로세스를 띄우는 중…'));
   }
@@ -114,6 +114,7 @@ export class Project {
     if (!this.ready) {
       this.ready = true;
       await this.restore();
+      this.side.start();
       this.loadRecords();
       this.loadOverview();
       this.loadProposals();
@@ -125,15 +126,23 @@ export class Project {
   deactivate() { this.el.hidden = true; }
 
   applyLayout() {
-    this.el.classList.toggle('no-side', !this.app.settings.side_visible);
-    this.el.classList.toggle('no-term', !this.app.settings.term_visible);
-    if (this.app.settings.term_visible && !this.el.hidden) requestAnimationFrame(() => this.term.start());
+    const s = this.app.settings;
+    this.el.classList.toggle('no-side', !s.side_visible);
+    this.el.classList.toggle('no-term', !s.term_visible);
+    // 오른쪽 열: 터미널과 명령 창을 위아래로 — 높이 비율(right_split 은 터미널의 몫)과 자리(cmd_top)
+    const split = Number.isFinite(s.right_split) ? Math.min(0.85, Math.max(0.15, s.right_split)) : 0.62;
+    this.termPane.style.flexGrow = String(split);
+    this.command.el.style.flexGrow = String(1 - split);
+    this.right.classList.toggle('cmd-top', !!s.cmd_top);
+    if (s.term_visible && !this.el.hidden) requestAnimationFrame(() => this.term.start());
   }
 
   async restore() {
     let view = {};
     try { view = (await this.get('view')).view || {}; } catch { /* 처음 */ }
-    this.side = view.side === 'files' ? 'files' : 'parts';
+    this.side.tab = typeof view.side === 'string' ? (view.side === 'parts' ? 'models' : view.side) : 'vars';
+    this.side.restore(view.left && typeof view.left === 'object' ? view.left : {});
+    this.cmdHistory = Array.isArray(view.cmdHistory) ? view.cmdHistory.filter((x) => typeof x === 'string').slice(-60) : [];
     this.expanded = new Set(Array.isArray(view.expanded) ? view.expanded.filter((x) => typeof x === 'string').slice(0, 200) : []);
     this.collapsed = new Set(Array.isArray(view.collapsed) ? view.collapsed.filter((x) => typeof x === 'string').slice(0, 200) : []);
     this.free = Number.isInteger(view.free) ? view.free : 0;
@@ -143,14 +152,14 @@ export class Project {
       if (desc && FACTORY[desc.type] && desc.type !== 'home') this.openTab(desc, { activate: false, save: false });
     }
     this.selectTab(this.tabs.has(view.active) ? view.active : 'home', { save: false });
-    this.showSide(this.side, { save: false });
   }
 
   /** 화면 상태를 서버의 설정 파일에 적는다. closing: 창이 닫히는 중 — 요청이 끊기지 않게 */
   persist(closing = false) {
     if (!this.ready) return;
     const tabs = [...this.tabs.values()].map((t) => t.view.desc()).filter((d) => d.type !== 'home');
-    this.post('view', { view: { tabs, active: this.active, side: this.side, expanded: [...this.expanded], collapsed: [...this.collapsed], free: this.free, dataChecked: this.dataChecked } },
+    this.post('view', { view: { tabs, active: this.active, side: this.side.tab, left: this.side.state(), cmdHistory: this.cmdHistory.slice(-60), expanded: [...this.expanded], collapsed: [...this.collapsed],
+      free: this.free, dataChecked: this.dataChecked } },
       { keepalive: closing }).catch(() => {});
   }
 
@@ -266,6 +275,7 @@ export class Project {
     if (desc.type === 'file') return `file:${desc.path}`;
     if (desc.type === 'model') return `model:${desc.model}`;
     if (desc.type === 'flow') return `flow:${desc.path}`;
+    if (desc.type === 'var') return `var:${desc.group ? `@${desc.group}` : (desc.names || []).join(',')}`;
     return desc.type;
   }
 
@@ -348,6 +358,7 @@ export class Project {
     try { this.proposals = (await this.get('proposals')).proposals; } catch { this.proposals = []; }
     for (const id of [...this.unseenProps]) if (!this.proposals.some((p) => p.id === id && p.status === 'open')) this.unseenProps.delete(id);
     this.renderParts();
+    this.emit({ type: 'proposals' });
   }
 
   seenProposal(id) {
@@ -369,22 +380,21 @@ export class Project {
   }
 
   seen(id) {
-    if (this.unseen.delete(id)) this.app.renderActivity();
+    if (this.unseen.delete(id)) { this.app.renderActivity(); this.side?.drawTabs(); }
   }
 
   emit(event) {
     for (const { view } of this.tabs.values()) { try { view.event(event); } catch (err) { console.error(err); } }
+    for (const part of [this.side, this.command]) { try { part?.event(event); } catch (err) { console.error(err); } }
   }
 
   // ---- 사이드바 ---------------------------------------------------------------------------------
 
-  showSide(name, { save = true } = {}) {
-    this.side = name;
-    for (const b of this.sideTabs.children) b.setAttribute('aria-selected', String(b.dataset.side === name));
-    this.partsBox.hidden = name !== 'parts';
-    this.filesBox.hidden = name !== 'files';
-    if (name === 'files' && !this.dirs.has('')) this.loadDir('').then(() => Promise.all([...this.expanded].map((d) => this.loadDir(d)))).then(() => this.renderFiles());
-    if (save) this.saveView();
+  showSide(name, options) { this.side.showSide(name, options); }
+
+  /** 파일 탭을 처음 열 때 — 폴더 나무를 읽는다 */
+  openFiles() {
+    if (!this.dirs.has('')) this.loadDir('').then(() => Promise.all([...this.expanded].map((d) => this.loadDir(d)))).then(() => this.renderFiles());
   }
 
   /** 부품마다 가장 최근 추정 기록의 판단 기준(통과·걸러짐) */
@@ -405,30 +415,14 @@ export class Project {
     const last = this.lastEst();
     const sec = (title, count, rows) => h('div', { class: 'sec' }, h('div', { class: 'sec-head' }, title, h('span', { class: 'count' }, count)), rows);
 
-    // 작업대 — 식은 아래 블록에서, 모형(조립·과거 재현)은 아래 모형에서 고르고, 자료·분석·전망·보고서는 여기서 연다
-    const note = this.dataNote();
-    const nAn = this.records.filter((r) => r.kind === 'an').length;
-    const nSim = this.records.filter((r) => r.kind === 'sim').length;
-    const nOpen = this.proposals.filter((p) => p.status === 'open').length;
-    box.append(sec('작업대', '', [
-      h('button', { class: 'row-item', type: 'button', 'data-key': 'data', title: note ? `자료 — ${note.text}` : '자료 — 원자료 · 시리즈 · 회차', onclick: () => this.openTab({ type: 'data' }) },
-        icon('data'), h('span', { class: 'label' }, '자료'), h('span', { class: 'desc mono' }, o.vintage?.id || (o.data_file || '').split('/').pop() || ''),
-        h('span', { class: 'tail' }, note && note.level !== 'ok' ? h('span', { class: `dot ${note.level}` }) : null)),
-      h('button', { class: 'row-item', type: 'button', 'data-key': 'analysis', title: '분석 — 요약·단위근·공적분·계절조정·ECM·VAR…', onclick: () => this.openTab({ type: 'analysis' }) },
-        icon('flask'), h('span', { class: 'label' }, '분석'), h('span', { class: 'desc' }, ''), h('span', { class: 'tail' }, nAn || null)),
-      h('button', { class: 'row-item', type: 'button', 'data-key': 'forecast', title: '전망 — 가정을 적고 기준선과 시나리오를 푼다', onclick: () => this.openTab({ type: 'forecast' }) },
-        icon('forward'), h('span', { class: 'label' }, '전망'), h('span', { class: 'desc mono' }, o.forecast?.model || ''), h('span', { class: 'tail' }, nSim || null)),
-      h('button', { class: 'row-item', type: 'button', 'data-key': 'reports', title: '보고서 — 글 사이에 기록에서 보낸 표·차트. 새 기록으로 바꾼다', onclick: () => this.openTab({ type: 'reports' }) },
-        icon('doc'), h('span', { class: 'label' }, '보고서'), h('span', { class: 'desc' }, ''), h('span', { class: 'tail' }, o.reports || null)),
-      h('button', { class: 'row-item', type: 'button', 'data-key': 'proposals', title: nOpen ? `제안 — 열린 제안 ${nOpen}개(적용하기 전에 바뀔 내용을 본다)` : '제안 — Claude 가 남긴 “이렇게 바꾸면”을 적용하기 전에 본다', onclick: () => this.openTab({ type: 'proposals' }) },
-        icon('spark'), h('span', { class: 'label' }, '제안'), h('span', { class: 'desc' }, nOpen ? `열림 ${nOpen}` : ''), h('span', { class: 'tail' }, this.unseenProps.size ? h('span', { class: 'dot prop', title: '아직 보지 않은 제안' }) : (this.proposals.length || null))),
-    ]));
-
     box.append(sec('모형', o.models.length, o.models.map((m) => h('button', {
       class: 'row-item', type: 'button', 'data-key': `model:${m.name}`, title: `${m.desc || m.name} — 조립과 과거 재현`, onclick: () => this.openTab({ type: 'model', model: m.name }),
     }, h('span', { class: 'glyph model' }, 'M'), h('span', { class: 'label mono' }, m.name), h('span', { class: 'desc' }, m.desc || '')))));
 
-    const blocks = o.blocks.map((b) => {
+    // 모형이 쓰는 블록만 — 어느 모형도 쓰지 않는 블록의 식은 개별 식(분석 탭)
+    const used = new Set(o.models.flatMap((m) => m.blocks || []));
+    const loose = o.blocks.filter((b) => !used.has(b.name));
+    const blocks = o.blocks.filter((b) => used.has(b.name)).map((b) => {
       const open = !this.collapsed.has(b.name);
       const head = h('button', {
         class: 'row-item', type: 'button', 'aria-expanded': String(open), title: b.file,
@@ -447,7 +441,11 @@ export class Project {
       }) : [];
       return [head, ...rows];
     });
-    box.append(sec('블록', o.blocks.length, blocks));
+    box.append(sec('블록', o.blocks.length - loose.length, blocks));
+    if (loose.length) {
+      box.append(h('button', { class: 'side-hint link-row', type: 'button', title: '어느 모형도 쓰지 않는 블록의 식은 분석 탭의 ‘개별 식’에 있습니다', onclick: () => this.showSide('analysis') },
+        `모형 밖의 블록 ${loose.length}개(${loose.map((b) => b.name).join(' · ')}) — 개별 식은 분석 탭에`));
+    }
 
     const fileRow = (label, path, kind) => h('button', {
       class: 'row-item', type: 'button', 'data-key': `file:${path}`, title: path, onclick: () => this.openTab({ type: 'file', path }),
@@ -460,10 +458,11 @@ export class Project {
     ];
     if (more.length) box.append(sec('가정 · 시나리오 · 스크립트', more.length, more));
     this.markSide();
+    this.side?.drawTabs();
   }
 
   markSide() {
-    for (const row of this.el.querySelectorAll('.side .row-item[data-key]')) row.classList.toggle('on', row.dataset.key === this.active);
+    for (const row of this.el.querySelectorAll('.side [data-key]')) row.classList.toggle('on', row.dataset.key === this.active);
   }
 
   async loadDir(path) {

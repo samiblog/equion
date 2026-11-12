@@ -6,6 +6,19 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
 ## 미공개
 
 ### 추가
+- **기초 통계 분석(D50)**: `equion an stats`(기술 통계 — 관측치·평균·표준편차·사분위·왜도·첨도·Jarque-Bera) · `an corr`(상관 — 피어슨·스피어만, p값,
+  색 격자 차트) · `an acf`(자기상관·편자기상관·Ljung-Box Q, 막대 차트와 띠) · `an granger`(쌍별 그랜저 인과 — 시차 지정, 쌍마다 공통 표본) ·
+  `an hist`(히스토그램) · `an xcorr`(교차상관 corr(x_t, y_{t−k})) — 계산은 `equion.stats`의 `describe`·`correlation`·`acf`·`pacf`·`correlogram`·
+  `ccf`·`histogram`·`granger_causality`·`granger_table`(자체 구현). 계산이 있던 `an fevd`(분산분해)·`an convert`(주기 변환)·`an stochastic`(확률적 모의)도
+  분석으로 등록했습니다. 등록부의 분석마다 받는 대상의 수(`Analysis.count` — one·two·many·any)를 적습니다. 결과 카드의 차트에 막대·색 격자·산점도가
+  더해졌습니다(`reporting.markdown.vega_bar`·`vega_heat`·`vega_scatter`).
+- **묶음과 식 한 줄 명령(D51)**: `equion group list · define 이름 --series A,B [--desc 글] [--transform dlog] · remove 이름`(`p.group_define`·`p.group_remove`)이
+  `equion.toml`의 `[group]`을, `equion block add 블록 "식" [--desc 글] [--from 블록:목표] · block remove 블록:목표`(`p.part_add`·`p.part_remove`)가 블록 파일의
+  식 한 줄을 더하고 뺍니다 — `--from`은 다른 블록에서 옮기기, 빼면 채택표의 그 줄도 빠집니다. 한 블록에 같은 목표는 하나, 없는 시리즈·블록은 거절합니다.
+  주석·차례를 지키고 바뀜 기록에 남깁니다.
+- **명령 한 줄 실행기(D52)**: `equion.cli.line.run_line(폴더, "est demand:CN")`이 명령줄(`equion …`)과 같은 일을 같은 프로세스에서 하고 종료 코드·출력 글·새 기록·
+  새 바뀜 기록을 돌려줍니다(`LineResult`). 새 프로젝트와 Python 스크립트는 받지 않습니다. `catalog()`는 명령줄 정의에서 명령·인자·옵션 목록을 뽑습니다 —
+  Equion Desk의 명령 창이 씁니다.
 - **추정 기록이 계수 공분산을 말합니다**: `equion est … --cov white|hac`로 견고한 표준오차를 고르면 기록(`record.json`의 `cov` — 종류·이름·시차),
   카드(`계수 공분산` 줄), 명령줄의 짧은 글(`[공분산 HAC(…)]`)에 적습니다. 전에는 t값이 다른 까닭이 기록에 남지 않았습니다. 보통 공분산이면 `cov`는 `null`이고
   출력은 그대로입니다.

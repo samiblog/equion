@@ -43,6 +43,7 @@ class Analysis:
     help: str = ""
     example: str = ""
     run: Optional[Callable] = None     # run(project, target, **opts) → AnOut
+    count: str = "any"                 # 대상이 시리즈·식 몇 개인가 — one · two · many(둘 이상) · any (Desk의 우클릭 메뉴가 고른 수로 거른다)
 
     def defaults(self) -> dict:
         """옵션 기본값."""

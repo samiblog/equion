@@ -354,7 +354,7 @@ export function forecastView(project, desc) {
       const all = [v, ...others];
       const head = all.length > 1 ? ['연도', '', ...all.map((x) => short(x.id))] : ['연도', ...names];
       const body = all.length > 1
-        ? v.annual.years.flatMap((y) => names.map((n, k) => h('tr', { class: k === 0 ? 'first' : '' }, h('th', {}, k === 0 ? y : ''), h('td', { class: 'name' }, n), all.map((x) => h('td', {}, fmt(x.annual?.growth?.[n]?.[x.annual.years.indexOf(y)], 2), h('small', {}, '%'))))))
+        ? v.annual.years.flatMap((y) => names.map((n, k) => h('tr', { class: k === 0 ? 'first' : '' }, h('th', {}, k === 0 ? y : ''), h('td', { class: 'name', 'data-var': n }, n), all.map((x) => h('td', {}, fmt(x.annual?.growth?.[n]?.[x.annual.years.indexOf(y)], 2), h('small', {}, '%'))))))
         : v.annual.years.map((y, i) => h('tr', {}, h('th', {}, y), names.map((n) => h('td', {}, fmt(v.annual.growth?.[n]?.[i], 2), h('small', {}, '%'), h('div', { class: 'sub' }, fmt(v.annual.level?.[n]?.[i], 1))))));
       resultBox.append(h('div', { class: 'raw-scroll tall' }, h('table', { class: 'fc-table' }, h('thead', {}, h('tr', {}, head.map((c) => h('th', {}, c)))), h('tbody', {}, body))),
         h('div', { class: 'fc-legend' }, h('span', {}, all.length > 1 ? '연간 증가율(%) — 고른 전망을 나란히' : '연간 증가율(%), 그 아래는 연간 수준')));
@@ -370,7 +370,7 @@ export function forecastView(project, desc) {
             st.mode === 'diff' ? h('div', { class: 'sub' }, fmt(v.diff.abs?.[n]?.[i], 2)) : null);
         }));
       });
-      resultBox.append(h('div', { class: 'raw-scroll tall' }, h('table', { class: 'fc-table' }, h('thead', {}, h('tr', {}, h('th', {}, ''), names.map((n) => h('th', { class: st.col === n ? 'col' : '' },
+      resultBox.append(h('div', { class: 'raw-scroll tall' }, h('table', { class: 'fc-table' }, h('thead', {}, h('tr', {}, h('th', {}, ''), names.map((n) => h('th', { class: st.col === n ? 'col' : '', 'data-var': n },
         h('button', { type: 'button', title: '차트로 본다', 'data-col': n, onclick: () => { st.col = st.col === n ? null : n; drawResult(); } }, n))))), h('tbody', {}, rows))),
         h('div', { class: 'fc-legend' }, st.mode === 'diff' ? h('span', {}, '기준선 대비 차이(%), 그 아래는 수준의 차이') : [h('span', { class: 'key f-act' }, '실측'), h('span', { class: 'key f-sol' }, '해'), h('span', { class: 'key f-asm' }, '가정'), h('span', { class: 'key f-fill' }, '채움')],
           h('span', { class: 'grow' }), h('span', {}, '열 이름을 누르면 차트')));

@@ -7,10 +7,13 @@
     unitroot     ADF·KPSS·Engle-Granger·Johansen (수치표: _tables, 출처는 THIRD-PARTY-NOTICES.md)
     forecast     예측 평가(RMSE·MAE·MAPE·Theil U1/U2·MSE 분해)·Diebold-Mariano 검정
     system       연립 추정(배열): 시스템 OLS·SUR·2SLS·3SLS·FIML·선형 제약 — 워크파일에서는 wf.system(…)
+    describe     기초 분석: 기술 통계·상관·자기상관(ACF·PACF·Q)·교차상관·히스토그램·쌍별 Granger 인과(D50)
 
 모든 함수는 numpy 배열·pandas 객체를 받고, 검정은 TestResult(.statistic·.pvalue·.show())를 돌려준다.
 워크파일에서는 방정식 객체의 메서드(eq.serial_lm() …)와 wf.adf()·wf.kpss()·wf.coint()·wf.johansen()로 쓴다.
 """
+from .describe import (Correlation, acf, ccf, correlation, correlogram, describe, granger_causality, granger_table,
+                       histogram, pacf)
 from .diagnostics import (arch_lm, breusch_godfrey, breusch_pagan, chow, cusum, jarque_bera, ljung_box, nested,
                           parse_restrictions, recursive, reset, wald, wald_linear, white)
 from .forecast import diebold_mariano, evaluate as forecast_evaluate, evaluate_many as forecast_table
@@ -26,4 +29,5 @@ __all__ = [
     "wald", "wald_linear", "parse_restrictions", "chow", "recursive", "cusum", "nested",
     "adf", "kpss", "engle_granger", "johansen", "mackinnon_p", "mackinnon_crit",
     "forecast_evaluate", "forecast_table", "diebold_mariano",
+    "describe", "correlation", "acf", "pacf", "correlogram", "ccf", "histogram", "granger_causality", "granger_table",
 ]

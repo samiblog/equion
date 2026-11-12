@@ -79,6 +79,51 @@ def vega_line(csv: str, x: str, series: Sequence[str], title: str = "", height: 
     return "```vega-lite\n" + json.dumps(spec, ensure_ascii=False) + "\n```"
 
 
+def _block(spec: dict) -> str:
+    spec = {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", **spec}
+    return "```vega-lite\n" + json.dumps(spec, ensure_ascii=False) + "\n```"
+
+
+def vega_bar(csv: str, x: str, y: str, title: str = "", height: int = 200, band: float = None, line: str = None,
+             x_type: str = "ordinal") -> str:
+    """막대 차트 블록 — 같은 폴더 CSV의 x 열(가로)과 y 열(막대). band를 주면 ±band 점선(자기상관의 95% 한계),
+    line을 주면 그 열을 점 찍은 선으로 겹친다(히스토그램의 정규 기대도수)."""
+    enc_x = {"field": x, "type": x_type, "title": None, "axis": {"labelAngle": 0, "labelOverlap": True}}
+    layers = [{"mark": {"type": "bar"}, "encoding": {"x": enc_x, "y": {"field": y, "type": "quantitative", "title": None}}}]
+    if band:
+        layers.append({"data": {"values": [{"한계": float(band)}, {"한계": -float(band)}]},
+                       "mark": {"type": "rule", "strokeDash": [4, 3]}, "encoding": {"y": {"field": "한계", "type": "quantitative"}}})
+    if line:
+        layers.append({"mark": {"type": "line", "point": True}, "encoding": {"x": enc_x, "y": {"field": line, "type": "quantitative"}}})
+    return _block({"title": title, "height": height, "width": "container", "data": {"url": csv}, "layer": layers})
+
+
+def vega_heat(csv: str, row: str = "행", col: str = "열", value: str = "값", title: str = "", domain=(-1, 1)) -> str:
+    """색 격자 블록 — 긴 CSV(행·열·값)를 칸마다 색(가운데 0, 파랑 음수 · 주황 양수)과 값 글자로. 상관 행렬에 쓴다."""
+    order_r = {"field": row, "type": "nominal", "title": None, "sort": None}
+    order_c = {"field": col, "type": "nominal", "title": None, "sort": None, "axis": {"orient": "top", "labelAngle": 0}}
+    lo, hi = domain
+    return _block({
+        "title": title, "width": "container", "data": {"url": csv},
+        "encoding": {"y": order_r, "x": order_c},
+        "layer": [
+            {"mark": {"type": "rect"}, "encoding": {"color": {"field": value, "type": "quantitative", "title": None,
+                                                              "scale": {"scheme": "blueorange", "domain": [lo, 0, hi]}}}},
+            {"mark": {"type": "text", "fontSize": 11}, "encoding": {
+                "text": {"field": value, "type": "quantitative", "format": ".2f"},
+                "color": {"condition": {"test": f"abs(datum['{value}']) > 0.6", "value": "#ffffff"}, "value": "#1b1f24"}}},
+        ]})
+
+
+def vega_scatter(csv: str, x: str, y: str, title: str = "", height: int = 240) -> str:
+    """산점도 블록 — 같은 폴더 CSV의 두 열을 점으로, 최소제곱 직선을 겹친다."""
+    enc = {"x": {"field": x, "type": "quantitative", "scale": {"zero": False}}, "y": {"field": y, "type": "quantitative", "scale": {"zero": False}}}
+    return _block({"title": title, "height": height, "width": "container", "data": {"url": csv}, "layer": [
+        {"mark": {"type": "point", "filled": True, "opacity": 0.6, "size": 26}, "encoding": enc},
+        {"transform": [{"regression": y, "on": x}], "mark": {"type": "line"}, "encoding": enc},
+    ]})
+
+
 def card(title: str, head: Sequence[Tuple[str, object]] = (), sections: Sequence[Tuple[str, str]] = (),
          lead: Optional[str] = None) -> str:
     """기록 카드 하나 — `# 제목`, 머리 정보 표, 절(`## 제목` + 본문)."""

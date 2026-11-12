@@ -134,3 +134,51 @@ est:cons_ecm1  0.931958  통과
 분석 카드(`work/an/<이름>/summary.md`)에는 그 결과를 낸 명령이 그대로 적혀 있어, 같은 자료 회차에서 그 명령을 치면 같은 결과가 새 기록으로 나옵니다.
 
 관련: [튜토리얼 3](../tutorial/03-diagnostics.md)
+
+## R60. 기초 통계 — 기술 통계·상관·자기상관·그랜저, 그리고 묶음
+
+식을 세우기 전에 변수를 살펴보는 분석도 명령 하나 · 기록 하나입니다. 여러 변수는 빈칸으로 띄워 적거나(`"dlog(Y) dlog(CN)"`) 묶음 이름을 씁니다.
+묶음은 `p.group_define`(명령줄 `equion group define 이름 --series Y,CN,I`)으로 `equion.toml`의 `[group]`에 남깁니다.
+
+```python
+p = eqn.Project.create("stat_prj", force=True)
+print(p.an("stats", "core").text())                          # equion an stats core
+print(p.an("acf", "dlog(Y)", lags=8).text())                 # equion an acf "dlog(Y)" --lags 8
+print(p.an("granger", "dlog(Y) dlog(CN)", lags=2).text())    # equion an granger "dlog(Y) dlog(CN)" --lags 2
+p.group_define("money", series=["M2", "R", "P"], desc="돈과 물가")
+print(p.an("corr", "money").text())                          # equion an corr money
+```
+<!-- out -->
+```text
+[stat_prj] 자료 회차 d2026-11a를 만들었습니다
+[stat_prj] 지금 자료 회차: d2026-11a
+[stat_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[an:stats_0001] 기술 통계 · 묶음 core(Y · CN · I) · 1970Q1~2019Q4 · 자료 data:d2026-11a
+  Y          관측치 200 · 평균 456.9 · 표준편차 95.944 · 왜도 0.12 · 첨도 1.74 · JB p=0.001
+  CN         관측치 200 · 평균 340.2 · 표준편차 68.511 · 왜도 0.12 · 첨도 1.75 · JB p=0.001
+  I          관측치 200 · 평균 68.755 · 표준편차 15.834 · 왜도 0.18 · 첨도 1.65 · JB p=<0.001
+  알아서 한 것  결측은 시리즈마다 뺐다 · 왜도·첨도는 표본 모멘트(정규분포의 첨도는 3), Jarque-Bera는 정규성 검정
+  기록   an:stats_0001 (work/an/stats_0001/summary.md)
+[an:acf_0001] 자기상관 · dlog(Y) · 1970Q2~2019Q4 · 자료 data:d2026-11a
+  자기상관(시차 1~4)  +0.03 · +0.14 · +0.20 · +0.09
+  Q(8) 23.56 p=0.003 → 자기상관이 있다(5%)
+  95% 한계 ±0.139을 넘는 시차: 3, 5
+  알아서 한 것  시차 8 · 편자기상관은 Yule-Walker(Durbin-Levinson) · 한계는 ±1.96/√n
+  기록   an:acf_0001 (work/an/acf_0001/summary.md)
+[an:granger_0001] Granger 인과 · dlog(Y) · dlog(CN) · 1970Q2~2019Q4 · 자료 data:d2026-11a
+  5%에서 Granger 인과인 쌍이 없다
+  알아서 한 것  시차 2 · 쌍마다 두 시리즈가 모두 있는 기간 — 상수 + 각자의 시차 · 귀무가설: 원인의 시차 계수가 모두 0
+  기록   an:granger_0001 (work/an/granger_0001/summary.md)
+[stat_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[an:corr_0001] 상관 · 묶음 money(M2 · R · P) · 1970Q1~2019Q4 · 자료 data:d2026-11a
+  M2 · P  +0.99 (p=<0.001)
+  M2 · R  -0.83 (p=<0.001)
+  R · P  -0.77 (p=<0.001)
+  알아서 한 것  피어슨(값) 상관 · 공통 표본 200기 · p값은 '상관이 0'의 t 검정 — 추세가 있는 수준끼리는 상관이 크게 나오기 쉽다(차분·증가율로도 보라)
+  기록   an:corr_0001 (work/an/corr_0001/summary.md)
+```
+
+카드에는 표와 차트(자기상관은 막대와 ±1.96/√n 띠, 상관은 색 격자)가 함께 남습니다. Equion Desk에서는 변수 탭에서 변수를 골라 우클릭하면
+고른 수에 맞는 분석만 나옵니다(자기상관은 하나, 교차상관은 둘, 상관·그랜저는 여럿).
+
+관련: [R53](#r53-분석을-기록으로--단위근공적분오차수정-그리고-남기기) · [등록부의 분석 목록](../reference/cli.md)

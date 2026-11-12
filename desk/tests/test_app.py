@@ -1331,6 +1331,102 @@ def section_review(tmp: str) -> None:
         state.close()
 
 
+def section_side(tmp: str) -> None:
+    print("Q. DESK_V2 — 변수 탭·분석 탭·묶음·식 더하기(개별 식·모형에 넣기)·명령 창·명령 목록·터미널 번호·오른쪽 나눔 설정")
+    from equion_desk.server import create_app
+
+    folder = example(tmp, "side")
+
+    def read(*parts: str) -> str:
+        with open(os.path.join(folder, *parts), encoding="utf-8") as f:
+            return f.read()
+
+    state, pid = new_state(tmp, folder, "q.json")
+    api = f"/api/p/{pid}"
+    try:
+        c = create_app(state).test_client()
+        c.get(f"{api}/overview")
+        v = c.get(f"{api}/variables").json
+        rows = {r["name"]: r for r in v["variables"]}
+        check("Q1 변수 — 시리즈마다 설명·구간·끝 값·종류와 모형과의 관계(식이 있다 · 외생), 묶음",
+              rows["CN"]["rel"] == "endo" and "demand:CN" in rows["CN"]["parts"] and rows["POIL"]["rel"] == "exo" and rows["CN"]["kind"] == "원자료"
+              and rows["CN"]["first"] and rows["CN"]["value"] is not None and any(g["name"] == "core" for g in v["groups"]), str(rows.get("CN"))[:300])
+        dry = c.post(f"{api}/group/define", json={"name": "trio", "series": ["Y", "CN", "I"], "desc": "셋", "dry": True}).json
+        bad = c.post(f"{api}/group/define", json={"name": "bad", "series": ["Y", "NOPE"], "dry": True})
+        check("Q2 묶음 미리보기 — 쓰지 않고 equion.toml 의 차이와 명령, 없는 시리즈는 거절",
+              "+trio" in dry["diff"].replace(" ", "") and dry["new"] is True and "group define trio" in dry["command"] and "trio" not in read("equion.toml")
+              and bad.status_code == 422 and "NOPE" in bad.json["error"], str(dry)[:300])
+        r = c.post(f"{api}/group/define", json={"name": "trio", "series": ["Y", "CN", "I"], "desc": "셋"}).json
+        groups = [g["name"] for g in c.get(f"{api}/variables").json["groups"]]
+        r2 = c.post(f"{api}/group/remove", json={"name": "trio"}).json
+        check("Q3 묶음 저장·지우기 — equion.toml 에 쓰고 바뀜 기록에 남는다(누가 Desk)",
+              r["result"]["change"] and "trio" in groups and r2["result"]["change"] and "trio" not in read("equion.toml")
+              and c.get(f"{api}/change?id={r['result']['change']}").json["who"] == "desk", str(r)[:300])
+        lst = c.get(f"{api}/analysis-list").json
+        check("Q4 분석 목록 — 처음엔 개별 식도 결과도 없다(예제의 블록은 모두 모형이 쓴다)", lst["singles"] == [] and lst["results"] == [] and lst["vintage"], str(lst)[:300])
+        dry = c.post(f"{api}/part/add", json={"block": "single", "text": "IPQ c IPQ(-1)", "create": True, "dry": True}).json
+        made = c.post(f"{api}/part/add", json={"block": "single", "text": "IPQ c IPQ(-1)", "create": True}).json["result"]
+        lst = c.get(f"{api}/analysis-list").json
+        check("Q5 새 개별 식 — 블록 single 을 만들고 한 줄(미리보기 → 쓰기), 분석 탭의 개별 식에 놓인다",
+              dry["new_block"] is True and "+IPQ c IPQ(-1)" in dry["diff"] and made["part"] == "single:IPQ" and made["block_change"]
+              and "IPQ c IPQ(-1)" in read("EQUATIONS", "single.txt") and [x["id"] for x in lst["singles"]] == ["single:IPQ"]
+              and next(b for b in lst["blocks"] if b["name"] == "single")["used"] is False, str(made)[:300])
+        moved_dry = c.post(f"{api}/part/add", json={"block": "price", "text": "IPQ c IPQ(-1)", "from": "single:IPQ", "dry": True}).json
+        moved = c.post(f"{api}/part/add", json={"block": "price", "text": "IPQ c IPQ(-1)", "from": "single:IPQ"}).json["result"]
+        check("Q6 모형에 넣기 — 개별 식을 모형이 쓰는 블록으로 옮긴다(원래 줄은 빠진다)",
+              "-IPQ c IPQ(-1)" in moved_dry["diff"] and "+IPQ c IPQ(-1)" in moved_dry["diff"] and moved["part"] == "price:IPQ"
+              and "IPQ" in read("EQUATIONS", "price.txt") and "IPQ" not in read("EQUATIONS", "single.txt")
+              and c.get(f"{api}/analysis-list").json["singles"] == [], str(moved)[:300])
+        gone = c.post(f"{api}/part/remove", json={"part": "price:IPQ"}).json["result"]
+        bad = c.post(f"{api}/part/add", json={"block": "nope", "text": "X c Y"})
+        two = c.post(f"{api}/part/add", json={"block": "single", "text": "X c Y\nZ c Y"})
+        check("Q7 식 빼기 · 없는 블록(만들라고 하지 않으면)과 여러 줄은 거절", gone["change"] and "IPQ" not in read("EQUATIONS", "price.txt")
+              and bad.status_code == 422 and two.status_code == 400, str(gone)[:200])
+        one = c.post(f"{api}/line", json={"line": "an stats Y"}).json["result"]
+        lst = c.get(f"{api}/analysis-list").json
+        res = {(x["analysis"], x["target"]): x for x in lst["results"]}
+        check("Q8 명령 한 줄 — 작업 프로세스가 명령줄 그대로 돌리고(누가 Desk) 새 기록을 돌려준다 · 분석 목록에 대상별로",
+              one["code"] == 0 and one["records"] == ["an:stats_0001"] and ("stats", "Y") in res and res[("stats", "Y")]["scope"] == "one"
+              and res[("stats", "Y")]["stale"] is False and json.load(open(os.path.join(folder, "work", "an", "stats_0001", "record.json"), encoding="utf-8"))["who"] == "desk", str(one)[:300])
+        two = c.post(f"{api}/line", json={"line": "equion an corr 'Y CN'"}).json["result"]
+        adopt = c.post(f"{api}/line", json={"line": "adopt est:nope"}).json["result"]
+        py = c.post(f"{api}/line", json={"line": "run x.py"}).json["result"]
+        empty = c.post(f"{api}/line", json={"line": "  "})
+        lst = c.get(f"{api}/analysis-list").json
+        check("Q9 여러 변수(따옴표) · 틀린 명령은 코드와 글 · Python 스크립트는 받지 않는다 · 빈 줄은 400",
+              two["code"] == 0 and any(x["analysis"] == "corr" and x["scope"] == "many" for x in lst["results"]) and adopt["code"] != 0 and adopt["out"]
+              and py["code"] == 3 and py["denied"] and empty.status_code == 400, str([two, adopt, py])[:400])
+        cat = c.get(f"{api}/catalog").json
+        cmds = {x["command"] for x in cat["commands"]}
+        check("Q10 명령 목록 — 명령·옵션(명령줄 정의에서)과 프로젝트의 이름들(식·모형·묶음·시리즈·기록·회차)",
+              {"est", "an corr", "group define", "block add"} <= cmds and "demand:CN" in cat["names"]["parts"] and "main" in cat["names"]["models"]
+              and "CN" in cat["names"]["series"] and "an:stats_0001" in cat["names"]["records"] and cat["names"]["vintages"]
+              and any(a["name"] == "corr" and a["count"] == "many" for a in cat["names"]["analyses"]), str(cat["names"])[:300])
+        reg = c.get(f"{api}/analyses").json
+        check("Q11 등록부에 받는 대상의 수(count) — 변수 메뉴가 고른 수에 맞는 분석만 보인다",
+              {a["name"]: a["count"] for a in reg["analyses"]}.get("xcorr") == "two" and {a["name"]: a["count"] for a in reg["analyses"]}.get("acf") == "one")
+        head = {"X-Term": state.term_secret}
+        bad_n = c.post("/api/term/open", json={"p": pid, "cols": 80, "rows": 20, "n": 9}, headers=head)
+        t0 = c.post("/api/term/open", json={"p": pid, "cols": 80, "rows": 20, "n": 0}, headers=head).json
+        t1 = c.post("/api/term/open", json={"p": pid, "cols": 80, "rows": 20, "n": 1}, headers=head).json
+        again = c.post("/api/term/open", json={"p": pid, "cols": 80, "rows": 20, "n": 1}, headers=head).json
+        listed = c.get(f"/api/term/list?p={pid}", headers=head).json
+        c.post("/api/term/close", json={"t": t1["id"]}, headers=head)
+        after = c.get(f"/api/term/list?p={pid}", headers=head).json
+        c.post("/api/term/close", json={"t": t0["id"]}, headers=head)
+        check("Q12 터미널 번호 — 번호마다 셸 하나(이미 돌면 그것), 목록으로 되살린다, 번호는 0~4",
+              bad_n.status_code == 400 and t0["n"] == 0 and t1["n"] == 1 and again["id"] == t1["id"] and [x["n"] for x in listed["terms"]] == [0, 1]
+              and listed["max"] == 5 and [x["n"] for x in after["terms"]] == [0], str(listed))
+        before = c.get("/api/state").json["client"]
+        c.post("/api/settings", json={"right_split": 0.4, "cmd_top": True, "side_width": 900})
+        c.post("/api/settings", json={"right_split": 0.95, "side_width": 5000})
+        cl = c.get("/api/state").json["client"]
+        check("Q13 화면 설정 — 오른쪽 나눔 비율·명령 창 자리를 기억한다(범위 밖은 받지 않는다), 왼쪽 폭은 넓게까지",
+              before["right_split"] == 0.62 and before["cmd_top"] is False and cl["right_split"] == 0.4 and cl["cmd_top"] is True and cl["side_width"] == 900, str(cl))
+    finally:
+        state.close()
+
+
 def section_instance(tmp: str, folder: str) -> None:
     print("I. 창은 하나 — 또 실행하면 폴더를 떠 있는 창에 넘긴다")
     from equion_desk import instance
@@ -1367,6 +1463,7 @@ def run() -> int:
         section_model(tmp)
         section_forecast(tmp)
         section_review(tmp)
+        section_side(tmp)
         section_instance(tmp, folder)
     bad = [n for n, ok, _ in RESULTS if not ok]
     print(f"\nEquion Desk 앱 시험 {len(RESULTS) - len(bad)}/{len(RESULTS)}")

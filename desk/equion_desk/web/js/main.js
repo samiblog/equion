@@ -13,7 +13,7 @@ const dark = window.matchMedia('(prefers-color-scheme: dark)');
 
 const app = {
   state: null,
-  settings: { theme: 'auto', font_scale: 100, side_width: null, term_width: null, side_visible: true, term_visible: true, term_follow: true },
+  settings: { theme: 'auto', font_scale: 100, side_width: null, term_width: null, side_visible: true, term_visible: true, term_follow: true, right_split: 0.62, cmd_top: false },
   projects: new Map(),
   current: null,
   changes: new Map(),      // 프로젝트 → 아직 보지 않은 바뀜 수
@@ -34,6 +34,7 @@ const app = {
     if (s.term_width) root.style.setProperty('--term-w', `${s.term_width}px`); else root.style.removeProperty('--term-w');
     $('btn-side').setAttribute('aria-pressed', String(s.side_visible));
     $('btn-term').setAttribute('aria-pressed', String(s.term_visible));
+    root.dataset.cmdTop = String(!!s.cmd_top);
     for (const p of this.projects.values()) { p.applyLayout(); if (termChanged) p.term.retheme(); }
     if (changed) recolorCharts();
   },
@@ -46,15 +47,19 @@ const app = {
     this.saveSettings({ ...this.settings });
   },
 
-  /** 사이드바·터미널의 경계를 끌어 폭을 바꾼다 */
+  /** 왼쪽 열·오른쪽 열의 경계를 끌어 폭을 바꾼다 — 가운데는 CENTER_MIN 보다 좁아지지 않는다. 두 번 누르면 기본(1/3씩, 좁은 창은 가운데를 지킨다) */
   dragGutter(bar, which) {
+    const CENTER_MIN = 400;
     bar.addEventListener('pointerdown', (down) => {
       bar.setPointerCapture(down.pointerId);
       bar.classList.add('dragging');
+      const project = bar.parentElement;
+      const other = which === 'side' ? project.querySelector(':scope > .right') : project.querySelector(':scope > .side');
+      const otherW = () => (other && other.offsetParent !== null ? other.offsetWidth + 5 : 0);
       const move = (e) => {
         const total = window.innerWidth;
-        if (which === 'side') this.settings.side_width = Math.round(Math.min(Math.max(e.clientX, 190), Math.min(560, total - 700)));
-        else this.settings.term_width = Math.round(Math.min(Math.max(total - e.clientX, 260), total - 420 - (this.settings.side_visible ? 200 : 0)));
+        if (which === 'side') this.settings.side_width = Math.round(Math.max(190, Math.min(e.clientX, 1600, total - CENTER_MIN - 10 - otherW())));
+        else this.settings.term_width = Math.round(Math.max(260, Math.min(total - e.clientX, 1600, total - CENTER_MIN - 10 - otherW())));
         this.applySettings();
       };
       const up = () => {
@@ -67,6 +72,32 @@ const app = {
       bar.addEventListener('pointercancel', up, { once: true });
     });
     bar.addEventListener('dblclick', () => this.setSetting(which === 'side' ? 'side_width' : 'term_width', null));
+  },
+
+  /** 오른쪽 열의 위아래 경계(터미널 · 명령 창)를 끌어 높이를 바꾼다. right_split 은 터미널의 몫 */
+  dragSplit(bar, right) {
+    bar.addEventListener('pointerdown', (down) => {
+      bar.setPointerCapture(down.pointerId);
+      bar.classList.add('dragging');
+      const move = (e) => {
+        const r = right.getBoundingClientRect();
+        if (r.height < 40) return;
+        const y = (e.clientY - r.top) / r.height;
+        const term = this.settings.cmd_top ? 1 - y : y;
+        this.settings.right_split = Math.round(Math.min(0.85, Math.max(0.15, term)) * 1000) / 1000;
+        this.applySettings();
+      };
+      const up = () => {
+        bar.classList.remove('dragging');
+        bar.removeEventListener('pointermove', move);
+        this.saveSettings({ ...this.settings });
+        this.current?.term.refit();
+      };
+      bar.addEventListener('pointermove', move);
+      bar.addEventListener('pointerup', up, { once: true });
+      bar.addEventListener('pointercancel', up, { once: true });
+    });
+    bar.addEventListener('dblclick', () => this.setSetting('right_split', 0.62));
   },
 
   // ---- 프로젝트 탭 ------------------------------------------------------------------------------

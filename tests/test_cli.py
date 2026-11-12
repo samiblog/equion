@@ -417,6 +417,36 @@ def main():
     code, _, _ = run(["convert", os.path.join(tmp, "conv.eqw"), os.path.join(tmp, "conv2")])
     check("convert: 워크파일 → 워크파일", code == 0 and os.path.isdir(os.path.join(tmp, "conv2.eqw")))
 
+    print("=" * 80)
+    print("G. 명령 한 줄 실행기(Desk의 명령 창 — D52)")
+    print("=" * 80)
+    from equion.cli.line import catalog, run_line
+    lp = quiet(eqn.Project.create, os.path.join(tmp, "line_demo"))
+    here = os.getcwd()
+    r1 = run_line(lp.root, "est demand:CN")
+    r2 = run_line(lp.root, "equion an unitroot Y --trend ct")
+    r3 = run_line(lp.root, f"adopt {r1.records[0]}" if r1.records else "adopt est:nope")
+    check("한 줄: 명령줄 그대로(앞의 equion은 빼도 된다) — 새 기록·새 바뀜 기록을 돌려주고 '누가'는 desk, 지금 폴더는 그대로",
+          r1.code == 0 and r1.records == ["est:cn_0001"] and r2.code == 0 and r2.records == ["an:unitroot_0001"] and r2.line == "an unitroot Y --trend ct"
+          and r3.code == 0 and r3.changes == ["h0002"] and r3.records == [] and os.getcwd() == here
+          and load(os.path.join(lp.root, "work", "est", "cn_0001", "record.json"))["who"] == "desk", f"{r1.to_dict()}"[:300])
+    r4 = run_line(lp.root, "an nope Y")
+    r5 = run_line(lp.root, "run x.py")
+    r6 = run_line(lp.root, "new other")
+    r7 = run_line(lp.root, 'est "CN c Y (')
+    r8 = run_line(lp.root, "work list --json")
+    check("한 줄: 틀린 명령은 종료 코드 3과 글 · Python 스크립트·새 프로젝트는 받지 않는다 · 따옴표 · JSON 출력",
+          r4.code == 3 and "사용법" in r4.out and r5.code == 3 and r5.denied and "터미널" in r5.denied and r6.denied
+          and r7.code == 3 and "따옴표" in r7.out and r8.code == 0 and isinstance(json.loads(r8.out), list), r4.out[:120])
+    cat = catalog()
+    cmds = {c["command"]: c for c in cat}
+    unit = cmds.get("an unitroot", {})
+    check("명령 목록: 명령마다 도움말·인자·옵션(값을 받는지·고를 값) — 분석은 등록부에서, run은 받고 new는 받지 않는다",
+          {"est", "hs", "sim", "an corr", "an granger", "group define", "block add", "history revert"} <= set(cmds)
+          and any(o["flags"][0] == "--trend" and o["choices"] == ["n", "c", "ct"] and o["takes"] for o in unit.get("options", []))
+          and any(o["flags"][0] == "--json" and not o["takes"] for o in unit.get("options", []))
+          and unit["args"][0]["name"] == "target" and cmds["run"]["denied"] is None and cmds["new"]["denied"], str(unit)[:300])
+
     shutil.rmtree(tmp, ignore_errors=True)
     print("\n" + "=" * 80)
     total = len(PASS) + len(FAIL)

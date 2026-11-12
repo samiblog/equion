@@ -67,8 +67,9 @@
   --term-select: rgba(11, 122, 117, .22);
   --term-select-off: rgba(11, 122, 117, .12);
 
-  --side-w: 264px;
-  --term-w: 38%;
+  /* 세 열(DESK_V2 §1.1) — 기본은 1/3씩. 창이 좁으면(가운데가 540px 보다 좁아지면) 양옆을 줄여 가운데를 지킨다. 끌어 바꾼 폭은 main.js 가 덮어쓴다 */
+  --side-w: min(calc((100vw - 10px) / 3), max(calc((100vw - 550px) / 2), 190px));
+  --term-w: min(calc((100vw - 10px) / 3), max(calc((100vw - 550px) / 2), 260px));
   color-scheme: light;
 }
 

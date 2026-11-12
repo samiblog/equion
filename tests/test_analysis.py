@@ -110,12 +110,16 @@ def _main(tmp, t0):
     print("A. 등록부")
     print("=" * 80)
     names = [a.name for a in reg.analyses()]
-    check("분석 13개(등록 순)", names == ["summary", "unitroot", "coint", "diag", "fcsteval", "stability", "multipliers",
-                                     "seas", "genr", "ecm", "var", "vecm", "system"], str(names))
+    check("분석 22개(등록 순)", names == ["summary", "unitroot", "coint", "diag", "fcsteval", "stability", "multipliers",
+                                     "seas", "genr", "ecm", "var", "vecm", "system", "stats", "hist", "acf", "corr", "xcorr",
+                                     "granger", "fevd", "convert", "stochastic"], str(names))
+    check("대상 수(count) — 우클릭 메뉴가 고른 수로 거른다", {a.name: a.count for a in reg.analyses() if a.count != "any"} ==
+          {"coint": "many", "seas": "one", "ecm": "many", "var": "many", "vecm": "many", "hist": "one", "acf": "one", "corr": "many",
+           "xcorr": "two", "granger": "many", "fevd": "many"})
     check("만드는 것", {a.name: a.makes for a in reg.analyses() if a.makes} ==
           {"seas": "definition", "genr": "derived", "ecm": "candidate", "var": "candidate", "vecm": "candidate",
            "system": "candidate"})
-    check("대상 종류로 고르기", [a.name for a in reg.analyses("model")] == ["stability", "multipliers"])
+    check("대상 종류로 고르기", [a.name for a in reg.analyses("model")] == ["stability", "multipliers", "stochastic"])
     check("옵션 기본값", reg.get("unitroot").defaults() == {"trend": "c", "lags": None, "ic": "bic", "maxlag": None})
     check("없는 분석", raises(lambda: reg.get("nope"), KeyError, "있는 분석"))
     check("표(목록)", reg.table()[0]["분석"] == "summary" and set(reg.table()[0]) == {"분석", "이름", "갈래", "대상", "만드는 것", "결과"})
@@ -380,9 +384,9 @@ def _main(tmp, t0):
     print("=" * 80)
     _, dc = new_project(tmp, "cli")
     code, out, _ = run(["an", "list"], dc)
-    check("an list(0)", code == 0 and out.startswith("[an list] 분석 13") and "seas" in out)
+    check("an list(0)", code == 0 and out.startswith("[an list] 분석 22") and "seas" in out)
     code, out, _ = run(["an", "list", "--for", "model", "--json"], dc)
-    check("an list --for --json", code == 0 and [x["분석"] for x in json.loads(out)] == ["stability", "multipliers"])
+    check("an list --for --json", code == 0 and [x["분석"] for x in json.loads(out)] == ["stability", "multipliers", "stochastic"])
     code, out, _ = run(["an", "unitroot", "--help"], dc)
     check("an <분석> --help: 등록부의 옵션·기본값·예", code == 0 and "--trend {n,c,ct}" in out and "(기본 c)" in out
           and "예: equion an unitroot core --trend ct" in out)
@@ -450,6 +454,65 @@ def _main(tmp, t0):
     rt = read(os.path.join(ds, "reports", "2026-11_소비.md"))
     check("A5 보고서 — 결과만(명령 블록 없이)", code == 0 and code2 == 0 and "```equion" not in rt and rt.count("<!-- equion:report") == 2)
 
+    print("=" * 80)
+    print("J. 기초 분석·인과·변환·확률적 모의 (D50) — 통계 함수와 같은 값, 카드의 차트 종류")
+    print("=" * 80)
+    from equion import stats as S
+    pj, dj = new_project(tmp, "an_basic")
+    wj = quiet(eqn.wfopen, os.path.join(dj, "work", "data", pj.vintage, "series.csv"), freq="Q")
+    st = quiet(pj.an, "stats", "core")
+    ref = S.describe(pd.DataFrame({c: wj[c] for c in ("Y", "CN", "I")}))
+    check("기술 통계: 묶음의 시리즈마다 = 통계 함수", list(st.table(1).index) == ["Y", "CN", "I"]
+          and np.allclose(st.table(1)["평균"].to_numpy(), ref["평균"].to_numpy()) and np.allclose(st.table(1)["첨도"].to_numpy(), ref["첨도"].to_numpy())
+          and st.meta["sample"] == ["1970Q1", "2019Q4"])
+    ac = quiet(pj.an, "acf", "dlog(Y)", lags=8)
+    cg = S.correlogram(wj.eval("dlog(Y)").dropna().to_numpy(), 8)
+    md_ac = ac.record.summary_md()
+    check("자기상관: 표 = 통계 함수, 막대 차트 둘(95% 한계 점선)", np.allclose(ac.table(1)["편자기상관"].to_numpy(), cg["편자기상관"].to_numpy())
+          and ac.meta["charts"] == ["자기상관", "편자기상관"] and md_ac.count('"type": "bar"') == 2 and '"strokeDash"' in md_ac
+          and abs(ac.meta["result"]["band"] - cg.attrs["band"]) < 1e-12, md_ac[-300:])
+    ac2 = quiet(pj.an, "acf", "R")
+    check("자기상관: 시차를 주지 않으면 분기 12 · 시리즈 둘이면 오류", ac2.meta["result"]["lags"] == 12
+          and raises(lambda: pj.an("acf", "Y CN"), ProjectError, "하나"))
+    co = quiet(pj.an, "corr", "dlog(CN) dlog(Y) R")
+    cref = S.correlation(pd.DataFrame({x: wj.eval(x) if "(" in x else wj[x] for x in ("dlog(CN)", "dlog(Y)", "R")}))
+    md_co = co.record.summary_md()
+    check("상관: 행렬·p값 = 통계 함수, 색 격자 차트(긴 표 행·열·값)", np.allclose(co.table(1).to_numpy(dtype=float), cref.corr.to_numpy())
+          and co.meta["tables"] == ["상관 행렬", "p값", "공분산", "쌍마다"] and '"type": "rect"' in md_co and '"blueorange"' in md_co
+          and list(co.record.read_csv("chart_1.csv").columns) == ["행", "열", "값"] and co.meta["result"]["nobs"] == cref.nobs)
+    c2 = quiet(pj.an, "corr", "dlog(CN) dlog(Y)", method="spearman")
+    check("상관: 둘이면 산점도(최소제곱 직선)도 · 스피어먼 · 하나면 오류", c2.meta["charts"][1] == "dlog(CN) · dlog(Y)" and '"regression"' in c2.record.summary_md()
+          and c2.meta["result"]["method"] == "spearman" and raises(lambda: pj.an("corr", "Y"), ProjectError, "둘 이상"))
+    xc = quiet(pj.an, "xcorr", "dlog(CN) dlog(Y)", lags=4)
+    xref = S.ccf(wj.eval("dlog(CN)").to_numpy(), wj.eval("dlog(Y)").to_numpy(), 4)
+    check("교차상관: = 통계 함수(−4…4), 둘이 아니면 오류", np.allclose(xc.table(1)["상관"].to_numpy(), xref["상관"].to_numpy()) and len(xc.table(1)) == 9
+          and raises(lambda: pj.an("xcorr", "Y CN I"), ProjectError, "둘"))
+    gr = quiet(pj.an, "granger", "dlog(Y) dlog(CN)", lags=2)
+    gref = S.granger_causality(wj.eval("dlog(CN)"), wj.eval("dlog(Y)"), 2)
+    gt = gr.table(1)
+    check("Granger: 쌍마다 = 통계 함수, p값 행렬, 기본 시차는 분기 4", abs(gt[(gt["원인"] == "dlog(Y)") & (gt["결과"] == "dlog(CN)")]["F"].iloc[0] - gref.statistic) < 1e-9
+          and gr.meta["tables"] == ["Granger 인과", "p값(행 원인 → 열 결과)"] and quiet(pj.an, "granger", "core").meta["result"]["lags"] == 4)
+    hi = quiet(pj.an, "hist", "dlog(Y)", bins=6)
+    md_hi = hi.record.summary_md()
+    check("히스토그램: 구간 6 · 도수 합 = 관측치 · 막대 + 정규 기대도수 선", len(hi.table(1)) == 6 and int(hi.table(1)["도수"].sum()) == 199
+          and '"point": true' in md_hi and hi.meta["result"]["bins"] == 6)
+    fv = quiet(pj.an, "fevd", "dlog(Y) R", lags=2, periods=6)
+    fw = quiet(wj.var, "chkv", ["dlog(Y)", "R"], lags=2).fevd(6)
+    check("분산분해: = VAR 객체(%) · 행 합 100", np.allclose(fv.table(1).to_numpy(dtype=float), (fw["dlog(Y)"] * 100).round(2).to_numpy())
+          and np.allclose(fv.table(2).sum(axis=1).to_numpy(dtype=float), 100, atol=0.05))
+    cv = quiet(pj.an, "convert", "Y", how="sum")
+    from equion.data import transform as T
+    aref = T.aggregate(wj["Y"], "Q", "A", "sum").dropna()
+    check("주기 변환: 분기 → 연 합 = transform.aggregate, 연 라벨", list(cv.table(1).index[:2]) == ["1970", "1971"]
+          and np.allclose(cv.table(1)["Y"].to_numpy(dtype=float), aref.to_numpy()) and raises(lambda: pj.an("convert", "Y", to="Q"), ProjectError, "이미"))
+    sto = quiet(pj.an, "stochastic", "main", var="Y", reps=20, seed=3)
+    sto2 = quiet(pj.an, "stochastic", "main", var="Y", reps=20, seed=3)
+    check("확률적 모의: 평균·표준편차·분위수 표, 같은 씨앗이면 같은 값", list(sto.table(1).columns) == ["mean", "std", "p5", "p50", "p95"]
+          and np.allclose(sto.table(1).to_numpy(dtype=float), sto2.table(1).to_numpy(dtype=float)) and sto.meta["sample"] == ["2005Q1", "2019Q4"])
+    code, out, _ = run(["an", "corr", "core", "--method", "spearman"], dj)
+    code2, out2, _ = run(["an", "list"], dj)
+    check("명령줄: an corr · an list에 새 분석", code == 0 and "[an:corr_" in out and "상관" in out and code2 == 0
+          and all(x in out2 for x in ("stats", "acf", "granger", "xcorr", "fevd", "stochastic")), out[:200])
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:

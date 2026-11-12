@@ -341,7 +341,7 @@ def analyses(project: Any) -> dict:
     cfg = project.config
     items = []
     for a in registry.analyses():
-        items.append({"name": a.name, "label": a.label, "group": a.group, "targets": list(a.targets), "target_labels": [registry.TARGET_KO.get(t, t) for t in a.targets],
+        items.append({"name": a.name, "label": a.label, "group": a.group, "count": a.count, "targets": list(a.targets), "target_labels": [registry.TARGET_KO.get(t, t) for t in a.targets],
                       "makes": a.makes, "makes_label": registry.MAKES_KO.get(a.makes) if a.makes else None, "results": a.results, "help": a.help, "example": a.example,
                       "options": [{"name": o.name, "type": o.type, "default": o.default, "choices": list(o.choices), "help": o.help, "metavar": o.metavar} for o in a.options]})
     names: list[str] = []

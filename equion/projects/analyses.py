@@ -4,7 +4,8 @@
 
 세 갈래로 나뉜다.
 
-    보는 분석       summary · unitroot · coint · diag · fcsteval · stability · multipliers — 아무 파일도 바꾸지 않는다
+    보는 분석       summary · unitroot · coint · diag · fcsteval · stability · multipliers · stats · hist · acf · corr · xcorr ·
+                    granger · fevd · convert · stochastic — 아무 파일도 바꾸지 않는다
     만드는 분석     seas · genr — `an keep`이 정의(series.toml · derived.txt)로 남긴다. 실측 자리에 바로 쓰지 않는다
     부품을 내는 분석  ecm · var · vecm · system — `an keep`이 식 후보(est: 기록)로 남긴다. 채택은 사람이(adopt)
 
@@ -37,7 +38,7 @@ class AnOut:
     target: str
     sample: Optional[Tuple[str, str]] = None
     tables: List[Tuple[str, pd.DataFrame]] = field(default_factory=list)
-    charts: List[Tuple[str, pd.DataFrame, List[str]]] = field(default_factory=list)
+    charts: List[tuple] = field(default_factory=list)      # (제목, 표, 시리즈) 선 차트 · (제목, 표, 시리즈, {kind: bar·heat·scatter, …})
     lines: List[str] = field(default_factory=list)
     implicit: List[str] = field(default_factory=list)
     payload: dict = field(default_factory=dict)
@@ -104,9 +105,21 @@ def _an_md(m: dict, tables, charts) -> str:
         else:
             body = md.table(df)
         secs.append((title, body))
-    for k, (title, df, series) in enumerate(charts, 1):
+    for k, chart in enumerate(charts, 1):
+        title, df, series = chart[:3]
+        spec = chart[3] if len(chart) > 3 else {}
         x = df.index.name or "period"
-        secs.append((title, md.vega_line(f"chart_{k}.csv", x, series, title)))
+        csv = f"chart_{k}.csv"
+        kind = spec.get("kind", "line")
+        if kind == "bar":
+            body = md.vega_bar(csv, x, spec.get("y", series[0]), title, band=spec.get("band"), line=spec.get("line"))
+        elif kind == "heat":
+            body = md.vega_heat(csv, title=title)
+        elif kind == "scatter":
+            body = md.vega_scatter(csv, spec["x"], spec["y"], title)
+        else:
+            body = md.vega_line(csv, x, series, title)
+        secs.append((title, body))
     secs.append(("알아서 한 것", md.bullets(m.get("implicit") or [])))
     return md.card(f"{m['label']} — {m['target_label']}", head, secs)
 
@@ -147,13 +160,13 @@ def run_an(p, name: str, target: str, options: dict = None, smpl: str = None, as
             "label": a.label, "target": target, "target_label": out.target, "options": opts, "smpl": smpl,
             "sample": list(out.sample) if out.sample else None, "lines": out.lines, "implicit": out.implicit,
             "result": out.payload, "makes": out.makes, "data": data_spec(p), "inputs": out.inputs,
-            "tables": [t for t, _ in out.tables], "charts": [t for t, _, _ in out.charts],
+            "tables": [t for t, _ in out.tables], "charts": [c[0] for c in out.charts],
             "path": f"work/an/{rname}", "id": f"an:{rname}"}
     files = {}
     for k, (_, df) in enumerate(out.tables, 1):
         files[f"table_{k}.csv"] = df
-    for k, (_, df, _) in enumerate(out.charts, 1):
-        files[f"chart_{k}.csv"] = df
+    for k, chart in enumerate(out.charts, 1):
+        files[f"chart_{k}.csv"] = chart[1]
     rec = store.write("an", rname, meta, files, _an_md(meta, out.tables, out.charts),
                       log={"metric": out.lines[0][:80] if out.lines else ""})
     r = AnRecord(rec)
@@ -557,6 +570,240 @@ def _system(p, target, method="sur", inst=None):
 
 
 # ---------------------------------------------------------------------------
+# 기초 분석 · 인과 · 변환 · 확률적 모의 (D50)
+# ---------------------------------------------------------------------------
+_PPY = {"Q": 4, "M": 12, "A": 1}
+
+
+def _window(wf, items) -> pd.DataFrame:
+    """대상들의 값 — 지금 표본(smpl) 안에서, 열마다 하나(식이면 계산한 값)."""
+    s0, e0 = wf._bounds()
+    idx = wf.data.index[s0:e0 + 1]
+    return pd.DataFrame({it: _ser(wf, it).iloc[s0:e0 + 1].to_numpy(dtype=float) for it in items}, index=idx)
+
+
+def _span(wf, df) -> Optional[Tuple[str, str]]:
+    d = df.dropna(how="all")
+    return (wf._label(d.index[0]), wf._label(d.index[-1])) if len(d) else None
+
+
+def _single(items, what: str) -> str:
+    if len(items) != 1:
+        raise ProjectError(f"{what}은(는) 시리즈 하나(또는 식 하나 — log(Y) 등) — 지금 {len(items)}개")
+    return items[0]
+
+
+def _gaps(s: pd.Series) -> int:
+    fv, lv = s.first_valid_index(), s.last_valid_index()
+    return int(s.loc[fv:lv].isna().sum()) if fv is not None else 0
+
+
+def _freq(p) -> str:
+    return getattr(p.workfile, "freq", None) or p.config.freq or "Q"
+
+
+def _stats(p, target):
+    from .. import stats as S
+    wf = p.workfile
+    label, items = _items(p, target)
+    df = _window(wf, items)
+    d = S.describe(df)
+    lines = [f"{k:<10} 관측치 {int(r['관측치'])} · 평균 {short(r['평균'])} · 표준편차 {short(r['표준편차'])} · 왜도 {r['왜도']:.2f} · "
+             f"첨도 {r['첨도']:.2f} · JB p={pfmt(r['JB p값'])}" for k, r in d.iterrows() if r["관측치"]]
+    implicit = ["결측은 시리즈마다 뺐다", "왜도·첨도는 표본 모멘트(정규분포의 첨도는 3), Jarque-Bera는 정규성 검정"]
+    return AnOut("기술 통계", label, _span(wf, df), [("기술 통계", d)], [], lines, implicit,
+                 payload={"rows": {k: {c: (None if pd.isna(v) else float(v)) for c, v in r.items()} for k, r in d.iterrows()}})
+
+
+def _hist(p, target, bins=None):
+    from .. import stats as S
+    wf = p.workfile
+    label, items = _items(p, target)
+    x = _single(items, "히스토그램")
+    s = _window(wf, [x])[x].dropna()
+    h = S.histogram(s.to_numpy(), bins)
+    d = S.describe(s.to_frame(x)).iloc[0]
+    tab = h.copy()
+    chart = pd.DataFrame({"도수": h["도수"].to_numpy(), "정규 기대도수": h["정규 기대도수"].round(2).to_numpy()},
+                         index=pd.Index([f"{short(a)}~{short(b)}" for a, b in zip(h["시작"], h["끝"])], name="구간"))
+    lines = [f"구간 {len(h)} · 관측치 {int(d['관측치'])} · 평균 {short(d['평균'])} · 표준편차 {short(d['표준편차'])}",
+             f"왜도 {d['왜도']:.2f} · 첨도 {d['첨도']:.2f} · Jarque-Bera p={pfmt(d['JB p값'])} → "
+             + ("정규분포와 다르다(5%)" if d["JB p값"] < 0.05 else "정규분포와 다르다고 할 수 없다(5%)")]
+    implicit = [f"구간 수 {'스터지스(⌈log₂ n⌉ + 1)' if not bins else '지정'} · 같은 폭",
+                "정규 기대도수는 같은 평균·표준편차의 정규분포에서"]
+    return AnOut("히스토그램", label, _span(wf, s.to_frame()), [("히스토그램", tab)],
+                 [("도수", chart, ["도수"], {"kind": "bar", "y": "도수", "line": "정규 기대도수"})], lines, implicit,
+                 payload={"bins": len(h), "jb_p": float(d["JB p값"])})
+
+
+def _acf(p, target, lags=None):
+    from .. import stats as S
+    wf = p.workfile
+    label, items = _items(p, target)
+    x = _single(items, "자기상관")
+    raw = _window(wf, [x])[x]
+    s = raw.dropna()
+    n = len(s)
+    L = int(lags) if lags else max(1, min({"Q": 12, "M": 24, "A": 10}.get(_freq(p), 12), n // 4))
+    cg = S.correlogram(s.to_numpy(), L)
+    band = cg.attrs["band"]
+    out = [int(k) for k, v in cg["자기상관"].items() if abs(v) > band]
+    q, qp = float(cg["Q"].iloc[-1]), float(cg["p값"].iloc[-1])
+    head = " · ".join(f"{v:+.2f}" for v in cg["자기상관"].iloc[:4])
+    lines = [f"자기상관(시차 1~{min(4, L)})  {head}",
+             f"Q({L}) {q:.2f} p={pfmt(qp)} → " + ("자기상관이 있다(5%)" if qp < 0.05 else "자기상관이 없다고 볼 수 있다(5%)"),
+             f"95% 한계 ±{band:.3f}을 넘는 시차: " + (", ".join(map(str, out[:12])) if out else "없음")]
+    implicit = [f"시차 {L}" + ("" if lags else "(주기에 맞춘 기본 — 관측치의 1/4을 넘지 않게)"),
+                "편자기상관은 Yule-Walker(Durbin-Levinson)", "한계는 ±1.96/√n"]
+    if _gaps(raw):
+        implicit.append(f"표본 안의 결측 {_gaps(raw)}기는 빼고 이었다")
+    charts = [("자기상관", cg[["자기상관"]], ["자기상관"], {"kind": "bar", "y": "자기상관", "band": band}),
+              ("편자기상관", cg[["편자기상관"]], ["편자기상관"], {"kind": "bar", "y": "편자기상관", "band": band})]
+    return AnOut("자기상관", label, _span(wf, s.to_frame()), [("자기상관 표", cg)], charts, lines, implicit,
+                 payload={"lags": L, "q": q, "q_p": qp, "band": band})
+
+
+def _corr(p, target, method="pearson"):
+    from .. import stats as S
+    wf = p.workfile
+    label, items = _items(p, target)
+    if len(items) < 2:
+        raise ProjectError("상관은 시리즈 둘 이상(묶음 또는 'Y CN P')")
+    df = _window(wf, items)
+    c = S.correlation(df, method)
+    common = df.dropna()
+    pairs = c.pairs()
+    long = pd.DataFrame([{"행": a, "열": b, "값": round(float(c.corr.loc[a, b]), 4)} for a in c.corr.index for b in c.corr.columns])
+    long.index.name = "칸"
+    charts = [("상관 행렬", long, ["값"], {"kind": "heat"})]
+    if len(items) == 2:
+        sc = _labelled(wf, common.copy())
+        charts.append((f"{items[0]} · {items[1]}", sc, list(sc.columns), {"kind": "scatter", "x": items[0], "y": items[1]}))
+    lines = [f"{r['변수1']} · {r['변수2']}  {r['상관']:+.2f} (p={pfmt(r['p값'])})" for _, r in pairs.head(5).iterrows()]
+    implicit = [f"{'피어슨(값)' if method == 'pearson' else '스피어먼(순위)'} 상관 · 공통 표본 {c.nobs}기",
+                "p값은 '상관이 0'의 t 검정" + (" — 추세가 있는 수준끼리는 상관이 크게 나오기 쉽다(차분·증가율로도 보라)" if _levels(items) else "")]
+    if len(common) < len(df.dropna(how="all")):
+        implicit.append("어느 시리즈든 결측인 기간은 뺐다")
+    return AnOut("상관", label, _span(wf, common), [("상관 행렬", c.corr), ("p값", c.pvalues), ("공분산", c.cov), ("쌍마다", pairs)],
+                 charts, lines, implicit, payload={"nobs": c.nobs, "method": method,
+                                                   "pairs": [[r["변수1"], r["변수2"], float(r["상관"])] for _, r in pairs.head(20).iterrows()]})
+
+
+def _xcorr(p, target, lags=None):
+    from .. import stats as S
+    wf = p.workfile
+    label, items = _items(p, target)
+    if len(items) != 2:
+        raise ProjectError(f"교차상관은 시리즈 둘('X Y') — 지금 {len(items)}개")
+    a, b = items
+    df = _window(wf, items).dropna()
+    n = len(df)
+    L = int(lags) if lags else max(1, min(2 * _PPY.get(_freq(p), 4) + 4, n // 4))
+    cc = S.ccf(df[a].to_numpy(), df[b].to_numpy(), L)
+    band = cc.attrs["band"]
+    k = int(cc["상관"].abs().idxmax())
+    v = float(cc.loc[k, "상관"])
+    lead = (f"{b}가 {k}기 앞선다" if k > 0 else f"{a}가 {-k}기 앞선다" if k < 0 else "같은 기에 가장 크다")
+    lines = [f"가장 큰 교차상관  시차 {k:+d} → {v:+.2f} ({lead})", f"시차 0  {float(cc.loc[0, '상관']):+.2f} · 95% 한계 ±{band:.3f}"]
+    implicit = [f"시차 k마다 corr({a}_t, {b}_(t−k)) — k > 0이면 {b}의 과거와 {a}의 지금", f"시차 ±{L}" + ("" if lags else "(기본)"),
+                f"공통 표본 {n}기"]
+    return AnOut("교차상관", label, _span(wf, df), [("교차상관", cc)],
+                 [("교차상관", cc, ["상관"], {"kind": "bar", "y": "상관", "band": band})], lines, implicit,
+                 payload={"best_lag": k, "best": v, "band": band})
+
+
+def _levels(items) -> bool:
+    """대상이 모두 이름 그대로(수준)인가 — log(Y)·dlog(Y)·d(Y)처럼 식이면 False."""
+    return all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(x)) for x in items)
+
+
+def _granger(p, target, lags=None):
+    from .. import stats as S
+    wf = p.workfile
+    label, items = _items(p, target)
+    if len(items) < 2:
+        raise ProjectError("Granger 인과는 시리즈 둘 이상(묶음 또는 'Y CN P')")
+    df = _window(wf, items)
+    L = int(lags) if lags else max(2, _PPY.get(_freq(p), 4))
+    g = S.granger_table(df, L)
+    mat = g.pivot(index="원인", columns="결과", values="p값").reindex(index=items, columns=items)
+    mat.index.name = "원인 \\ 결과"
+    sig = g[g["인과(5%)"]]
+    lines = ([f"{r['원인']} → {r['결과']}  F {r['F']:.2f} p={pfmt(r['p값'])}" for _, r in sig.iterrows()][:8]
+             or ["5%에서 Granger 인과인 쌍이 없다"])
+    implicit = [f"시차 {L}" + ("" if lags else "(주기에 맞춘 기본 — 분기 4 · 월 12 · 연 2)"),
+                "쌍마다 두 시리즈가 모두 있는 기간 — 상수 + 각자의 시차", "귀무가설: 원인의 시차 계수가 모두 0"]
+    if _levels(items):
+        implicit.append("수준 그대로 검정했다 — 단위근이 있는 시리즈는 차분·증가율로 다시 보는 것이 맞다")
+    return AnOut("Granger 인과", label, _span(wf, df.dropna()), [("Granger 인과", g), ("p값(행 원인 → 열 결과)", mat)], [], lines, implicit,
+                 payload={"lags": L, "pairs": [[r["원인"], r["결과"], float(r["p값"])] for _, r in g.iterrows()]})
+
+
+def _fevd(p, target, lags=1, periods=10, trend="c"):
+    wf = p.workfile
+    label, items = _items(p, target)
+    if len(items) < 2:
+        raise ProjectError("분산분해는 시리즈 둘 이상(VAR — 묶음 또는 'dlog(Y) R')")
+    v = quiet(wf.var, "an_fevd", items, lags=int(lags), trend=trend)
+    d = v.fevd(int(periods))
+    tabs = [(f"{s}의 예측오차 분산분해(%)", (d[s] * 100).round(2)) for s in items]
+    first = (d[items[0]] * 100).round(2)
+    lines = [f"{s} — {periods}기: " + " · ".join(f"{k} {val:.0f}%" for k, val in (d[s].iloc[-1] * 100).items()) for s in items[:6]]
+    implicit = [f"VAR({lags}) · 결정항 {trend}", "촐레스키(변수 순서대로) — 순서를 바꾸면 결과가 달라진다"]
+    return AnOut("분산분해", label, None, tabs, [(f"{items[0]}의 분산분해(%)", first, list(first.columns))], lines, implicit,
+                 payload={"lags": lags, "periods": periods})
+
+
+def _convert(p, target, to="A", how="mean"):
+    from ..data import transform
+    from ..data.periods import format_period, to_period
+    wf = p.workfile
+    label, items = _items(p, target)
+    F = _freq(p)
+    if to == F:
+        raise ProjectError(f"자료가 이미 {to} 주기입니다 — 더 낮은 주기로(분기 → 연, 월 → 분기·연)")
+    try:
+        transform.ratio(F, to)
+    except ValueError as e:
+        raise ProjectError(f"{F} → {to}: {e}") from None
+    df = _window(wf, items)
+    cols = {}
+    for it in items:
+        cols[it] = transform.aggregate(pd.Series(df[it].to_numpy(), index=df.index, name=it), F, to, how)
+    out = pd.DataFrame(cols)
+    out.index = pd.Index([format_period(to_period(t, to), to) for t in out.index], name="period")
+    out = out.dropna(how="all")
+    name = {"A": "연", "Q": "분기", "M": "월"}
+    lines = [f"{name.get(F, F)} → {name.get(to, to)} · {how} · {len(out)}기"] + \
+            [f"{it:<10} 끝 {out[it].last_valid_index()} {short(out[it].dropna().iloc[-1])}" for it in items[:6] if out[it].notna().any()]
+    implicit = ["하위 기간이 하나라도 비면 그 기간은 결측", "보기만 — 시리즈로 쓰려면 자료 정의의 convert로"]
+    return AnOut("주기 변환", label, (out.index[0], out.index[-1]) if len(out) else None, [("주기 변환", out)],
+                 [("주기 변환", out, list(out.columns)[:6])], lines, implicit, payload={"to": to, "how": how})
+
+
+def _stochastic(p, target, var=None, reps=100, range=None, seed=1):
+    m = p.model(target)
+    s, e = p.span(range) if range else p._range(None, None)
+    r = quiet(m.stochastic, s, e, reps=int(reps), seed=None if seed in (None, "") else int(seed))
+    wf = p.workfile
+    names = [var] if var else list(r.mean.columns)[:4]
+    tabs, charts, lines = [], [], []
+    for v in names:
+        b = r.band(v)
+        if isinstance(b.index, pd.DatetimeIndex):
+            b = _labelled(wf, b)
+        b.index.name = "period"
+        tabs.append((f"{v} — 평균·표준편차·분위수", b))
+        last = b.iloc[-1]
+        lines.append(f"{v:<6} 끝 기 평균 {short(last['mean'])} · 90% 띠 {short(last['p5'])}~{short(last['p95'])}")
+        if not charts:
+            charts.append((f"{v} — 평균과 90% 띠", b[["mean", "p5", "p95"]], ["mean", "p5", "p95"]))
+    implicit = [f"추정 잔차를 기간마다 다시 뽑아(식 사이 상관 보존) {reps}번 풀었다", f"씨앗 {seed}" if seed not in (None, "") else "씨앗 없음(매번 다르다)"]
+    return AnOut("확률적 모의", f"모형 {target}", (s, e), tabs, charts, lines, implicit, payload={"reps": reps},
+                 inputs={"files": definition_hashes(p)})
+
+
+# ---------------------------------------------------------------------------
 # 등록
 # ---------------------------------------------------------------------------
 _SMPL_HELP = "표본(상대 기간 가능 — 1990Q1:last)"
@@ -576,7 +823,7 @@ register(Analysis("coint", "공적분", "단위근·공적분", ("group", "expr"
                    Opt("trend", "choice", "c", ("n", "c", "ct"), "Engle-Granger의 결정항"),
                    Opt("lags", "int", 1, help="차분 시차 수"),
                    Opt("det", "int", 0, help="Johansen 결정항 −1 없음 · 0 상수 · 1 상수+추세")], None,
-                  "순위 검정 표", "묶음 또는 'Y X1 X2'(첫 시리즈가 Engle-Granger의 y)", "equion an coint core --lags 2", _coint))
+                  "순위 검정 표", "묶음 또는 'Y X1 X2'(첫 시리즈가 Engle-Granger의 y)", "equion an coint core --lags 2", _coint, count="many"))
 register(Analysis("diag", "식 진단", "식", ("part", "est"),
                   [Opt("lags", "int", 2, help="계열상관 LM 시차"),
                    Opt("chow", "str", None, help="Chow 검정 시점(쉼표로 여럿 — 2008Q3,2015Q1)", metavar="기간"),
@@ -602,7 +849,7 @@ register(Analysis("seas", "계절조정", "만드는 분석", ("series",),
                    Opt("model", "choice", "additive", ("additive", "multiplicative"), "가법·승법"),
                    Opt("robust", "bool", False, help="STL 강건(이상값에 덜 끌린다)")], "definition",
                   "실측·계절·추세·불규칙·조정 표와 차트", "미리보기 — an keep이 series.toml에 계절조정 시리즈 정의를 남긴다",
-                  "equion an seas CN --model multiplicative", _seas))
+                  "equion an seas CN --model multiplicative", _seas, count="one"))
 register(Analysis("genr", "파생", "만드는 분석", ("assign",), [], "derived",
                   "값 표·차트", "'이름 = 식' 미리보기 — an keep이 derived.txt에 한 줄로 남긴다",
                   "equion an genr \"RR2 = R - 100*dlog(P,4)\"", _genr))
@@ -610,22 +857,62 @@ register(Analysis("ecm", "오차수정모형", "부품을 내는 분석", ("expr
                   [Opt("method", "choice", "two-step", ("two-step", "nls"), "Engle-Granger 두 단계 또는 NLS 한 번에"),
                    Opt("lags", "int", 0, help="단기식에 넣을 차분 시차 수")], "candidate",
                   "장기식·조정 속도·반감기·단기식", "'Y X1 X2'(보통 로그 수준) — an keep이 단기식을 식 후보로",
-                  "equion an ecm \"log(CN) log(Y)\"", _ecm))
+                  "equion an ecm \"log(CN) log(Y)\"", _ecm, count="many"))
 register(Analysis("var", "VAR", "부품을 내는 분석", ("group", "expr"),
                   [Opt("lags", "int", 1, help="시차 수"), Opt("trend", "choice", "c", ("n", "c", "ct"), "결정항"),
                    Opt("maxlags", "int", 8, help="시차 고르기 표의 최대 시차"),
                    Opt("irf", "int", 10, help="충격반응 기간")], "candidate",
                   "계수·시차 고르기·Granger·안정성 표, 충격반응 차트", "an keep이 식마다 식 후보로",
-                  "equion an var \"dlog(Y) R\" --lags 2", _var))
+                  "equion an var \"dlog(Y) R\" --lags 2", _var, count="many"))
 register(Analysis("vecm", "VECM", "부품을 내는 분석", ("group", "expr"),
                   [Opt("lags_diff", "int", 1, help="차분 시차 수"), Opt("rank", "int", 1, help="공적분 순위"),
                    Opt("det", "choice", "ci", ("n", "ci", "co", "li", "lo"), "결정항")], "candidate",
-                  "α·β·Γ 표", "an keep이 식마다 식 후보로", "equion an vecm \"RL R\" --rank 1", _vecm))
+                  "α·β·Γ 표", "an keep이 식마다 식 후보로", "equion an vecm \"RL R\" --rank 1", _vecm, count="many"))
 register(Analysis("system", "시스템 추정", "부품을 내는 분석", ("block",),
                   [Opt("method", "choice", "sur", ("ols", "sur", "tsls", "3sls", "fiml"), "추정법"),
                    Opt("inst", "str", None, help="모든 식의 도구변수(쉼표·공백)", metavar="변수들")], "candidate",
                   "계수·식마다 통계 표", "블록의 추정식을 한 번에 — an keep이 식마다 식 후보로",
                   "equion an system demand --method sur", _system))
+
+register(Analysis("stats", "기술 통계", "기초 통계", ("series", "group", "expr"), [], None,
+                  "시리즈마다 관측치·평균·표준편차·사분위·왜도·첨도·Jarque-Bera 표", "결측은 시리즈마다 뺀다 — 묶음이면 시리즈마다 한 줄",
+                  "equion an stats core", _stats, count="any"))
+register(Analysis("hist", "히스토그램", "기초 통계", ("series", "expr"),
+                  [Opt("bins", "int", None, help="구간 수(없으면 스터지스)")], None,
+                  "구간별 도수·비율·정규 기대도수 표, 막대 차트", "시리즈 하나 — 같은 평균·표준편차의 정규분포와 견준다",
+                  "equion an hist \"dlog(Y)\"", _hist, count="one"))
+register(Analysis("acf", "자기상관", "기초 통계", ("series", "expr"),
+                  [Opt("lags", "int", None, help="시차 수(없으면 주기에 맞춰 — 분기 12 · 월 24 · 연 10)")], None,
+                  "시차별 자기상관·편자기상관·Q·p값 표, 막대 차트(95% 한계)", "시리즈 하나 — 차분·증가율로도 본다(dlog(Y))",
+                  "equion an acf \"dlog(Y)\" --lags 12", _acf, count="one"))
+register(Analysis("corr", "상관", "기초 통계", ("group", "expr"),
+                  [Opt("method", "choice", "pearson", ("pearson", "spearman"), "pearson 값 · spearman 순위")], None,
+                  "상관 행렬·p값·공분산·쌍마다 표, 색 격자(둘이면 산점도)", "묶음 또는 'Y CN P' — 공통 표본에서",
+                  "equion an corr core", _corr, count="many"))
+register(Analysis("xcorr", "교차상관", "기초 통계", ("expr",),
+                  [Opt("lags", "int", None, help="시차 ±L(없으면 주기에 맞춰)")], None,
+                  "시차별 교차상관 표, 막대 차트(95% 한계)", "'X Y' 둘 — k > 0이면 Y의 과거와 X의 지금",
+                  "equion an xcorr \"dlog(CN) dlog(Y)\"", _xcorr, count="two"))
+register(Analysis("granger", "Granger 인과", "인과·동학", ("group", "expr"),
+                  [Opt("lags", "int", None, help="시차 수(없으면 분기 4 · 월 12 · 연 2)")], None,
+                  "원인 → 결과마다 F·p값 표, p값 행렬", "묶음 또는 'Y CN P' — 쌍마다 두 시리즈의 공통 표본, 상수 + 각자의 시차",
+                  "equion an granger \"dlog(Y) dlog(CN)\" --lags 4", _granger, count="many"))
+register(Analysis("fevd", "분산분해", "인과·동학", ("group", "expr"),
+                  [Opt("lags", "int", 1, help="VAR 시차 수"), Opt("periods", "int", 10, help="기간"),
+                   Opt("trend", "choice", "c", ("n", "c", "ct"), "결정항")], None,
+                  "반응 변수마다 기간별 분산분해(%) 표·차트", "VAR의 예측오차 분산분해 — 촐레스키(변수 순서대로)",
+                  "equion an fevd \"dlog(Y) R\" --lags 2", _fevd, count="many"))
+register(Analysis("convert", "주기 변환", "자료 살펴보기", ("series", "group", "expr"),
+                  [Opt("to", "choice", "A", ("A", "Q"), "낮은 주기 — A 연 · Q 분기"),
+                   Opt("how", "choice", "mean", ("mean", "sum", "first", "last", "max", "min"), "모으는 방법")], None,
+                  "변환한 값 표·차트", "보기만 — 시리즈로 쓰려면 자료 정의(series.toml)의 convert로",
+                  "equion an convert core --to A --how sum", _convert, count="any"))
+register(Analysis("stochastic", "확률적 모의", "모형", ("model",),
+                  [Opt("var", "str", None, help="볼 변수(없으면 내생 앞의 넷)", metavar="변수"),
+                   Opt("reps", "int", 100, help="풀이 횟수"), Opt("range", "str", None, help="구간(기본 [hs] range)", metavar="S:E"),
+                   Opt("seed", "int", 1, help="씨앗(같은 결과를 다시)")], None,
+                  "변수마다 평균·표준편차·5·50·95% 표, 평균과 90% 띠 차트", "추정 잔차를 기간마다 다시 뽑아(식 사이 상관 보존) 여러 번 푼다",
+                  "equion an stochastic main --var Y --reps 200", _stochastic))
 
 
 # ---------------------------------------------------------------------------

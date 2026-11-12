@@ -567,6 +567,149 @@ class Project:
         self._reset()
         return ConfigChange("block", name, new, [rel] if create else [], ch.id if ch else None)
 
+    def group_define(self, name: str, series=None, desc: str = None, transform: str = None, who: str = None,
+                     command: str = None) -> "ConfigChange":
+        """묶음 저장 — equion.toml의 `[group]`에 이름 붙인 시리즈 묶음을 더하거나 고친다. 준 것만 바꾸고(None은 그대로, 빈 글은 그 키를 지움)
+        주석·순서는 그대로 두며, 시리즈 이름이 자료에 있는지 본 뒤 쓴다. 바뀜 기록에 남긴다. 묶음은 분석의 대상이 된다(`equion an corr 이름`).
+
+        매개변수
+            name: 묶음 이름(영문으로 시작 — 한글 설명은 desc)
+            series: 시리즈 이름들(목록 또는 쉼표·공백으로 띄운 글 — 순서를 지킨다)
+            desc: 설명
+            transform: 시리즈마다 씌울 변환(예: dlog — 빈 글이면 지움)
+
+        돌려주는 것
+            ConfigChange — .kind('group') · .name · .new · .change
+
+        오류
+            ProjectError: 이름 · 새 묶음에 시리즈가 없음 · 자료에 없는 시리즈(아무것도 쓰지 않음)
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.group_define("prices", "P, POIL", desc="물가와 유가")
+            >>> r.new, p.config.groups["prices"].series
+            (True, ['P', 'POIL'])
+
+        관련
+            group_remove · an
+        """
+        from .records import history_of
+        from .config import ConfigChange, group_text
+        if series is not None:
+            names = [v for v in series.replace(",", " ").split() if v] if isinstance(series, str) else [str(v) for v in series]
+            have = {str(c).upper() for c in self.workfile.data.columns}
+            missing = [v for v in names if v.upper() not in have]
+            if missing:
+                raise ProjectError(f"[group] {name}: 자료에 없는 시리즈 {', '.join(missing)}")
+            series = names
+        text, new = group_text(self.config.path, name, series=series, desc=desc, transform=transform)
+        ch = history_of(self).write_files({"equion.toml": text}, who or detect_who("python"), command or f"group define {name}",
+                                          note=f"[group] {name}" + (" 새 묶음" if new else ""))
+        self._reset()
+        return ConfigChange("group", name, new, [], ch.id if ch else None)
+
+    def group_remove(self, name: str, who: str = None, command: str = None) -> "ConfigChange":
+        """묶음 지우기 — equion.toml의 `[group]`에서 그 묶음을 뺀다(시리즈·기록은 그대로). 바뀜 기록에 남긴다.
+
+        오류
+            ProjectError: 없는 묶음
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> p.group_remove("core").removed, "core" in p.config.groups
+            (True, False)
+
+        관련
+            group_define
+        """
+        from .records import history_of
+        from .config import ConfigChange, group_text
+        text, _ = group_text(self.config.path, name, remove=True)
+        ch = history_of(self).write_files({"equion.toml": text}, who or detect_who("python"), command or f"group remove {name}",
+                                          note=f"[group] {name} 지움")
+        self._reset()
+        return ConfigChange("group", name, False, [], ch.id if ch else None, removed=True)
+
+    def part_add(self, block: str, text: str, desc: str = None, from_part: str = None, who: str = None,
+                 command: str = None) -> "PartChange":
+        """블록에 식 한 줄을 더한다 — 블록 파일 끝에 적는다(다른 줄·주석은 그대로). 쓰기 전에 식 문법과 '한 블록에 목표 하나'를 본다.
+        from_part를 주면 그 식을 옮긴다: 원래 블록의 그 줄을 빼고(채택표의 줄도) 이 블록에 더한다 — 모형에 안 든 블록의 개별 식을
+        모형의 블록으로 넣을 때. 두 파일이 바뀜 기록 하나에 남는다.
+
+        매개변수
+            block: 더할 블록 이름
+            text: 식 한 줄(`#` 뒤는 설명)
+            desc: 설명(text에 `#`이 없을 때)
+            from_part: 옮겨 올 부품(`블록:목표`)
+
+        돌려주는 것
+            PartChange — .part(새 부품 이름) · .files · .change · .moved_from
+
+        오류
+            ProjectError: 없는 블록 · 여러 줄 · 식 문법 · 그 블록에 같은 목표가 이미 있음 · 같은 블록에서 옮김
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> _ = p.block_define("single", desc="개별 식")
+            >>> r = p.part_add("single", "M2 c Y RL", desc="통화수요")
+            >>> r.part, p.part("single:M2").desc
+            ('single:M2', '통화수요')
+
+        관련
+            part_remove · block_define · used_by
+        """
+        from .records import history_of
+        from .partedit import ADOPTED, PartChange, add_text, adopted_without, remove_text
+        new, pid, rel, line = add_text(self, block, text, desc)
+        files = {rel: new}
+        moved = None
+        if from_part:
+            try:
+                src = self.part(from_part)
+            except KeyError as e:
+                raise ProjectError(str(e.args[0]) if e.args else f"없는 부품 {from_part}") from None
+            if src.block == block:
+                raise ProjectError(f"{src.id}는 이미 블록 {block}에 있습니다")
+            rtext, rrel, moved = remove_text(self, src.id)
+            files[rrel] = rtext
+            adop = adopted_without(self, src.id)
+            if adop is not None:
+                files[ADOPTED] = adop
+        ch = history_of(self).write_files(files, who or detect_who("python"), command or f"block add {block}",
+                                          note=f"{pid}" + (f" ← {moved}" if moved else " 새 식"))
+        self._reset()
+        return PartChange("add", pid, sorted(files), ch.id if ch else None, moved, line)
+
+    def part_remove(self, part: str, who: str = None, command: str = None) -> "PartChange":
+        """블록에서 식 한 줄을 뺀다 — 그 줄만 지우고(다른 줄·주석은 그대로) 채택표의 그 부품 줄도 함께 지운다. 바뀜 기록에 남긴다.
+
+        오류
+            ProjectError: 없는 부품 · 파일이 그사이 바뀜
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.part_remove("finance:M2")
+            >>> r.part, [x.id for x in p.parts("finance")]
+            ('finance:M2', ['finance:RL'])
+
+        관련
+            part_add
+        """
+        from .records import history_of
+        from .partedit import ADOPTED, PartChange, adopted_without, remove_text
+        new, rel, pid = remove_text(self, part)
+        files = {rel: new}
+        adop = adopted_without(self, pid)
+        if adop is not None:
+            files[ADOPTED] = adop
+        ch = history_of(self).write_files(files, who or detect_who("python"), command or f"block remove {pid}", note=f"{pid} 뺌")
+        self._reset()
+        return PartChange("remove", pid, sorted(files), ch.id if ch else None)
+
     def desk_show(self, name: str, who: str = None) -> dict:
         """Equion Desk(데스크톱 앱)에 "이 화면을 열어 달라"고 알린다 — 화면 이동만 하고 아무것도 계산하거나 바꾸지 않는다.
 

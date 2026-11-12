@@ -23,7 +23,7 @@ import threading
 import time
 from typing import Any
 
-from . import dataops, jobs, modelops, reviewops, runtime, simops
+from . import dataops, jobs, modelops, reviewops, runtime, sideops, simops
 from .records import read_series
 
 START_WAIT = 60.0     # 프로세스가 뜨고 equion을 불러올 때까지 기다리는 시간(초) — 느린 디스크·보안 프로그램
@@ -375,6 +375,32 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
     def mark(record: str, pinned: bool | None = None, memo: str | None = None) -> dict:
         return reviewops.mark(holder.get(), record, pinned, memo)
 
+    # ---- 왼쪽 목록 · 명령 창(sideops.py) ---------------------------------------------------------------
+    def variables() -> dict:
+        return sideops.variables(holder.get())
+
+    def analysis_list() -> dict:
+        return sideops.analysis_list(holder.get())
+
+    def group_define(name: str, series: list | None = None, desc: str | None = None, transform: str | None = None, dry: bool = False) -> dict:
+        return sideops.group_define(holder.get(), name, series, desc, transform, dry)
+
+    def group_remove(name: str) -> dict:
+        return sideops.group_remove(holder.get(), name)
+
+    def part_add(block: str, text: str, desc: str | None = None, from_part: str | None = None, record: str | None = None,
+                 create: bool = False, dry: bool = False) -> dict:
+        return sideops.part_add(holder.get(), block, text, desc, from_part, record, create, dry)
+
+    def part_remove(part: str) -> dict:
+        return sideops.part_remove(holder.get(), part)
+
+    def line(text: str) -> dict:
+        return sideops.line(holder.get(), text)
+
+    def catalog() -> dict:
+        return sideops.catalog(holder.get())
+
     def scan() -> dict | None:
         """명령 밖에서 고친 정의 파일을 '바깥' 바뀜으로 적는다(K7). 바뀐 것이 없으면 None."""
         change = holder.get().history.scan()
@@ -391,7 +417,9 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
             "forecast": forecast, "assume": assume, "sim_run": sim_run, "sim_view": sim_view, "views": views, "view_define": view_define,
             "reports": reports, "report_new": report_new, "report_add": report_add, "report_check": report_check, "report_update": report_update,
             "export": export,
-            "proposal": proposal, "proposal_apply": proposal_apply, "proposal_drop": proposal_drop, "revert": revert, "mark": mark}
+            "proposal": proposal, "proposal_apply": proposal_apply, "proposal_drop": proposal_drop, "revert": revert, "mark": mark,
+            "variables": variables, "analysis_list": analysis_list, "group_define": group_define, "group_remove": group_remove,
+            "part_add": part_add, "part_remove": part_remove, "line": line, "catalog": catalog}
 
 
 def _plain(value: Any) -> Any:

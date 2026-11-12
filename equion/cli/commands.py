@@ -154,6 +154,27 @@ def build_parser() -> argparse.ArgumentParser:
     bd.add_argument("name", help="블록 이름")
     bd.add_argument("--file", metavar="파일", help="블록 파일(기본 EQUATIONS/<이름>.txt)")
     bd.add_argument("--desc", metavar="글", help="설명")
+    ba = bsub.add_parser("add", help="블록에 식 한 줄을 더한다 — --from이면 그 식을 옮긴다(개별 식을 모형의 블록으로)")
+    ba.add_argument("name", help="블록 이름")
+    ba.add_argument("equation", metavar="식", help='식 한 줄(예: "M2 c Y RL" — # 뒤는 설명)')
+    ba.add_argument("--desc", metavar="글", help="설명")
+    ba.add_argument("--from", dest="from_part", metavar="블록:목표", help="이 식을 옮긴다(원래 줄과 채택표의 줄을 뺀다)")
+    br = bsub.add_parser("remove", help="블록에서 식 한 줄을 뺀다(블록:목표) — 채택표의 그 줄도 함께")
+    br.add_argument("part", metavar="블록:목표", help="뺄 식")
+    gr = sub.add_parser("group", help="프로젝트의 묶음 — equion.toml의 [group](이름 붙인 시리즈 묶음 — 분석의 대상)")
+    gsub = gr.add_subparsers(dest="group_command", metavar="동작")
+    gsub.required = True
+    gl = gsub.add_parser("list", help="묶음 목록")
+    gd = gsub.add_parser("define", help="묶음을 더하거나 고친다(시리즈·설명·변환) — 준 것만 바꾼다")
+    gd.add_argument("name", help="묶음 이름(영문으로 시작)")
+    gd.add_argument("--series", metavar="시리즈들", help="시리즈 이름들(쉼표로 — 순서를 지킨다)")
+    gd.add_argument("--desc", metavar="글", help="설명")
+    gd.add_argument("--transform", metavar="함수", help="시리즈마다 씌울 변환(예: dlog — 빈 글이면 지움)")
+    grm = gsub.add_parser("remove", help="묶음을 지운다(시리즈·기록은 그대로)")
+    grm.add_argument("name", help="묶음 이름")
+    for sp in (gl, gd, grm, ba, br):
+        sp.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
+        sp.add_argument("--json", action="store_true", help="결과를 JSON으로")
     for sp in (md, bd):
         sp.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
         sp.add_argument("--json", action="store_true", help="결과를 JSON으로")
@@ -675,12 +696,43 @@ def cmd_define(args) -> int:
         if args.command == "model":
             res = p.model_define(args.name, blocks=args.blocks, include=args.include, exclude=args.exclude, desc=args.desc,
                                  who=who, command=cmdline)
+        elif args.define_command == "add":
+            res = p.part_add(args.name, args.equation, desc=args.desc, from_part=args.from_part, who=who, command=cmdline)
+        elif args.define_command == "remove":
+            res = p.part_remove(args.part, who=who, command=cmdline)
         else:
             res = p.block_define(args.name, file=args.file, desc=args.desc, who=who, command=cmdline)
     except (ProjectError, KeyError, ValueError) as e:
         fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
         return EXIT_INPUT
-    print(json.dumps(res.to_dict(), ensure_ascii=False, indent=2) if args.json else res.text())
+    text = res.summary() if hasattr(res, "summary") else res.text()
+    print(json.dumps(res.to_dict(), ensure_ascii=False, indent=2) if args.json else text)
+    return EXIT_OK
+
+
+@_summary_quiet
+def cmd_group(args) -> int:
+    """equion group list · define · remove — 묶음(equion.toml [group])."""
+    from ..projects import ProjectError
+    from ..work.store import detect_who
+    try:
+        p = _open_project(args.project)
+        if args.group_command == "list":
+            rows = [{"name": g.name, "series": list(g.series), "desc": g.desc, "transform": g.transform} for g in p.config.groups.values()]
+            out = rows if args.json else (f"[group list] {p.name} — 묶음 {len(rows)}" + "".join(
+                f"\n  {r['name']:<12} {', '.join(r['series'])}" + (f"  ({r['transform']})" if r["transform"] else "") + (f"  — {r['desc']}" if r["desc"] else "")
+                for r in rows))
+        elif args.group_command == "define":
+            res = p.group_define(args.name, series=args.series, desc=args.desc, transform=args.transform,
+                                 who=detect_who("terminal"), command=_cmdline(_ARGV))
+            out = res.to_dict() if args.json else res.text()
+        else:
+            res = p.group_remove(args.name, who=detect_who("terminal"), command=_cmdline(_ARGV))
+            out = res.to_dict() if args.json else res.text()
+    except (ProjectError, KeyError, ValueError) as e:
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
+        return EXIT_INPUT
+    print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else out)
     return EXIT_OK
 
 
@@ -908,6 +960,8 @@ def _main(argv) -> int:
             return cmd_view(args)
         if args.command == "desk":
             return cmd_desk(args)
+        if args.command == "group":
+            return cmd_group(args)
         if args.command == "data":
             return cmd_data(args)
         from .workcmds import COMMANDS, dispatch

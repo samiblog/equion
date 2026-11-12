@@ -45,12 +45,17 @@ $ equion an unitroot core --as ur1
 <!-- out -->
 ```text
 $ equion an list --for group
-[an list] 분석 5 — 대상 묶음
+[an list] 분석 10 — 대상 묶음
   summary      요약       시리즈 · 묶음 · 식(log(Y) 등)       만드는 것 —
   unitroot     단위근      시리즈 · 묶음 · 식(log(Y) 등)       만드는 것 —
   coint        공적분      묶음 · 식(log(Y) 등)             만드는 것 —
   var          VAR      묶음 · 식(log(Y) 등)             만드는 것 식 후보(est:)
   vecm         VECM     묶음 · 식(log(Y) 등)             만드는 것 식 후보(est:)
+  stats        기술 통계    시리즈 · 묶음 · 식(log(Y) 등)       만드는 것 —
+  corr         상관       묶음 · 식(log(Y) 등)             만드는 것 —
+  granger      Granger 인과 묶음 · 식(log(Y) 등)             만드는 것 —
+  fevd         분산분해     묶음 · 식(log(Y) 등)             만드는 것 —
+  convert      주기 변환    시리즈 · 묶음 · 식(log(Y) 등)       만드는 것 —
   옵션·예: equion an <분석> --help
 
 $ equion an unitroot core --as ur1

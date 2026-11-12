@@ -233,7 +233,7 @@ dev = [
 
 [[package]]
 name = "equion-desk"
-version = "0.1.0rc1"
+version = "0.2.0.dev0"
 source = { editable = "desk" }
 dependencies = [
     { name = "equion" },

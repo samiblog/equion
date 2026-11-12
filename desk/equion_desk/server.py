@@ -879,6 +879,73 @@ def create_app(state: AppState) -> Flask:
             abort(400)
         return ask(pid, "mark", record=record, pinned=pinned, memo=memo)
 
+    # ---- 프로젝트: 왼쪽 목록(변수·분석) · 묶음 · 식 더하기 · 명령 창 (DESK_V2) -----------------------------------
+
+    @app.get("/api/p/<pid>/variables")
+    def api_variables(pid: str) -> Any:
+        """변수 탭 — 시리즈마다 이름·설명·구간·끝 값·종류·모형과의 관계, 묶음. 계산하지 않는다."""
+        return ask(pid, "variables")
+
+    @app.get("/api/p/<pid>/analysis-list")
+    def api_analysis_list(pid: str) -> Any:
+        """분석 탭 — 개별 식과 돌린 분석(대상별 가장 새 결과·낡음)."""
+        return ask(pid, "analysis_list")
+
+    @app.post("/api/p/<pid>/group/define")
+    def api_group_define(pid: str) -> Any:
+        """{name, series?, desc?, transform?, dry?} — 묶음 저장(`equion group define`). dry 면 쓰지 않고 차이만."""
+        data = body()
+        name = pick(data, "name", NAME)
+        if name is None:
+            abort(400, description=t("묶음 이름(영문으로 시작 — 영문·숫자·_)이 있어야 합니다"))
+        series = names_arg(data, "series", SERIES, 200)
+        args = dict(name=name, series=series, desc=text_arg(data, "desc", 200), transform=pick(data, "transform", NAME))
+        if data.get("dry") is True:
+            return ask(pid, "group_define", dry=True, **args)
+        return run(pid, "group_define", t("묶음 {name}", name=name), **args)
+
+    @app.post("/api/p/<pid>/group/remove")
+    def api_group_remove(pid: str) -> Any:
+        name = pick(body(), "name", NAME)
+        if name is None:
+            abort(400)
+        return run(pid, "group_remove", t("묶음 지우기 {name}", name=name), name=name)
+
+    @app.post("/api/p/<pid>/part/add")
+    def api_part_add(pid: str) -> Any:
+        """{block, text, desc?, from?, record?, create?, dry?} — 블록에 식 한 줄(`equion block add`) · 개별 식을 모형의 블록으로 옮기기(from)."""
+        data = body()
+        block, text = pick(data, "block", NAME), text_arg(data, "text", 2000)
+        if block is None or not text or "\n" in text:
+            abort(400, description=t("블록과 식 한 줄이 있어야 합니다"))
+        args = dict(block=block, text=text, desc=text_arg(data, "desc", 200), from_part=pick(data, "from", PART),
+                    record=pick(data, "record", EST_RECORD), create=data.get("create") is True)
+        if data.get("dry") is True:
+            return ask(pid, "part_add", dry=True, **args)
+        return run(pid, "part_add", t("식 더하기 {block}", block=block), **args)
+
+    @app.post("/api/p/<pid>/part/remove")
+    def api_part_remove(pid: str) -> Any:
+        part = pick(body(), "part", PART)
+        if part is None:
+            abort(400)
+        return run(pid, "part_remove", t("식 빼기 {part}", part=part), part=part)
+
+    @app.post("/api/p/<pid>/line")
+    def api_line(pid: str) -> Any:
+        """{line} — 명령 창의 한 줄(`equion …`과 같다). 작업 줄에 올라가고, 결과는 {line, code, out, records, changes, seconds, denied}."""
+        data = body()
+        text = data.get("line")
+        if not isinstance(text, str) or not text.strip() or len(text) > 4000 or "\n" in text.strip():
+            abort(400, description=t("명령 한 줄이 있어야 합니다"))
+        label = text.strip()
+        return run(pid, "line", t("명령 {line}", line=label if len(label) <= 60 else label[:59] + "…"), text=text.strip())
+
+    @app.get("/api/p/<pid>/catalog")
+    def api_catalog(pid: str) -> Any:
+        """명령 창의 자동 완성 재료 — 명령·옵션과 프로젝트의 이름들."""
+        return ask(pid, "catalog")
+
     @app.post("/api/p/<pid>/cancel")
     def api_cancel(pid: str) -> Any:
         return jsonify(cancelled=session(pid).worker.cancel())
@@ -994,11 +1061,24 @@ def create_app(state: AppState) -> Flask:
         if s is None:
             abort(409, description=t("연 프로젝트가 없습니다"))
         cols, rows = term_size(data)
+        n = data.get("n", 0)
+        if not isinstance(n, int) or isinstance(n, bool) or not 0 <= n < terminal.MAX_SLOTS:
+            abort(400, description=t("터미널 번호는 0~{last}", last=terminal.MAX_SLOTS - 1))
         try:
-            opened = state.terminals.open(s.id, s.root, None, cols, rows, 0)
+            opened = state.terminals.open(s.id, s.root, None, cols, rows, n)
         except OSError as exc:
             return jsonify(error=t("셸을 시작하지 못했습니다 ({error})", error=exc)), 500
-        return jsonify(id=opened.id, shell=terminal.shell_label(opened.exe), cwd=s.root)
+        return jsonify(id=opened.id, n=opened.slot, shell=terminal.shell_label(opened.exe), cwd=s.root)
+
+    @app.get("/api/term/list")
+    def api_term_list() -> Any:
+        """그 프로젝트의 돌고 있는 셸들(번호 차례) — 화면을 다시 불러온 뒤 터미널 탭을 되살린다."""
+        term_guard()
+        s = state.session(request.args.get("p"))
+        if s is None:
+            abort(409, description=t("연 프로젝트가 없습니다"))
+        return jsonify(terms=[{"id": x.id, "n": x.slot, "shell": terminal.shell_label(x.exe)} for x in state.terminals.of_project(s.id)],
+                       max=terminal.MAX_SLOTS)
 
     @app.post("/api/term/read")
     def api_term_read() -> Any:

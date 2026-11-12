@@ -2975,6 +2975,15 @@ print(wf.equation("eq_i").ls("I c Y(-1) R").output().md().splitlines()[0])
 | [`forecast_evaluate`](#eqnstatsforecast_evaluate) | `(actual, forecast)` | 예측 오차 지표 — RMSE·MAE·MAPE·Theil U1·MSE 분해(편의·분산·공분산)·Theil U2. |
 | [`forecast_table`](#eqnstatsforecast_table) | `(actual, forecasts)` | 여러 예측의 지표 표 — forecasts: {이름: 예측 Series·배열}. 예측마다 따로 공통 기간을 맞춘다. |
 | [`diebold_mariano`](#eqnstatsdiebold_mariano) | `(actual, f1, f2, h=1, loss='squared', harvey=True)` | Diebold-Mariano 검정 — 두 예측의 기대 손실이 같은가(HLN 작은 표본 보정·t 분포, 통계량 음수면 첫 예측이 더 정확). |
+| [`describe`](#eqnstatsdescribe) | `(data)` | 기술 통계 — 시리즈(열)마다 관측치·평균·표준편차·최소·사분위·최대·왜도·첨도·Jarque-Bera와 p값. |
+| [`correlation`](#eqnstatscorrelation) | `(data, method='pearson')` | 상관 행렬 — 피어슨(값) 또는 스피어먼(순위). 공통 표본(어느 시리즈든 결측인 기간은 뺀다)에서. |
+| [`acf`](#eqnstatsacf) | `(x, nlags)` | 자기상관 ρ₀…ρ_L(ρ₀ = 1) — 표본 자기공분산(n으로 나눔)의 비. 결측은 뺀다. |
+| [`pacf`](#eqnstatspacf) | `(x, nlags)` | 편자기상관 φ₁₁…φ_LL — 자기상관으로 Yule-Walker 방정식을 푼다(Durbin-Levinson). 길이 L(시차 1부터). |
+| [`correlogram`](#eqnstatscorrelogram) | `(x, nlags=None)` | 자기상관 표 — 시차별 자기상관·편자기상관·Ljung-Box Q·p값. 95% 한계 ±1.96/√n은 `attrs["band"]`에(관측치는 `attrs["nobs"]`). |
+| [`ccf`](#eqnstatsccf) | `(x, y, nlags)` | 교차상관 — 시차 k마다 corr(x_t, y_{t−k}), k = −L…L(k > 0이면 y가 앞선다 — y의 과거와 x의 지금). 공통 표본에서. |
+| [`histogram`](#eqnstatshistogram) | `(x, bins=None)` | 히스토그램 — 구간(같은 폭)마다 도수·비율과 같은 평균·표준편차의 정규분포에서 기대되는 도수. 결측은 뺀다. |
+| [`granger_causality`](#eqnstatsgranger_causality) | `(y, x, lags)` | Granger 인과 F 검정 — 귀무가설 'x가 y를 Granger 인과하지 않는다'(y식에서 x의 시차 계수 p개가 모두 0). |
+| [`granger_table`](#eqnstatsgranger_table) | `(data, lags, columns=None)` | 모든 쌍의 Granger 인과 — 원인 → 결과 순서마다 한 줄(F·p값·관측치·5%에서 기각). 쌍마다 두 시리즈의 공통 표본에서. |
 
 ### eqn.stats.Results
 
@@ -3619,6 +3628,218 @@ r.statistic < 0, r.pvalue < 0.01
 # (True, True)
 ```
 
+### eqn.stats.describe
+
+`describe(data)`
+
+기술 통계 — 시리즈(열)마다 관측치·평균·표준편차·최소·사분위·최대·왜도·첨도·Jarque-Bera와 p값.
+
+왜도·첨도는 표본 모멘트(편향 그대로 — n으로 나눔)이고 첨도는 정규분포가 3이다. JB = n/6·(왜도² + (첨도 − 3)²/4).  
+결측은 시리즈마다 뺀다(관측치가 다를 수 있다). 표준편차는 n − 1로 나눈다.  
+
+**매개변수**
+
+- `data`: DataFrame·Series·배열(열마다 시리즈)
+
+**돌려주는 것**
+
+DataFrame — 행이 시리즈, 열이 통계  
+
+**예**
+
+<!-- skip -->
+```python
+rng = np.random.default_rng(0)
+d = eqn.stats.describe(pd.DataFrame({"a": rng.normal(size=200), "b": rng.uniform(size=200)}))
+list(d.columns[:4]), int(d.loc["a", "관측치"]), bool(d.loc["b", "최소"] >= 0)
+# (['관측치', '평균', '표준편차', '최소'], 200, True)
+```
+
+### eqn.stats.correlation
+
+`correlation(data, method='pearson')`
+
+상관 행렬 — 피어슨(값) 또는 스피어먼(순위). 공통 표본(어느 시리즈든 결측인 기간은 뺀다)에서.
+
+p값은 귀무가설 '상관이 0'의 t 검정(t = r·√((n−2)/(1−r²)), 자유도 n − 2 — 스피어먼은 그 근사).  
+공분산은 값의 공분산(n − 1로 나눔)이다.  
+
+**매개변수**
+
+- `data`: DataFrame(열마다 시리즈, 둘 이상)
+- `method`: "pearson" · "spearman"
+
+**돌려주는 것**
+
+Correlation — .corr · .pvalues · .cov · .nobs · .method · .pairs()  
+
+**오류**
+
+- `ValueError`: 시리즈가 둘보다 적음 · 공통 표본이 3보다 작음 · 모르는 method
+
+**예**
+
+<!-- skip -->
+```python
+rng = np.random.default_rng(1)
+x = rng.normal(size=300)
+c = eqn.stats.correlation(pd.DataFrame({"x": x, "y": 2 * x + rng.normal(size=300), "z": rng.normal(size=300)}))
+round(float(c.corr.loc["x", "y"]), 2), bool(c.pvalues.loc["x", "y"] < 0.01), c.pairs().iloc[0][["변수1", "변수2"]].tolist()
+# (0.89, True, ['x', 'y'])
+```
+
+### eqn.stats.acf
+
+`acf(x, nlags)`
+
+자기상관 ρ₀…ρ_L(ρ₀ = 1) — 표본 자기공분산(n으로 나눔)의 비. 결측은 뺀다.
+
+**예**
+
+<!-- skip -->
+```python
+rng = np.random.default_rng(2)
+e = rng.normal(size=500)
+x = np.zeros(500)
+for t in range(1, 500):
+    x[t] = 0.7 * x[t - 1] + e[t]
+r = eqn.stats.acf(x, 3)
+float(r[0]), bool(0.6 < r[1] < 0.8), len(r)
+# (1.0, True, 4)
+```
+
+### eqn.stats.pacf
+
+`pacf(x, nlags)`
+
+편자기상관 φ₁₁…φ_LL — 자기상관으로 Yule-Walker 방정식을 푼다(Durbin-Levinson). 길이 L(시차 1부터).
+
+**예**
+
+<!-- skip -->
+```python
+rng = np.random.default_rng(2)
+e = rng.normal(size=500)
+x = np.zeros(500)
+for t in range(1, 500):
+    x[t] = 0.7 * x[t - 1] + e[t]
+p = eqn.stats.pacf(x, 3)
+bool(0.6 < p[0] < 0.8), bool(abs(p[1]) < 0.15)
+# (True, True)
+```
+
+### eqn.stats.correlogram
+
+`correlogram(x, nlags=None)`
+
+자기상관 표 — 시차별 자기상관·편자기상관·Ljung-Box Q·p값. 95% 한계 ±1.96/√n은 `attrs["band"]`에(관측치는 `attrs["nobs"]`).
+
+**매개변수**
+
+- `x`: 시리즈(결측은 뺀다)
+- `nlags`: 시차 수(없으면 min(24, n/4))
+
+**예**
+
+<!-- skip -->
+```python
+rng = np.random.default_rng(3)
+t = eqn.stats.correlogram(rng.normal(size=200), 8)
+list(t.columns), len(t), round(t.attrs["band"], 3)
+# (['자기상관', '편자기상관', 'Q', 'p값'], 8, 0.139)
+```
+
+### eqn.stats.ccf
+
+`ccf(x, y, nlags)`
+
+교차상관 — 시차 k마다 corr(x_t, y_{t−k}), k = −L…L(k > 0이면 y가 앞선다 — y의 과거와 x의 지금). 공통 표본에서.
+
+값은 표본 교차공분산(n으로 나눔)을 두 표준편차(n으로 나눔)로 나눈 것이다. 95% 한계 ±1.96/√n은 `attrs["band"]`에.  
+
+**예**
+
+<!-- skip -->
+```python
+rng = np.random.default_rng(4)
+y = rng.normal(size=400)
+x = np.r_[0.0, 0.0, y[:-2]] + 0.3 * rng.normal(size=400)
+c = eqn.stats.ccf(x, y, 4)
+int(c["상관"].abs().idxmax()), len(c)
+# (2, 9)
+```
+
+### eqn.stats.histogram
+
+`histogram(x, bins=None)`
+
+히스토그램 — 구간(같은 폭)마다 도수·비율과 같은 평균·표준편차의 정규분포에서 기대되는 도수. 결측은 뺀다.
+
+**매개변수**
+
+- `x`: 시리즈
+- `bins`: 구간 수(없으면 스터지스 — ⌈log₂ n⌉ + 1)
+
+**예**
+
+<!-- skip -->
+```python
+rng = np.random.default_rng(5)
+h = eqn.stats.histogram(rng.normal(size=256))
+len(h), int(h["도수"].sum()), list(h.columns[:3])
+# (9, 256, ['시작', '끝', '가운데'])
+```
+
+### eqn.stats.granger_causality
+
+`granger_causality(y, x, lags)`
+
+Granger 인과 F 검정 — 귀무가설 'x가 y를 Granger 인과하지 않는다'(y식에서 x의 시차 계수 p개가 모두 0).
+
+y_t를 상수 + y의 시차 1…p (제약) 와 거기에 x의 시차 1…p 를 더한 것(무제약)에 OLS로 맞춰  
+F = ((RSS_제약 − RSS_무제약)/p) / (RSS_무제약/(T − 2p − 1)). 두 시리즈가 모두 있는 기간만 쓴다(사이의 결측은 그 뒤 시차가 끊기지 않게 앞에서 뺀다).  
+
+**매개변수**
+
+- `y`: 결과(설명되는) 시리즈 · x: 원인 후보 시리즈 · lags: 시차 수 p
+
+**돌려주는 것**
+
+TestResult — .statistic(F) · .pvalue · .rows(자유도·관측치·χ²)  
+
+**예**
+
+<!-- skip -->
+```python
+rng = np.random.default_rng(6)
+x = rng.normal(size=300)
+y = np.zeros(300)
+for t in range(1, 300):
+    y[t] = 0.5 * x[t - 1] + 0.3 * y[t - 1] + rng.normal()
+eqn.stats.granger_causality(y, x, 2).reject(), eqn.stats.granger_causality(x, y, 2).reject()
+# (True, False)
+```
+
+### eqn.stats.granger_table
+
+`granger_table(data, lags, columns=None)`
+
+모든 쌍의 Granger 인과 — 원인 → 결과 순서마다 한 줄(F·p값·관측치·5%에서 기각). 쌍마다 두 시리즈의 공통 표본에서.
+
+**예**
+
+<!-- skip -->
+```python
+rng = np.random.default_rng(6)
+x = rng.normal(size=300)
+y = np.zeros(300)
+for t in range(1, 300):
+    y[t] = 0.5 * x[t - 1] + 0.3 * y[t - 1] + rng.normal()
+g = eqn.stats.granger_table(pd.DataFrame({"x": x, "y": y}), 2)
+g[["원인", "결과", "인과(5%)"]].values.tolist()
+# [['x', 'y', True], ['y', 'x', False]]
+```
+
 ## 20. 자료 변환 `equion.data.transform`
 
 | 이름 | 서명 | 설명 |
@@ -3782,6 +4003,10 @@ s[:4].round(6).tolist()
 | [`data_define`](#projectdata_define) | `(source, file=None, sheet=None, header_row=None, unit_row=None, time_col=None, missing=None, thousands=None, freq=None, desc=None, series=None, replace=False, who=None, command=None)` | 자료 정의 쓰기 — `series.toml`에 출처(`[source.이름]` = 불러오기 틀)와 시리즈(`[series.이름]`)를 더하거나 고친다. 쓰기 전에 새 내용 전체와, 그 틀로 원자료를 읽어 시리즈가 쓰는 열이 다 있고 변환이 되는지 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 사람이 쓴 주석·순서는 그대로 두고(tomlkit) 바뀜 기록에 남긴다. 자료는 만들지 않는다 — 이어서 `data_build`, `data_use`. |
 | [`model_define`](#projectmodel_define) | `(name, blocks=None, include=None, exclude=None, desc=None, who=None, command=None)` | 모형 정의 쓰기 — `equion.toml`의 `[model.이름]`을 더하거나 고친다(블록·끼울 모형·뺄 식·설명). 준 것만 바꾸고(None은 그대로, 빈 목록·빈 글은 그 키를 지움), 쓰기 전에 새 설정 전체를 검사한다 — 문제가 있으면 아무것도 쓰지 않는다. 주석·순서는 그대로 두고 바뀜 기록에 남긴다. 조립은 하지 않는다 — 이어서 `assemble`. |
 | [`block_define`](#projectblock_define) | `(name, file=None, desc=None, who=None, command=None)` | 블록 더하기 — `equion.toml`의 `[block]`에 블록(방정식 파일 하나)을 더하거나 설명을 고친다. 새 블록의 파일이 아직 없으면 머리 주석만 있는 빈 블록 파일을 함께 만든다(file을 주지 않으면 `EQUATIONS/<이름>.txt`). 바뀜 기록에 남긴다. 식은 그 파일에 한 줄에 하나씩 적고, 모형에는 `model_define`으로 넣는다. |
+| [`group_define`](#projectgroup_define) | `(name, series=None, desc=None, transform=None, who=None, command=None)` | 묶음 저장 — equion.toml의 `[group]`에 이름 붙인 시리즈 묶음을 더하거나 고친다. 준 것만 바꾸고(None은 그대로, 빈 글은 그 키를 지움) 주석·순서는 그대로 두며, 시리즈 이름이 자료에 있는지 본 뒤 쓴다. 바뀜 기록에 남긴다. 묶음은 분석의 대상이 된다(`equion an corr 이름`). |
+| [`group_remove`](#projectgroup_remove) | `(name, who=None, command=None)` | 묶음 지우기 — equion.toml의 `[group]`에서 그 묶음을 뺀다(시리즈·기록은 그대로). 바뀜 기록에 남긴다. |
+| [`part_add`](#projectpart_add) | `(block, text, desc=None, from_part=None, who=None, command=None)` | 블록에 식 한 줄을 더한다 — 블록 파일 끝에 적는다(다른 줄·주석은 그대로). 쓰기 전에 식 문법과 '한 블록에 목표 하나'를 본다. from_part를 주면 그 식을 옮긴다: 원래 블록의 그 줄을 빼고(채택표의 줄도) 이 블록에 더한다 — 모형에 안 든 블록의 개별 식을 모형의 블록으로 넣을 때. 두 파일이 바뀜 기록 하나에 남는다. |
+| [`part_remove`](#projectpart_remove) | `(part, who=None, command=None)` | 블록에서 식 한 줄을 뺀다 — 그 줄만 지우고(다른 줄·주석은 그대로) 채택표의 그 부품 줄도 함께 지운다. 바뀜 기록에 남긴다. |
 | [`desk_show`](#projectdesk_show) | `(name, who=None)` | Equion Desk(데스크톱 앱)에 "이 화면을 열어 달라"고 알린다 — 화면 이동만 하고 아무것도 계산하거나 바꾸지 않는다. |
 | [`views`](#projectviews) | `()` | 저장한 보기(`VIEWS/*.toml`) — 어느 시리즈를 어떤 모양으로 볼지(이름순). 보기마다 name·title·series·show·range·file. |
 | [`view_define`](#projectview_define) | `(name, series=None, show=None, title=None, range=None, who=None, command=None)` | 보기 저장 — `VIEWS/이름.toml`에 시리즈와 보이기(level·qoq·yoy·annual·diff)·제목·구간을 적는다. 준 것만 바꾸고(None은 그대로, 빈 글은 그 키를 지움), 시리즈 이름이 자료에 있는지 본 뒤 쓴다. 바뀜 기록에 남긴다. 보기는 결과를 만들지 않는다 — 과거 재현·전망· 시나리오의 결과를 같은 시리즈·같은 모양으로 다시 보는 데 쓴다. |
@@ -4186,6 +4411,132 @@ r.new, r.files, "labor" in p.config.blocks
 관련  
 ```text
 model_define · parts
+```
+
+### Project.group_define
+
+`group_define(name, series=None, desc=None, transform=None, who=None, command=None)`
+
+묶음 저장 — equion.toml의 `[group]`에 이름 붙인 시리즈 묶음을 더하거나 고친다. 준 것만 바꾸고(None은 그대로, 빈 글은 그 키를 지움) 주석·순서는 그대로 두며, 시리즈 이름이 자료에 있는지 본 뒤 쓴다. 바뀜 기록에 남긴다. 묶음은 분석의 대상이 된다(`equion an corr 이름`).
+
+**매개변수**
+
+- `name`: 묶음 이름(영문으로 시작 — 한글 설명은 desc)
+- `series`: 시리즈 이름들(목록 또는 쉼표·공백으로 띄운 글 — 순서를 지킨다)
+- `desc`: 설명
+- `transform`: 시리즈마다 씌울 변환(예: dlog — 빈 글이면 지움)
+
+**돌려주는 것**
+
+ConfigChange — .kind('group') · .name · .new · .change  
+
+**오류**
+
+- `ProjectError`: 이름 · 새 묶음에 시리즈가 없음 · 자료에 없는 시리즈(아무것도 쓰지 않음)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.group_define("prices", "P, POIL", desc="물가와 유가")
+r.new, p.config.groups["prices"].series
+# (True, ['P', 'POIL'])
+```
+
+관련  
+```text
+group_remove · an
+```
+
+### Project.group_remove
+
+`group_remove(name, who=None, command=None)`
+
+묶음 지우기 — equion.toml의 `[group]`에서 그 묶음을 뺀다(시리즈·기록은 그대로). 바뀜 기록에 남긴다.
+
+**오류**
+
+- `ProjectError`: 없는 묶음
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.group_remove("core").removed, "core" in p.config.groups
+# (True, False)
+```
+
+관련  
+```text
+group_define
+```
+
+### Project.part_add
+
+`part_add(block, text, desc=None, from_part=None, who=None, command=None)`
+
+블록에 식 한 줄을 더한다 — 블록 파일 끝에 적는다(다른 줄·주석은 그대로). 쓰기 전에 식 문법과 '한 블록에 목표 하나'를 본다. from_part를 주면 그 식을 옮긴다: 원래 블록의 그 줄을 빼고(채택표의 줄도) 이 블록에 더한다 — 모형에 안 든 블록의 개별 식을 모형의 블록으로 넣을 때. 두 파일이 바뀜 기록 하나에 남는다.
+
+**매개변수**
+
+- `block`: 더할 블록 이름
+- `text`: 식 한 줄(`#` 뒤는 설명)
+- `desc`: 설명(text에 `#`이 없을 때)
+- `from_part`: 옮겨 올 부품(`블록:목표`)
+
+**돌려주는 것**
+
+PartChange — .part(새 부품 이름) · .files · .change · .moved_from  
+
+**오류**
+
+- `ProjectError`: 없는 블록 · 여러 줄 · 식 문법 · 그 블록에 같은 목표가 이미 있음 · 같은 블록에서 옮김
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+_ = p.block_define("single", desc="개별 식")
+r = p.part_add("single", "M2 c Y RL", desc="통화수요")
+r.part, p.part("single:M2").desc
+# ('single:M2', '통화수요')
+```
+
+관련  
+```text
+part_remove · block_define · used_by
+```
+
+### Project.part_remove
+
+`part_remove(part, who=None, command=None)`
+
+블록에서 식 한 줄을 뺀다 — 그 줄만 지우고(다른 줄·주석은 그대로) 채택표의 그 부품 줄도 함께 지운다. 바뀜 기록에 남긴다.
+
+**오류**
+
+- `ProjectError`: 없는 부품 · 파일이 그사이 바뀜
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.part_remove("finance:M2")
+r.part, [x.id for x in p.parts("finance")]
+# ('finance:M2', ['finance:RL'])
+```
+
+관련  
+```text
+part_add
 ```
 
 ### Project.desk_show
@@ -5474,6 +5825,7 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `assemble` | --help --json --project | 프로젝트의 모형을 조립해 검사한다(계산 없이 — 내생·외생·겹친 목표·모르는 변수) |
 | `model` | --help | 프로젝트의 모형 정의 — equion.toml의 [model.이름]을 더하거나 고친다 |
 | `block` | --help | 프로젝트의 블록 — equion.toml의 [block]에 블록(방정식 파일 하나)을 더하거나 고친다 |
+| `group` | --help | 프로젝트의 묶음 — equion.toml의 [group](이름 붙인 시리즈 묶음 — 분석의 대상) |
 | `desk` | --help | Equion Desk(데스크톱 앱)에 알린다 — 떠 있는 앱이 그 화면을 연다 |
 | `view` | --help | 프로젝트의 보기(VIEWS/*.toml) — 어느 시리즈를 어떤 모양으로 볼지 |
 | `ident` | --check --help --json --project --range --strict --tol | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |

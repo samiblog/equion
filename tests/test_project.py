@@ -368,6 +368,7 @@ def _main(tmp, t0):
     _config_define_tests(tmp)
     _view_tests(tmp)
     _desk_request_tests(tmp)
+    _group_part_tests(tmp)
 
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
@@ -946,6 +947,72 @@ def _desk_request_tests(tmp):
     code4, _, _ = run(["desk"], d)
     check("desk show(0) · --json · 없는 것(3) · 동작 없음(3)", code == 0 and "Equion Desk에 알렸습니다" in out and code2 == 0 and json.loads(out2) == {"show": "model:main", "kind": "model", "file": "work/desk/requests.jsonl"}
           and code3 == 3 and "없는 기록" in err3 and code4 == 3 and read(rf).count("\n") == 3, out + err3)
+
+
+def _group_part_tests(tmp):
+    print("=" * 80)
+    print("M. 묶음 · 블록의 식 더하기·빼기 (D51)")
+    print("=" * 80)
+    P, d = new_project(tmp, "grp")
+    cf = os.path.join(d, "equion.toml")
+    before = read(cf)
+    r = P.group_define("prices", "P, POIL", desc="물가와 유가", who="tester", command="equion group define prices …")
+    ch = P.history.get(r.change)
+    check("묶음 저장: 새 묶음 — 시리즈 순서·설명, 주석은 그대로, 바뀜 기록에 남고 분석의 대상이 된다",
+          r.kind == "group" and r.new and P.config.groups["prices"].series == ["P", "POIL"] and P.config.groups["prices"].desc == "물가와 유가"
+          and '# 블록 = 방정식 파일 하나' in read(cf) and ch.who == "tester" and list(ch.files) == ["equion.toml"]
+          and quiet(P.an, "summary", "prices").meta["target_label"].startswith("묶음 prices"), read(cf)[-300:])
+    r2 = P.group_define("prices", transform="dlog")
+    check("묶음 고치기: 준 것만 — 변환을 더하고(시리즈·설명은 그대로) 빈 글은 그 키를 지운다",
+          not r2.new and r2.change and P.config.groups["prices"].transform == "dlog" and P.config.groups["prices"].series == ["P", "POIL"]
+          and P.group_define("prices", transform="").change and P.config.groups["prices"].transform is None
+          and P.group_define("prices", desc="물가와 유가").change is None)
+    n, text = len(P.history.list()), read(cf)
+    check("묶음: 자료에 없는 시리즈 · 시리즈 없는 새 묶음 · 이름 · 없는 묶음 지우기 — 아무것도 쓰지 않는다",
+          raises(lambda: P.group_define("bad", ["Y", "NOPE"]), ProjectError, "자료에 없는 시리즈 NOPE")
+          and raises(lambda: P.group_define("empty"), ProjectError, "시리즈")
+          and raises(lambda: P.group_define("9x", ["Y"]), ProjectError, "영문으로 시작")
+          and raises(lambda: P.group_remove("nope"), ProjectError, "없는 묶음") and read(cf) == text and len(P.history.list()) == n)
+    rm = P.group_remove("prices")
+    check("묶음 지우기: [group]에서 빼고 바뀜 기록에", rm.removed and "prices" not in P.config.groups and rm.change and "core" in P.config.groups)
+    P.block_define("single", desc="개별 식")
+    sf = os.path.join(d, "EQUATIONS", "single.txt")
+    a = P.part_add("single", "M2 c Y RL   # 통화수요(개별)", who="tester")
+    check("식 더하기: 블록 파일 끝에 한 줄(설명 포함), 다른 줄은 그대로, 어느 모형도 쓰지 않는 개별 식",
+          a.part == "single:M2" and read(sf).endswith("M2 c Y RL   # 통화수요(개별)\n") and read(sf).startswith("# 개별 식 블록")
+          and P.part("single:M2").desc == "통화수요(개별)" and P.used_by("single:M2") == [] and a.files == ["EQUATIONS/single.txt"] and a.change)
+    n, text = len(P.history.list()), read(sf)
+    check("식 더하기: 같은 목표 · 없는 블록 · 문법 · 여러 줄 — 아무것도 쓰지 않는다",
+          raises(lambda: P.part_add("single", "M2 c Y"), ProjectError, "이미 목표 M2")
+          and raises(lambda: P.part_add("nope", "X c Y"), ProjectError, "없는 블록")
+          and raises(lambda: P.part_add("single", "X c Y ("), ProjectError, "괄호")
+          and raises(lambda: P.part_add("single", "X c Y\nZ c Y"), ProjectError, "한 줄")
+          and read(sf) == text and len(P.history.list()) == n)
+    rec = quiet(P.est, "single:M2")
+    quiet(P.adopt, rec.id)
+    ff = os.path.join(d, "EQUATIONS", "finance.txt")
+    fin_before = read(ff)
+    P.part_remove("finance:M2")
+    check("식 빼기: 그 줄만 지운다(다른 줄·주석은 그대로)", "log(M2)" not in read(ff) and "RL c R RL(-1)" in read(ff)
+          and len(read(ff).splitlines()) == len(fin_before.splitlines()) - 1)
+    mv = P.part_add("finance", "M2 c Y RL   # 통화수요", from_part="single:M2")
+    ch = P.history.get(mv.change)
+    check("식 옮기기(--from): 개별 식을 모형의 블록으로 — 원래 줄과 채택표의 줄을 빼고 바뀜 기록 하나에 세 파일, 모형이 쓴다",
+          mv.part == "finance:M2" and mv.moved_from == "single:M2" and "M2 c Y RL" not in read(sf) and "M2 c Y RL   # 통화수요" in read(ff)
+          and sorted(ch.files) == ["EQUATIONS/adopted.toml", "EQUATIONS/finance.txt", "EQUATIONS/single.txt"]
+          and "single:M2" not in P.adopted and "main" in P.used_by("finance:M2"), str(sorted(ch.files)))
+    check("식 옮기기: 같은 블록에서는 안 된다 · 없는 부품", raises(lambda: P.part_add("finance", "M3 c Y", from_part="finance:RL"), ProjectError, "이미 블록")
+          and raises(lambda: P.part_add("single", "M3 c Y", from_part="nope:X"), ProjectError, "없는 부품"))
+    code, out, _ = run(["group", "define", "rates", "--series", "R,RL", "--desc", "금리"], d)
+    code2, out2, _ = run(["group", "list", "--json"], d)
+    code3, out3, _ = run(["block", "add", "single", "Q c Y", "--json"], d)
+    code4, _, err4 = run(["block", "add", "single", "Q c Y"], d)
+    code5, out5, _ = run(["block", "remove", "single:Q"], d)
+    code6, _, err6 = run(["group", "define", "bad", "--series", "NOPE"], d)
+    check("명령줄: group define·list · block add(--json)·remove · 같은 목표(3) · 없는 시리즈(3)",
+          code == 0 and "새 묶음" in out and code2 == 0 and [g["name"] for g in json.loads(out2)] == ["core", "rates"]
+          and code3 == 0 and json.loads(out3)["part"] == "single:Q" and code4 == 3 and "이미 목표" in err4
+          and code5 == 0 and "[block remove] single:Q" in out5 and code6 == 3 and "자료에 없는" in err6, out + err4)
 
 
 def test_suite():

@@ -46,3 +46,11 @@ print(p.an("coint", "RL R").text())
 e = p.an("ecm", "log(CN) log(Y)", as_name="ecm_1")
 print(p.keep(e.id, as_name="cons_ecm1").text())         # 단기식을 demand:CN의 후보로 — 계수 그대로
 print(p.compare(part="demand:CN").table[["R²adj", "기준"]])
+
+# %% R60. 기초 통계 — 기술 통계·상관·자기상관·그랜저, 그리고 묶음
+p = eqn.Project.create("stat_prj", force=True)
+print(p.an("stats", "core").text())                          # equion an stats core
+print(p.an("acf", "dlog(Y)", lags=8).text())                 # equion an acf "dlog(Y)" --lags 8
+print(p.an("granger", "dlog(Y) dlog(CN)", lags=2).text())    # equion an granger "dlog(Y) dlog(CN)" --lags 2
+p.group_define("money", series=["M2", "R", "P"], desc="돈과 물가")
+print(p.an("corr", "money").text())                          # equion an corr money

@@ -6,18 +6,20 @@
 서버를 브라우저 모드로 띄우고(`python -m equion_desk --browser`) PC에 있는 Edge 를 창 없이 몬다 — 브라우저를 따로 받지 않는다
 (Edge 가 없으면 playwright 의 chromium 을 찾는다: `python -m playwright install chromium`). 설정 파일과 예제 프로젝트는 임시 폴더에 둔다.
 
-확인하는 것: 첫 화면 → 프로젝트 열기 → 부품을 눌러도 계산하지 않는다 → 추정이 1초 안에 화면에(S1) → 식 작업대(치는 동안의 검사 ·
+확인하는 것: 첫 화면 → 프로젝트 열기(모형 탭) → 부품을 눌러도 계산하지 않는다 → 추정이 1초 안에 화면에(S1) → 식 작업대(치는 동안의 검사 ·
 후보 목록 · 겹쳐 보기 · 기간 짚기 · **채택** · **이 후보로 과거 재현** · 항등식 검사 — D2a) → 자료 작업대(받은 상자 → **자료 만들기 → 견주기 →
 이 회차로 바꾸기**)와 분석 탭(등록부의 폼 · 명령 줄 · **미리보기 → 정의로 남기기** — D2b-1) → 불러오기(읽은 그대로의 표 · 틀을 권하는 단추 ·
 열 ↔ 시리즈 · **무엇이 적히는지 보고 저장** — D2b-2) → 회차 바꾼 뒤 할 일 · 모형 작업대(조립 · 새 모형 · **과거 재현 · 원인 따라가기** ·
 이 블록만 풀기) · 블록 파일 고치기 · 흐름 화면(**스크립트를 화면에서 실행** — D3) → **터미널에서 친 명령의 기록이
-띠에 뜨고 카드로 열린다** → 전망과 작업 줄 → 밖에서 고친 정의 파일의 바뀜 알림과 차이 → **닫았다 열면 이어진다** → 어두운 바탕.
+띠에 뜨고 카드로 열린다** → 전망과 작업 줄 → 밖에서 고친 정의 파일의 바뀜 알림과 차이 → **닫았다 열면 이어진다** → 어두운 바탕 →
+DESK_V2(세 열 1/3 · **변수에서 출발** — 여럿 고르기 · 메뉴 · 묶음 · 변수 창 · 분석 탭과 개별 식 · **명령 창** · 터미널 여러 개 · 기록 탭).
 서버·작업 프로세스 시험은 `test_app.py`, 이 파일은 화면까지 이어 본다(pytest 가 모으지 않는다 — 브라우저가 있어야 한다).
 """
 from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -52,7 +54,7 @@ TERM_LOOK = """() => {
                     const root = document.documentElement;
                     const el = document.querySelector('.project:not([hidden]) .term');
                     const m = getComputedStyle(el).backgroundColor.match(/[\\d.]+/g).map(Number);
-                    const x = window.equionDesk.current.term.xterm;
+                    const x = window.equionDesk.current.term.current?.xterm;
                     const lum = (c) => { const n = c.match(/^#([0-9a-f]{6})$/i); if (!n) return null; const v = parseInt(n[1], 16); return (0.2126 * (v >> 16) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255)) / 255; };
                     return { bg: (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255, token: getComputedStyle(root).getPropertyValue('--term-bg').trim(),
                       xbg: x ? x.options.theme.background : null, xfg: x ? lum(x.options.theme.foreground) : null, white: x ? lum(x.options.theme.brightWhite) : null,
@@ -143,6 +145,8 @@ def run(shots: str | None) -> int:
             server = start_server(env, folder)
             try:
                 page = open_page(browser)
+                page.wait_for_selector(f"{active} .side-tabs [data-side='models']", timeout=30000)
+                page.click(f"{active} .side-tabs [data-side='models']")            # 모형 탭 — 모형 · 블록 · 식(DESK_V2: 처음은 변수 탭)
                 page.wait_for_selector(f"{active} .side .row-item[data-key='bench:demand:CN']", timeout=30000)
                 page.wait_for_selector("#status .dot.ok")
                 parts = page.locator(f"{active} .side .row-item[data-key^='bench:']").count()
@@ -288,7 +292,7 @@ def run(shots: str | None) -> int:
                     f.write("\n# 값과 무관한 주석 한 줄\n")
                 page.wait_for_selector(f"{active} .notice[data-change]", timeout=20000)
                 page.click(f"{active} .notice[data-change] .icon-btn")
-                page.click(f"{active} .side .row-item[data-key='data']")
+                page.click(f"{active} .side .wb[data-key='data']")
                 page.wait_for_selector(f"{pane} .banner.warn")
                 told = page.inner_text(f"{pane} .banner.warn")
                 page.click(f"{pane} .banner.warn .btn")            # 자료 만들기 — 값이 같아 새 회차가 생기지 않는다
@@ -296,7 +300,7 @@ def run(shots: str | None) -> int:
                 page.click(f"{pane} .flow-card >> nth=2")
                 check("A0 정의의 글만 고치면 '바뀐 것이 있습니다'(무엇이 바뀌었는지) → 만들어 보아 값이 같으면 회차는 그대로이고 다시 권하지 않는다",
                       "series.toml" in told and page.locator(f"{pane} .vint").count() == 1 and first in page.inner_text(f"{pane} .banner.ok")
-                      and page.locator(f"{active} .side .row-item[data-key='data'] .dot").count() == 0, told)
+                      and page.locator(f"{active} .side .wb[data-key='data'] .wb-dot.on").count() == 0, told)
                 page.click(f"{pane} .flow-card >> nth=1")
                 # 새 분기 자료가 받은 상자에 왔다 — 한 분기가 늘고 지난 분기의 값 하나가 고쳐졌다(개정)
                 with open(os.path.join(folder, "DATA", "raw", "toy_q.csv"), encoding="utf-8") as f:
@@ -357,7 +361,7 @@ def run(shots: str | None) -> int:
                 check("A8 옛 회차로 되돌아갈 수 있다 — 새 회차는 그대로 남아 '준비돼 있다'고 알린다",
                       first in page.inner_text("#status") and "준비돼" in page.inner_text(f"{pane} .banner") and page.locator(f"{pane} .vint").count() == 2)
 
-                page.click(f"{active} .side .row-item[data-key='analysis']")
+                page.click(f"{active} .side .wb[data-key='analysis']")
                 page.wait_for_selector(f"{pane} .an-row")
                 check("A9 분석 — 등록부의 분석이 갈래마다 한 줄씩(무엇을 만드는 분석인지와 함께)",
                       page.locator(f"{pane} .an-row").count() >= 13 and page.locator(f"{pane} .an-row .tag").count() >= 5)
@@ -373,7 +377,7 @@ def run(shots: str | None) -> int:
                       and rid.startswith("an:unitroot_") and "단위근" in page.inner_text(f"{pane} .an-out .doc"), preview)
                 page.wait_for_timeout(300)
                 shot(page, "03c-analysis")
-                page.click(f"{active} .side .row-item[data-key='data']")
+                page.click(f"{active} .side .wb[data-key='data']")
                 page.click(f"{pane} .flow-card >> nth=1")
                 if page.locator(f"{pane} table.series tr.row.open").count():
                     page.click(f"{pane} table.series tr.row.open")           # 펼쳐 둔 줄을 접는다
@@ -576,7 +580,7 @@ def run(shots: str | None) -> int:
 
                 print("T. 전망 작업대 · 보고서(D4)")
                 n_jobs = page.locator("#job .job").count()
-                page.click(f"{active} .side .row-item[data-key='forecast']")
+                page.click(f"{active} .side .wb[data-key='forecast']")
                 page.wait_for_selector(f"{pane} .fc-table tbody tr")
                 sims = page.locator(f"{pane} tr[data-sim]").count()
                 check("T1 전망 작업대 — 푼 전망이 있으면 가정 표는 접고(한 줄 요약) 결과를 먼저 보인다. 여는 것만으로는 풀지 않는다",
@@ -685,14 +689,14 @@ def run(shots: str | None) -> int:
                 made = equion(folder, claude_env, "propose", "new", "--title", "물가식에 시차 하나 더", "--why", "P(-2)를 넣어 본다 — 화면 점검", "--part", "price:P=P c Y POIL P(-1) P(-2)")
                 page.wait_for_selector(f"{active} .notice[data-key='prop:p1']", timeout=20000)
                 note = page.inner_text(f"{active} .notice[data-key='prop:p1']")
-                page.wait_for_selector(f"{active} .side .row-item[data-key='proposals'] .dot.prop", timeout=10000)
-                dot = page.locator(f"{active} .side .row-item[data-key='proposals'] .dot.prop").count()
+                page.wait_for_selector(f"{active} .side-tabs [data-side='records'] .dot.prop", timeout=10000)
+                dot = page.locator(f"{active} .side-tabs [data-side='records'] .dot.prop").count()
                 page.click(f"{active} .notice[data-key='prop:p1'] .btn.primary")
                 page.wait_for_selector(f"{pane} .split-view.proposals .diff .dl.add")
-                check("R1 Claude 가 제안을 남기면 알림 카드와 사이드바의 점 — '제안 보기'가 제안 카드를 연다(바뀔 내용의 차이·까닭). 아직 아무것도 바뀌지 않았다",
+                check("R1 Claude 가 제안을 남기면 알림 카드와 기록 탭의 점 — '제안 보기'가 제안 카드를 연다(바뀔 내용의 차이·까닭). 아직 아무것도 바뀌지 않았다",
                       made.returncode == 0 and "Claude 제안 p1" in note and "물가식에 시차 하나 더" in note and dot == 1
                       and "+P c Y POIL P(-1) P(-2)" in page.inner_text(f"{pane} .diff") and "화면 점검" in page.inner_text(f"{pane} .prop-why")
-                      and page.locator(f"{active} .side .row-item[data-key='proposals'] .dot.prop").count() == 0
+                      and page.locator(f"{active} .side-tabs [data-side='records'] .dot.prop").count() == 0
                       and page.locator(f"{active} .notice[data-key='prop:p1']").count() == 0 and "P(-2)" not in open(price, encoding="utf-8").read(), note + made.stderr[-200:])
                 page.wait_for_timeout(250)
                 shot(page, "03n-proposal")
@@ -844,15 +848,15 @@ def run(shots: str | None) -> int:
                 check("Y4-1 어두운 바탕에서는 터미널도 어둡다(글자는 밝게 — 어두운 색표)",
                       look["bg"] < 0.12 and (look["xbg"] is None or (look["xbg"] == look["token"] and look["xfg"] > 0.7 and look["white"] > 0.9)), str(look))
                 shot(page, "07-dark")
-                page.click(f"{active} .side-tabs [data-side='parts']")
-                page.click(f"{active} .side .row-item[data-key='data']")
+                page.click(f"{active} .side-tabs [data-side='models']")
+                page.click(f"{active} .side .wb[data-key='data']")
                 page.wait_for_selector(f"{pane} .flow-card")
                 kept = page.get_attribute(f"{pane} .flow-card >> nth=2", "aria-pressed")       # 지난번 보던 칸(회차)으로 열린다
                 page.click(f"{pane} .flow-card >> nth=1")
                 page.wait_for_selector(f"{pane} table.series tr.row")
                 page.wait_for_timeout(300)
                 shot(page, "08-data-dark")
-                page.click(f"{active} .side .row-item[data-key='analysis']")
+                page.click(f"{active} .side .wb[data-key='analysis']")
                 page.wait_for_selector(f"{pane} .an-form")
                 check("Y6 자료 작업대와 분석 탭도 이어진다 — 보던 분석 기록과 폼이 그대로",
                       kept == "true" and page.input_value(f"{pane} .an-target") == "CN" and page.locator(f"{pane} .an-out .result-head .rid").count() == 1)
@@ -878,6 +882,158 @@ def run(shots: str | None) -> int:
                 page.keyboard.press("Escape")
                 page.wait_for_timeout(150)
                 shot(page, "11-term-light")
+                page.close()
+            finally:
+                server.terminate()
+                server.wait(10)
+
+            print("N. DESK_V2 — 세 열 · 변수에서 출발 · 분석 탭 · 명령 창 · 터미널 여러 개 · 기록 탭")
+            server = start_server(env)
+            try:
+                page = open_page(browser)
+                page.wait_for_selector("#status .dot.ok", timeout=30000)
+                widths = lambda: page.evaluate("""() => { const p = document.querySelector('.project:not([hidden])');
+                    const w = (s) => Math.round(p.querySelector(s).getBoundingClientRect().width); return [w(':scope > .side'), w(':scope > .center'), w(':scope > .right')]; }""")
+                narrow = widths()
+                page.set_viewport_size({"width": 1920, "height": 900})
+                page.wait_for_timeout(250)
+                wide = widths()
+                page.set_viewport_size({"width": 1480, "height": 900})
+                check("N1 세 열 — 넓은 창은 1/3씩, 좁은 창은 가운데 540px 을 지키고 양옆이 나눈다",
+                      abs(wide[0] - wide[1]) <= 8 and abs(wide[1] - wide[2]) <= 8 and abs(narrow[1] - 540) <= 8 and abs(narrow[0] - narrow[2]) <= 8, f"{narrow} {wide}")
+
+                page.click(f"{active} .side-tabs [data-side='vars']")
+                page.wait_for_selector(f"{active} .var-row[data-var='CN']")
+                rows = page.locator(f"{active} .var-row[data-var]").count()
+                rel = page.inner_text(f"{active} .var-row[data-var='CN'] .rel")
+                exo = page.inner_text(f"{active} .var-row[data-var='POIL'] .rel")
+                check("N2 변수 탭 — 시리즈마다 설명과 모형과의 관계(식이 있다 · 외생)", rows >= 12 and rel == "식" and exo == "외생", f"{rows} {rel} {exo}")
+                page.click(f"{active} .var-row[data-var='Y']")
+                page.click(f"{active} .var-row[data-var='CN']", modifiers=["Control"])
+                page.click(f"{active} .var-row[data-var='I']", modifiers=["Control"])
+                chips = page.locator(f"{active} .sel-bar .sel-chip").all_inner_texts()
+                check("N3 Ctrl 로 여럿 고르기 — 고른 차례를 지키고(번호) 아래에 고른 변수 줄",
+                      [c.strip() for c in chips] == ["Y", "CN", "I"] and page.locator(f"{active} .var-row.on").count() == 3
+                      and page.inner_text(f"{active} .var-row[data-var='I'] .vorder") == "3", str(chips))
+                shot(page, "12-vars")
+                page.click(f"{active} [data-act='var-menu']")
+                page.wait_for_selector(".var-menu")
+                acts = page.evaluate("() => [...document.querySelectorAll('.var-menu [data-act]')].map((n) => n.dataset.act)")
+                check("N4 '할 수 있는 일' — 고른 수에 맞는 분석만(셋: 상관·그랜저·공적분·VAR 은 있고 자기상관·교차상관은 없다)",
+                      {"an-corr", "an-granger", "an-coint", "an-var", "var-window", "save-group"} <= set(acts) and "an-acf" not in acts and "an-xcorr" not in acts, str(acts))
+                page.wait_for_timeout(250)
+                shot(page, "13-var-menu")
+                page.click(".var-menu [data-act='an-corr']")
+                page.wait_for_selector(f"{pane} .an-out .of-record", timeout=30000)
+                check("N5 메뉴에서 고르면 그 대상으로 바로 돈다 — 기록 an: 이 남고 분석 실행 화면에 결과",
+                      page.input_value(f"{pane} .an-target") == "Y CN I" and os.path.isdir(os.path.join(folder, "work", "an", "corr_0001")))
+                shot(page, "14-corr")
+
+                page.click(f"{active} [data-act='save-group']")
+                page.wait_for_selector(".dialog input")
+                page.fill(".dialog input >> nth=0", "trio")
+                page.wait_for_selector(".dialog .diff .dl.add", timeout=10000)
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{active} .var-row.group[data-group='trio']", timeout=20000)
+                toml = open(os.path.join(folder, "equion.toml"), encoding="utf-8").read()
+                check("N6 묶음으로 저장 — 바뀔 줄을 보이고 equion.toml 의 [group] 에 적는다(고른 것이 그 묶음이 된다)",
+                      re.search(r"^trio\s*=", toml, re.M) and page.locator(f"{active} .var-row.group[data-group='trio'].on").count() == 1, toml[-200:])
+                page.dblclick(f"{active} .var-row[data-var='CN']")
+                page.wait_for_selector(f"{pane} .var-view .var-chart svg", timeout=20000)
+                page.click(f"{pane} .var-bar [data-tab='values']")
+                page.wait_for_selector(f"{pane} table.var-values tbody tr")
+                vals = page.locator(f"{pane} table.var-values tbody tr").count()
+                page.click(f"{pane} .var-bar [data-tab='lineage']")
+                page.wait_for_selector(f"{pane} .lineage .stepchip")
+                check("N7 변수를 두 번 누르면 변수 창 — 차트 · 값 · 내력", vals >= 100 and "CN" in page.inner_text(f"{active} .tabbar .tab[aria-selected='true']"), str(vals))
+                page.click(f"{pane} .var-bar [data-tab='an']")
+                page.click(f"{pane} [data-run='acf']")
+                page.wait_for_selector(f"{pane} .var-an .rec-row", timeout=30000)
+                page.wait_for_selector(f"{pane} .of-record .doc, {pane} .of-record table", timeout=20000)
+                check("N7-1 변수 창의 분석 — 그 자리에서 돌리고 결과를 본다(기록 an: 으로 남는다)", os.path.isdir(os.path.join(folder, "work", "an", "acf_0001")))
+                shot(page, "15-var-window")
+
+                page.click(f"{active} .side-tabs [data-side='analysis']")
+                page.wait_for_selector(f"{active} .side [data-record='an:corr_0001']")
+                page.click(f"{active} [data-act='new-single']")
+                page.wait_for_selector(f"{pane} .eq-box textarea")
+                page.fill(f"{pane} .eq-box textarea", "IPQ c IPQ(-1)")
+                page.click(f"{pane} [data-act='save-single']")
+                page.wait_for_selector(".dialog .diff")
+                diff = page.inner_text(".dialog .diff")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{active} .side .row-item[data-key='bench:single:IPQ']", timeout=20000)
+                check("N8 분석 탭 — 돌린 분석(대상별 가장 새 것), 새 개별 식은 블록 single 에 한 줄로 남는다(모형 밖)",
+                      "IPQ c IPQ(-1)" in diff and os.path.isfile(os.path.join(folder, "EQUATIONS", "single.txt"))
+                      and page.locator(f"{active} .side [data-record='an:acf_0001']").count() == 1, diff)
+                shot(page, "16-analysis-tab")
+
+                cmd = f"{active} .cmd-input"
+                page.click(cmd)
+                page.fill(cmd, "an gr")
+                page.wait_for_selector(f"{active} .cmd-suggest .cmd-sug", timeout=10000)
+                sug = page.locator(f"{active} .cmd-suggest .cmd-sug").all_inner_texts()
+                page.fill(cmd, "an unitroot Y --trend ct")
+                page.press(cmd, "Enter")
+                page.wait_for_selector(f"{active} .cmd-entry.ok", timeout=30000)
+                page.wait_for_selector(f"{active} .tabbar .tab[aria-selected='true']:has-text('unitroot')", timeout=10000)
+                made = re.search(r"unitroot_\d+", page.inner_text(f"{active} .cmd-entry.ok .cmd-links"))
+                check("N9 명령 창 — 자동 완성(명령의 다음 낱말), Enter 로 실행하면 기록이 남고 그 탭이 열린다",
+                      any("granger" in x for x in sug) and made and os.path.isdir(os.path.join(folder, "work", "an", made.group(0))), str(sug))
+                page.fill(cmd, "adopt est:nope")
+                page.press(cmd, "Enter")
+                page.wait_for_selector(f"{active} .cmd-entry.bad", timeout=20000)
+                page.fill(cmd, "run x.py")
+                page.press(cmd, "Enter")
+                page.wait_for_selector(f"{active} .cmd-entry.denied", timeout=20000)
+                page.click(f"{active} .side-tabs [data-side='vars']")
+                page.click(f"{active} .var-row[data-var='Y']")
+                page.click(f"{active} .var-row[data-var='P']", modifiers=["Control"])
+                page.fill(cmd, "an corr")
+                page.press(cmd, "Enter")
+                page.wait_for_selector(f"{active} .cmd-entry.ok >> nth=1", timeout=30000)
+                lines = page.locator(f"{active} .cmd-entry .cmd-text").all_inner_texts()
+                check("N10 틀린 명령은 코드와 글, Python 스크립트는 '터미널에서', 'an 분석'만 치면 고른 변수가 대상으로 들어간다",
+                      "an corr 'Y P'" in lines and page.locator(f"{active} .cmd-entry.denied .cmd-code").inner_text() == "터미널에서", str(lines))
+                page.keyboard.press("ArrowUp")
+                hist = page.input_value(cmd)
+                check("N11 ↑ 로 지난 명령", hist == "an corr 'Y P'", hist)
+                page.fill(cmd, "")
+                shot(page, "17-command")
+
+                page.click(f"{active} [data-act='term-add']")
+                page.wait_for_selector(f"{active} .term-tab[data-n='1']", timeout=20000)
+                two = page.locator(f"{active} .term-tab").count()
+                page.click(f"{active} .term-tab[data-n='1'] .x")
+                page.wait_for_timeout(400)
+                check("N12 터미널 여러 개 — + 로 더하고 × 로 끝낸다(1번은 남는다)", two == 2 and page.locator(f"{active} .term-tab").count() == 1
+                      and page.locator(f"{active} .term-tab[data-n='0']").count() == 1)
+                page.click(f"{active} [data-act='cmd-swap']")
+                page.wait_for_timeout(200)
+                top = page.evaluate("""() => { const p = document.querySelector('.project:not([hidden])');
+                    return p.querySelector('.cmd-pane').getBoundingClientRect().top < p.querySelector(':scope > .right > .term').getBoundingClientRect().top; }""")
+                page.click(f"{active} [data-act='cmd-swap']")
+                check("N13 명령 창과 터미널의 자리를 바꾼다(위·아래)", top)
+
+                page.click(f"{active} .side-tabs [data-side='records']")
+                page.wait_for_selector(f"{active} .side .row-item.rec")
+                recs = page.locator(f"{active} .side .row-item.rec").count()
+                page.click(f"{active} .rec-sub [data-sub='changes']")
+                page.wait_for_selector(f"{active} .side .row-item.chg", timeout=10000)
+                chg = page.locator(f"{active} .side .row-item.chg").count()
+                page.click(f"{active} .side .row-item.chg >> nth=0")
+                page.wait_for_selector(f"{pane} .split-view .detail .diff")
+                check("N14 기록 탭 — 결과와 바뀜·제안 두 칸, 바뀜을 누르면 가운데에 차이만 넓게(목록은 왼쪽에)",
+                      recs >= 6 and chg >= 2 and not page.is_visible(f"{pane} .split-view > .list"), f"{recs} {chg}")
+                shot(page, "18-records")
+                page.click(f"{active} .side-tabs [data-side='models']")
+                page.click(f"{active} .side .row-item[data-key='bench:demand:CN']")
+                page.wait_for_selector(f"{pane} table.grid td[data-var='Y']", timeout=20000)
+                page.click(f"{pane} table.grid td[data-var='Y']", button="right")
+                page.wait_for_selector(".var-menu")
+                head = page.inner_text(".var-menu .menu-head")
+                page.keyboard.press("Escape")
+                check("N15 계수표의 변수 이름을 우클릭해도 같은 변수 메뉴", head.strip() == "Y", head)
                 page.close()
             finally:
                 server.terminate()

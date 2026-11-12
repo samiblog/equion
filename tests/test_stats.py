@@ -13,6 +13,7 @@ test_stats.py — 자체 통계(equion.stats) 테스트. 외부 회귀 패키지
   C. 진단 검정: 계열상관 LM·White·BP·ARCH·JB·Ljung-Box·RESET·Wald·Chow·CUSUM, 진단 표, 제약식 안전성
   D. 단위근·공적분: ADF·KPSS·Engle-Granger·Johansen(워크파일 식 입력), 표본·결측 처리
   E. 의존성: statsmodels를 불러오지 않는다
+  J. 기초 분석: 기술 통계·상관·자기상관·교차상관·히스토그램·Granger(다른 방법으로 계산한 값과)
 """
 
 import contextlib
@@ -665,6 +666,99 @@ def main():
         w4 = quiet(eqn.wfopen, pth)
         check("저장·열기: VAR·VECM 객체(다시 추정해 같은 계수)", close(w4.obj("v_c").fit.coefs, wf.obj("v_c").fit.coefs, 1e-12)
               and close(w4.obj("k_ci").fit.alpha, kk.fit.alpha, 1e-12))
+
+    print("\n" + "=" * 80)
+    print("J. 기초 분석 — 기술 통계·상관·자기상관·교차상관·히스토그램·Granger (D50)")
+    print("=" * 80)
+    from scipy import stats as sps
+    from equion.stats import var as VAR
+    rng = np.random.default_rng(11)
+    a = rng.normal(2.0, 3.0, size=240)
+    b = rng.gamma(2.0, 1.5, size=240)
+    frame = pd.DataFrame({"a": a, "b": b})
+    frame.loc[5, "b"] = np.nan
+    d = eqn.stats.describe(frame)
+    bb = b[np.isfinite(frame["b"].to_numpy())]
+    jb = D.jarque_bera(a)
+    check("기술 통계: 평균·표준편차(n−1)·사분위·왜도·첨도(편향 그대로)가 numpy·scipy와 같다, 결측은 시리즈마다",
+          close(d.loc["a", "평균"], a.mean()) and close(d.loc["a", "표준편차"], a.std(ddof=1)) and close(d.loc["a", "75%"], np.percentile(a, 75))
+          and close(d.loc["a", "왜도"], sps.skew(a)) and close(d.loc["a", "첨도"], sps.kurtosis(a, fisher=False))
+          and int(d.loc["b", "관측치"]) == 239 and close(d.loc["b", "중앙값"], np.median(bb)), str(d.loc["a"].to_dict())[:200])
+    check("기술 통계: Jarque-Bera가 잔차 정규성 검정(jarque_bera)과 같다",
+          close(d.loc["a", "Jarque-Bera"], jb.statistic, 1e-10) and close(d.loc["a", "JB p값"], jb.pvalue, 1e-10))
+    x = rng.normal(size=150)
+    y = 0.6 * x + rng.normal(size=150)
+    z = rng.normal(size=150)
+    cf = pd.DataFrame({"x": x, "y": y, "z": z})
+    cf.loc[[3, 40], "z"] = np.nan
+    keep = cf.dropna()
+    c = eqn.stats.correlation(cf)
+    pr = sps.pearsonr(keep["x"], keep["y"])
+    sp = sps.spearmanr(keep["x"], keep["z"])
+    cs = eqn.stats.correlation(cf, "spearman")
+    check("상관(피어슨): 공통 표본에서 np.corrcoef·scipy pearsonr의 상관·p값과 같다, 공분산은 n−1",
+          c.nobs == 148 and close(c.corr.loc["x", "y"], pr.statistic, 1e-12) and close(c.pvalues.loc["x", "y"], pr.pvalue, 1e-9)
+          and close(c.cov.loc["x", "z"], np.cov(keep["x"], keep["z"])[0, 1]) and bool(np.isnan(c.pvalues.loc["y", "y"])), f"{c.pvalues.loc['x', 'y']} {pr.pvalue}")
+    check("상관(스피어먼): scipy spearmanr의 상관·p값과 같다", close(cs.corr.loc["x", "z"], sp.statistic, 1e-12) and close(cs.pvalues.loc["x", "z"], sp.pvalue, 1e-9))
+    pairs = c.pairs()
+    check("상관 쌍: 절댓값이 큰 순서", pairs.iloc[0][["변수1", "변수2"]].tolist() == ["x", "y"] and len(pairs) == 3
+          and list(pairs["상관"].abs()) == sorted(pairs["상관"].abs(), reverse=True))
+    check("상관: 시리즈 하나·짧은 표본·모르는 방법·값이 하나뿐인 시리즈는 오류",
+          raises(lambda: eqn.stats.correlation(cf[["x"]]), ValueError, "둘 이상") and raises(lambda: eqn.stats.correlation(cf.iloc[:2]), ValueError, "짧")
+          and raises(lambda: eqn.stats.correlation(cf, "kendall"), ValueError, "method")
+          and raises(lambda: eqn.stats.correlation(pd.DataFrame({"x": x, "k": 1.0})), ValueError, "하나뿐"))
+    e = rng.normal(size=600)
+    ar = np.zeros(600)
+    for t in range(2, 600):
+        ar[t] = 0.5 * ar[t - 1] + 0.2 * ar[t - 2] + e[t]
+    r = eqn.stats.acf(ar, 6)
+    pa = eqn.stats.pacf(ar, 6)
+    yw = []
+    for k in range(1, 7):
+        R_ = np.array([[r[abs(i - j)] for j in range(k)] for i in range(k)])
+        yw.append(np.linalg.solve(R_, r[1:k + 1])[-1])
+    check("자기상관: 잔차 진단의 자기상관(_acf)과 같다", close(r, D._acf(ar - 0, 6), 1e-12))
+    check("편자기상관: Yule-Walker 방정식을 직접 푼 값과 같다(AR(2)라 시차 3부터 작다)",
+          close(pa, np.array(yw), 1e-10) and abs(pa[2]) < 0.1 and 0.15 < pa[1] < 0.3, str(np.round(pa, 3)))
+    cg = eqn.stats.correlogram(ar, 6)
+    lb = D.ljung_box(ar, 6)
+    check("자기상관 표: Q·p값이 Ljung-Box와 같다, 95% 한계 1.96/√n",
+          close(cg["Q"].to_numpy(), lb.table["Q"].to_numpy(), 1e-10) and close(cg["p값"].to_numpy(), lb.table["p값"].to_numpy(), 1e-10)
+          and close(cg.attrs["band"], 1.96 / np.sqrt(600)) and cg.attrs["nobs"] == 600)
+    check("자기상관 표: 시차를 주지 않으면 min(24, n/4) · 시차가 너무 길면 오류",
+          len(eqn.stats.correlogram(ar)) == 24 and len(eqn.stats.correlogram(ar[:40])) == 10 and raises(lambda: eqn.stats.acf(ar[:5], 5), ValueError, "시차"))
+    yy = rng.normal(size=300)
+    xx = np.r_[np.zeros(3), yy[:-3]] + 0.5 * rng.normal(size=300)
+    cc = eqn.stats.ccf(xx, yy, 5)
+    dx, dy = xx - xx.mean(), yy - yy.mean()
+    n_ = 300
+    man3 = (dx[3:] @ dy[:n_ - 3]) / n_ / (dx.std() * dy.std())
+    manm2 = (dx[:n_ - 2] @ dy[2:]) / n_ / (dx.std() * dy.std())
+    check("교차상관: 시차 0은 피어슨 상관, k>0은 y가 앞선 것 — 직접 계산과 같고 가장 큰 곳이 3",
+          close(cc.loc[0, "상관"], np.corrcoef(xx, yy)[0, 1], 1e-12) and close(cc.loc[3, "상관"], man3, 1e-12) and close(cc.loc[-2, "상관"], manm2, 1e-12)
+          and int(cc["상관"].abs().idxmax()) == 3 and len(cc) == 11)
+    hv = rng.normal(10, 2, size=500)
+    h = eqn.stats.histogram(hv)
+    cnt, edges = np.histogram(hv, bins=10)
+    h7 = eqn.stats.histogram(hv, 7)
+    check("히스토그램: 스터지스 구간 수, np.histogram의 도수·경계, 비율 합 1, 정규 기대도수는 n·(Φ(끝)−Φ(시작))",
+          len(h) == 10 and list(h["도수"]) == list(cnt) and close(h["시작"].to_numpy(), edges[:-1]) and close(h["비율"].sum(), 1.0)
+          and close(h["정규 기대도수"].iloc[4], 500 * (sps.norm.cdf(edges[5], hv.mean(), hv.std(ddof=1)) - sps.norm.cdf(edges[4], hv.mean(), hv.std(ddof=1))))
+          and len(h7) == 7 and raises(lambda: eqn.stats.histogram([1.0]), ValueError, "둘 이상"))
+    gx = rng.normal(size=400)
+    gy = np.zeros(400)
+    for t in range(1, 400):
+        gy[t] = 0.4 * gx[t - 1] + 0.3 * gy[t - 1] + rng.normal()
+    g = eqn.stats.granger_causality(gy, gx, 3)
+    fit = VAR.fit_var(np.column_stack([gy, gx]), 3, "c")
+    gv = VAR.granger(fit, [0], [1])
+    check("Granger: 한 식의 F가 같은 VAR(상수·시차 3)의 Wald F와 같다(자유도만 다르다), 방향이 맞다",
+          close(g.statistic, gv["F"], 1e-8) and g.reject() and not eqn.stats.granger_causality(gx, gy, 3).reject()
+          and g.details["df"] == (3, 397 - 7), f"{g.statistic} {gv['F']}")
+    gtab = eqn.stats.granger_table(pd.DataFrame({"y": gy, "x": gx, "w": rng.normal(size=400)}), 2)
+    check("Granger 표: 순서 있는 쌍마다 한 줄(셋이면 여섯) · 시차가 모자라면 오류",
+          len(gtab) == 6 and gtab.set_index(["원인", "결과"]).loc[("x", "y"), "인과(5%)"]
+          and raises(lambda: eqn.stats.granger_causality(gy[:8], gx[:8], 3), ValueError, "모자랍"))
 
     print("\n" + "=" * 80)
     print("I. 의존성")

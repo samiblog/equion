@@ -139,6 +139,17 @@ def main() -> int:
                   made.returncode == 0 and (code, code2, code3, code4) == (200,) * 4 and [p.get("id") for p in props.get("proposals", [])] == ["prop:p1"]
                   and "+CN c Y" in str(one.get("diff")) and marked.get("pinned") is True and "Equion Desk 도움말" in str(helped)[:200],
                   f"{made.returncode} {code} {code2} {code3} {code4} {(made.stdout + made.stderr)[-200:]} {str(one)[:150]}")
+            code, var = http(f"/api/p/{pid}/variables")
+            code2, line = http(f"/api/p/{pid}/line", {"line": "an corr 'Y CN'"})
+            code3, alist = http(f"/api/p/{pid}/analysis-list")
+            code4, cat = http(f"/api/p/{pid}/catalog")
+            var, line, alist, cat = (x if isinstance(x, dict) else {} for x in (var, line, alist, cat))
+            got = (line.get("result") or {})
+            check("9-4 2차판 — 변수 목록(모형과의 관계), 명령 창의 한 줄(기록이 남는다), 분석 목록, 명령 목록",
+                  (code, code2, code3, code4) == (200,) * 4 and any(v.get("name") == "CN" and v.get("rel") == "endo" for v in var.get("variables", []))
+                  and got.get("code") == 0 and got.get("records") == ["an:corr_0001"] and any(r.get("analysis") == "corr" for r in alist.get("results", []))
+                  and any(c.get("command") == "an corr" for c in cat.get("commands", [])),
+                  f"{code} {code2} {code3} {code4} {str(got)[:200]}")
         finally:
             server.terminate()
             try:

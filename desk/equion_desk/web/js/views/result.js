@@ -11,6 +11,8 @@ const STATS = [['adj_r_squared', '조정 R²', 4], ['se_regression', '표준오�
 export const OVERLAY_COLORS = ['var(--k-est)', 'var(--k-sim)', 'var(--k-hs)', 'var(--k-an)'];
 
 const termName = (name) => (name === 'const' ? 'c' : name);
+/** 항 이름의 변수 — CN(-1) → CN, log(Y) → Y. 우클릭하면 변수 메뉴(DESK_V2 §2.2) */
+const termVar = (name) => /^([A-Za-z_][A-Za-z0-9_]*)(\(-?\d+\))?$/.exec(name)?.[1] || /\(([A-Za-z_][A-Za-z0-9_]*)(\(-?\d+\))?\)/.exec(name)?.[1] || null;
 
 /** 'Claude로' — 터미널에 붙일 한 줄(이름과 요약, Enter 없이) */
 export function summaryLine(rec) {
@@ -100,7 +102,7 @@ export function renderSingle(box, rec, ctx) {
   const coefs = h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, ['항', '계수', '표준오차', 't', 'p'].map((c) => h('th', {}, c)))),
     h('tbody', {}, (rec.coefs || []).map((c) => {
       const sign = signs[c.name];
-      return h('tr', {}, h('td', {}, termName(c.name), sign ? h('span', { class: `sign ${sign.ok ? 'ok' : 'bad'}`, title: `기대 부호 ${sign.want} — ${sign.ok ? '맞음' : '어긋남'}` }, sign.want) : null),
+      return h('tr', {}, h('td', { 'data-var': termVar(c.name) }, termName(c.name), sign ? h('span', { class: `sign ${sign.ok ? 'ok' : 'bad'}`, title: `기대 부호 ${sign.want} — ${sign.ok ? '맞음' : '어긋남'}` }, sign.want) : null),
         h('td', {}, num(c.coef, 4)), h('td', { class: 'dim' }, num(c.se, 4)), h('td', {}, num(c.t, 2)),
         h('td', { class: c.p != null && c.p > 0.05 ? 'alert' : '', title: c.p != null && c.p > 0.05 ? '5% 수준에서 유의하지 않습니다' : '' }, pval(c.p), h('span', { class: 'flag' })));
     })));
@@ -204,7 +206,7 @@ export function renderOverlay(box, recs, ctx) {
   const statRow = (label, get, cls = '') => h('tr', { class: cls }, h('td', {}, label), recs.map((r) => h('td', {}, get(r))));
   const table = h('table', { class: 'grid ov-table' },
     h('thead', {}, h('tr', {}, h('th', {}, '항 — 계수 (t)'), recs.map((r, i) => h('th', {}, h('span', { class: 'sw', style: { '--c': color(i) } }), r.id.split(':')[1])))),
-    h('tbody', {}, terms.map((name) => h('tr', {}, h('td', {}, termName(name)), recs.map((r) => cell(r, name)))),
+    h('tbody', {}, terms.map((name) => h('tr', {}, h('td', { 'data-var': termVar(name) }, termName(name)), recs.map((r) => cell(r, name)))),
       statRow('조정 R²', (r) => num(r.stats?.adj_r_squared, 4), 'first'), statRow('회귀 표준오차', (r) => num(r.stats?.se_regression, 4)),
       statRow('DW', (r) => num(r.stats?.durbin_watson, 2)), statRow('AIC', (r) => num(r.stats?.aic, 1)), statRow('BIC', (r) => num(r.stats?.bic, 1)),
       statRow('LM p', (r) => pval(r.diagnostics?.lm?.p)), statRow('White p', (r) => pval(r.diagnostics?.white?.p)),

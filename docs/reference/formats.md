@@ -17,6 +17,7 @@ Equion이 읽고 쓰는 파일. 아래 코드는 실제로 파일을 만들어 �
 ## 방정식 파일(`.txt`)
 
 한 줄에 식 하나, `#` 뒤는 주석. UTF-8(BOM 무관), cp949는 경고하고 읽습니다. 문법은 [방정식 문법](../explain/equations.md).
+프로젝트의 블록 파일은 명령으로도 한 줄씩 더하고 뺍니다 — `equion block add 블록 "식" [--from 블록:목표]` · `equion block remove 블록:목표`(주석·차례를 지키고 바뀜 기록에 남깁니다).
 
 ```text
 # 소비함수 — 추정식(최상위 '=' 없음): 목표변수 c 회귀변수...
@@ -87,7 +88,7 @@ blocks = ["price", "finance"]
 include = ["main"]
 exclude = ["finance:RL"]          # 뺀 식의 목표는 외생(실측)
 
-[group]                           # 묶음 — 여러 시리즈를 이름 하나로
+[group]                           # 묶음 — 여러 시리즈를 이름 하나로(equion group define 이름 --series Y,CN,I · group remove 이름)
 core = { series = ["Y", "CN", "I"], desc = "핵심 수요" }
 
 [criteria]                        # 판단 기준 — 추정 기록의 '기준'(통과·걸러짐과 까닭) · est --adopted --adopt if_pass

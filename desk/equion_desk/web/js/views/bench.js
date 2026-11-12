@@ -13,6 +13,7 @@ import { drawLines } from '../chart.js';
 import { claudeButton } from '../claude.js';
 import { confirmDialog, popMenu } from '../dialog.js';
 import { clear, copyText, debounce, flash, h, icon, num, put, short } from '../util.js';
+import { saveSingle } from '../partops.js';
 import { candidateRail, MAX_OVERLAY } from './candidates.js';
 import { renderOverlay, renderSingle, summaryLine } from './result.js';
 
@@ -76,7 +77,17 @@ export function benchView(project, desc) {
       h('span', { title: p.models?.length ? `이 부품을 쓰는 모형: ${p.models.join(' · ')}` : '이 부품을 쓰는 모형이 없습니다' }, p.kind === 'identity' ? '항등식' : '추정식'))
       : h('div', { class: 'sub' }, partId ? '이 부품은 지금 프로젝트에 없습니다(블록 파일에서 지워졌거나 이름이 바뀜).' : '부품에 없는 식을 써서 추정해 봅니다 — 목표가 같은 부품이 있으면 그 부품의 후보로 기록됩니다.');
     const name = p?.id || '';
-    put(head, h('div', {}, title, sub), name ? h('div', { class: 'tools' },
+    // 부품이 아닌 새 식 — 마음에 들면 개별 식으로 남긴다(블록 single 에 한 줄 · 고른 후보를 채택해 둔다 — DESK_V2 §3)
+    const keep = !partId ? h('div', { class: 'tools' }, h('button', {
+      class: 'btn', type: 'button', 'data-act': 'save-single', title: '이 식을 개별 식으로 남긴다 — 블록 single 에 한 줄(equion block add). 고른 후보가 있으면 채택해 둔다',
+      onclick: async () => {
+        const text = area.value.trim();
+        if (!text) { flash('식을 먼저 쓰세요'); return; }
+        const pid = await saveSingle(project, text, /^est:/.test(st.selected || '') ? st.selected : null);
+        if (pid) project.openTab({ type: 'bench', part: pid });
+      },
+    }, icon('pin'), '개별 식으로 남기기')) : null;
+    put(head, h('div', {}, title, sub), keep, name ? h('div', { class: 'tools' },
       h('button', { class: 'btn quiet', type: 'button', title: '이름 복사', onclick: () => copyText(name, `${name} — 복사했습니다`) }, icon('copy'), '이름'),
       claudeButton(project, () => { const r = project.records.find((x) => x.id === st.selected); return { name, summary: r ? `후보 ${r.id}${r.metric ? ` (${r.metric})` : ''}` : (p?.text || '') }; })) : null);
   }

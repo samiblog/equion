@@ -409,15 +409,24 @@ def _criteria(raw, problems: List[str]) -> dict:
 class ConfigChange:
     """프로젝트 설정(equion.toml) 고치기 결과 — 무엇이 생기거나 바뀌었나."""
 
-    kind: str                              # model · block
+    kind: str                              # model · block · group
     name: str
     new: bool                              # 새로 만들었나(아니면 고침)
     files: List[str] = field(default_factory=list)      # 함께 만든 파일(블록 파일)
     change: Optional[str] = None           # 바뀜 기록(바뀐 것이 없으면 None)
+    removed: bool = False                  # 지웠나(묶음)
 
     def text(self) -> str:
         """명령줄에 보이는 짧은 글."""
-        what = {"model": "모형", "block": "블록"}[self.kind]
+        what = {"model": "모형", "block": "블록", "group": "묶음"}[self.kind]
+        if self.kind == "group":
+            L = [f"[group {'remove' if self.removed else 'define'}] [group] {self.name}"]
+            L[0] += " — 지움" if self.removed else (f" — 새 {what}" if self.new else (" — 고침" if self.change else " — 바뀐 것이 없습니다"))
+            if self.change:
+                L.append(f"  바뀜 기록  {self.change}")
+            if not self.removed:
+                L.append(f"  쓰기   equion an corr {self.name} · equion an summary {self.name}")
+            return "\n".join(L)
         L = [f"[{self.kind} define] [{self.kind}.{self.name}]" if self.kind == "model" else f"[block define] [block] {self.name}"]
         L[0] += f" — 새 {what}" if self.new else (" — 고침" if self.change else " — 바뀐 것이 없습니다")
         for f in self.files:
@@ -429,7 +438,52 @@ class ConfigChange:
 
     def to_dict(self) -> dict:
         """명령줄 --json과 같은 사전."""
-        return {"kind": self.kind, "name": self.name, "new": self.new, "files": self.files, "change": self.change}
+        return {"kind": self.kind, "name": self.name, "new": self.new, "files": self.files, "change": self.change, "removed": self.removed}
+
+
+def group_text(cfg_path: str, name: str, series=None, desc: str = None, transform: str = None, remove: bool = False) -> Tuple[str, bool]:
+    """equion.toml의 `[group]`에 묶음을 더하거나 고치거나(remove) 지운 **새 내용**과 새 묶음인지 — 준 것만 바꾸고(빈 글은 그 키를 지움)
+    주석·순서는 그대로(tomlkit), 파일은 쓰지 않는다. 새 묶음에는 시리즈가 있어야 한다. 문제는 ProjectError."""
+    import tomlkit
+    problems: List[str] = []
+    _check_name(name, "묶음", problems)
+    if problems:
+        raise ProjectError(problems)
+    with open(cfg_path, encoding="utf-8") as f:
+        doc = tomlkit.parse(f.read())
+    groups = doc.get("group")
+    if remove:
+        if groups is None or name not in groups:
+            raise ProjectError(f"없는 묶음 {name!r} (있는 것: {', '.join(groups or []) or '없음'})")
+        del groups[name]
+        text = tomlkit.dumps(doc)
+        load_config(cfg_path, text=text)
+        return text, False
+    if groups is None:
+        doc["group"] = tomlkit.table()
+        groups = doc["group"]
+    new = name not in groups
+    cur = None if new else groups[name]
+    old_series = [str(x) for x in cur] if isinstance(cur, list) else [str(x) for x in (cur or {}).get("series", [])]
+    old_desc = "" if new or isinstance(cur, list) else str(cur.get("desc", ""))
+    old_tr = None if new or isinstance(cur, list) else cur.get("transform")
+    if isinstance(series, str):
+        series = [v for v in series.replace(",", " ").split() if v]
+    ser = old_series if series is None else [str(v) for v in series]
+    if not ser:
+        raise ProjectError(f"[group] {name}: 시리즈가 있어야 합니다")
+    item = tomlkit.inline_table()
+    item["series"] = ser
+    d = old_desc if desc is None else str(desc)
+    if d:
+        item["desc"] = d
+    tr = old_tr if transform is None else (str(transform) or None)
+    if tr:
+        item["transform"] = str(tr)
+    groups[name] = item
+    text = tomlkit.dumps(doc)
+    load_config(cfg_path, text=text)
+    return text, new
 
 
 def model_text(cfg_path: str, name: str, blocks=None, include=None, exclude=None, desc: str = None) -> Tuple[str, bool]:
