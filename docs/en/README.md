@@ -28,7 +28,7 @@ pip install "equion[all] @ git+https://github.com/samiblog/equion"
 ```
 
 The extras are `[plot]` (plotly `Figure` objects; PNG/SVG export also needs kaleido) and `[parquet]` (workfiles saved
-before 0.6.0). HTML charts work without plotly. Python 3.12 or later. Check the installation:
+by 0.6.0 and earlier, in parquet). HTML charts work without plotly. Python 3.12 or later. Check the installation:
 
 ```bash
 equion info

@@ -153,6 +153,8 @@ export function analysisView(project, desc) {
     if (!target) { flash('대상을 적으세요'); targetInput?.focus(); return; }
     const need = a.options.find((o) => explain(o).required && !st.options[o.name]);
     if (need) { flash(`${explain(need).label} 칸을 채우세요`); formBox.querySelector(`[data-opt="${need.name}"]`)?.focus(); return; }
+    const wrong = a.options.find((o) => outOfRange(o, st.options[o.name]));
+    if (wrong) { flash(outOfRange(wrong, st.options[wrong.name])); formBox.querySelector(`[data-opt="${wrong.name}"]`)?.focus(); return; }
     st.running = true; st.recError = null; st.kept = null;
     drawOut();
     try {
@@ -314,6 +316,17 @@ export function analysisView(project, desc) {
     }
   }
 
+  /** 숫자 칸이 받는 범위 — {min, max} 또는 null. 틀린 값이면 까닭 */
+  function outOfRange(o, value) {
+    const b = bounds(o);
+    if (value === '' || value == null || !b) return null;
+    const v = Number(value);
+    if (!Number.isFinite(v) || (o.type === 'int' && !Number.isInteger(v))) return `${explain(o).label}: ${o.type === 'int' ? '정수' : '숫자'}를 적으세요`;
+    const range = b.min != null && b.max != null ? `${b.min}~${b.max} 사이여야` : b.min != null ? `${b.min} 이상이어야` : `${b.max} 이하여야`;
+    if ((b.min != null && v < b.min) || (b.max != null && v > b.max)) return `${explain(o).label}: ${range} 합니다`;
+    return null;
+  }
+
   function optionField(o) {
     const ex = explain(o);
     const title = `${flagOf(o)} — ${o.help}`;
@@ -332,9 +345,17 @@ export function analysisView(project, desc) {
       input.addEventListener('change', () => set(input.value));
     } else {
       const number = o.type === 'int' || o.type === 'float';
-      input = h('input', { class: `mini-input ${number ? 'num' : 'text'}`, type: number ? 'number' : 'text', step: o.type === 'float' ? 'any' : null, 'data-opt': o.name, spellcheck: 'false',
+      const b = bounds(o) || {};
+      input = h('input', { class: `mini-input ${number ? 'num' : 'text'}`, type: number ? 'number' : 'text', step: o.type === 'float' ? 'any' : number ? '1' : null, min: b.min, max: b.max, 'data-opt': o.name, spellcheck: 'false',
         placeholder: o.default != null ? String(o.default) : ex.required ? '필수' : number ? '자동' : (o.metavar || ''), value: cur != null && cur !== '' ? String(cur) : '' });
-      input.addEventListener('input', () => set(input.value.trim()));
+      const mark = () => {
+        const why = number ? outOfRange(o, input.value.trim()) : null;
+        input.classList.toggle('bad', !!why);
+        input.setAttribute('aria-invalid', String(!!why));
+        input.title = why || (b.min != null || b.max != null ? `${b.min ?? ''}~${b.max ?? ''}` : '');
+      };
+      input.addEventListener('input', () => { set(input.value.trim()); mark(); });
+      mark();
     }
     return h('label', { class: `opt ${ex.required ? 'need' : ''}`.trim(), title }, h('span', { class: ex.flag ? 'mono' : '' }, ex.label), input);
   }
@@ -488,4 +509,21 @@ export function analysisView(project, desc) {
     },
     dispose() {},
   };
+}
+
+/**
+ * 숫자 옵션의 범위 — 등록부(패키지)는 형(int·float)과 기본값만 준다. 이름으로 상식적인 범위를 두어 칸이 음수 시차 같은 값을 받지 않게 한다
+ * (넘치는 값은 패키지가 한 번 더 막는다). 정수 옵션은 모두 셈(시차·기간·횟수)이라 기본은 0 이상 — 결정항(det)만 −1 을 받는다.
+ */
+export function bounds(o) {
+  if (o.type !== 'int') return null;
+  const n = String(o.name).toLowerCase();
+  if (n === 'det') return { min: -1, max: 1 };
+  if (n === 'rank') return { min: 1, max: 20 };
+  if (n === 'bins') return { min: 2, max: 200 };
+  if (n === 'reps') return { min: 1, max: 10000 };
+  if (n === 'irf' || n === 'periods') return { min: 1, max: 400 };
+  if (n.includes('lag')) return { min: 0, max: 99 };
+  if (o.default != null && Number(o.default) < 0) return null;
+  return { min: 0 };
 }

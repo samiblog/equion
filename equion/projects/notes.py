@@ -30,6 +30,7 @@ from typing import List, Optional
 
 from .. import registry as reg
 from ..work.store import RecordError, now_iso
+from ..work.lock import locked, project_lock
 from .config import ProjectError
 from .records import FORECAST_ONLY, NOT_INPUT, _who, data_spec, definition_hashes, history_of, store_of
 
@@ -94,6 +95,10 @@ def parse(text: str) -> List[Block]:
                         meta = json.loads(om[2])
                     except json.JSONDecodeError:
                         meta = {}
+                    if isinstance(meta, dict) and "v" not in meta:      # 옛 구역 — 여는 줄의 '· 회차' 칸에서
+                        head = [x.strip() for x in om[1].split(" · ")]
+                        if len(head) >= 3 and head[2] not in ("", "-"):
+                            meta["v"] = head[2]
                     b.region = (k, e, meta, "\n".join(lines[k + 1:e]))
             blocks.append(b)
         i = j + 1
@@ -186,16 +191,32 @@ class NoteResult:
                 "change": self.change}
 
 
-def _note_path(p, note: str) -> str:
+def _note_file(p, note: str) -> str:
+    """노트 경로 → 절대 경로. 있는 노트는 지금 폴더에서 먼저 찾고(프로젝트 안일 때 — 노트 폴더에서 `note check x.md`), 없으면 프로젝트
+    폴더 기준(새 노트도 이쪽). 프로젝트 밖이면 ProjectError."""
     from .config import project_path
-    path = project_path(p.root, note, "노트")
+    from .project import resolve_path
+    return project_path(p.root, resolve_path(p.root, note), "노트")
+
+
+def _note_path(p, note: str) -> str:
+    path = _note_file(p, note)
     if not os.path.isfile(path):
         raise ProjectError(f"노트가 없습니다: {note}")
     return path
 
 
-def _region_text(ids, body, vintage) -> List[str]:
-    meta = {"records": ids, "h": _h(body)}
+def _defs_hash(p) -> str:
+    """기록 없는 블록(ident·assemble·data list…)의 낡음을 볼 정의 파일 해시 하나 — 가정·보정항·시나리오(전망만 읽는다)는 뺀다."""
+    now = definition_hashes(p)
+    keep = {k: v for k, v in sorted(now.items()) if not k.startswith(FORECAST_ONLY)}
+    return hashlib.sha256(json.dumps(keep, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
+def _region_text(ids, body, vintage, defs: str = None) -> List[str]:
+    meta = {"records": ids, "h": _h(body), "v": vintage or None}
+    if defs and not ids:
+        meta["d"] = defs
     return [f"<!-- equion:out {' '.join(ids) or '-'} · {now_iso()} · {vintage or '-'} {json.dumps(meta, ensure_ascii=False)} -->",
             body, OUT_CLOSE]
 
@@ -283,7 +304,8 @@ def run_note(p, note: str, block: int = None, stale: bool = False, force: bool =
                                          f"Python 블록은 여기서 돌리지 않습니다 — 터미널에서 equion note run {rel} --block {b.n}"))
                 continue
             r = subprocess.run([sys.executable, "-c", "\n".join(b.code)], cwd=p.root, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
+                               encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+                               env=dict(os.environ, PYTHONIOENCODING="utf-8"))
             body = f"```text\n{(r.stdout + (r.stderr if r.returncode else '')).strip()}\n```"
             edits.append((b, _region_text([], body, p.vintage)))
             stats.append(BlockStatus(b.n, b.lang, "run" if r.returncode == 0 else "error", [],
@@ -303,36 +325,69 @@ def run_note(p, note: str, block: int = None, stale: bool = False, force: bool =
                 bad = "error"
         ids = [i for r in results for i in r[4]]
         body = _body_for(p, note_dir, results)
-        edits.append((b, _region_text(ids, body, p.vintage)))
+        edits.append((b, _region_text(ids, body, p.vintage, None if ids else _defs_hash(p))))
         stats.append(BlockStatus(b.n, b.lang, bad or "run", ids,
                                  "; ".join(r[3].strip().splitlines()[-1] for r in results if r[1] not in (0,) and r[3].strip())[:200]))
+    new = _apply_regions(text, edits)
+    change = None
+    if new != text:
+        # 블록을 도는 동안은 잠그지 않는다(블록의 명령이 잠금을 쓴다) — 다 돌린 뒤 잠금 안에서 지금 노트에 결과 구역을 넣는다.
+        # 그사이 노트가 바뀌었으면(다른 흐름의 note run · 편집기) 지금 내용의 같은 블록(번호·명령이 같은 것)에 넣는다
+        with project_lock(p.root):
+            cur = read_text(path)
+            if cur != text:
+                now_blocks = parse(cur)
+                moved = [(b2, region) for b, region in edits for b2 in now_blocks if b2.n == b.n and b2.code == b.code]
+                new = _apply_regions(cur, moved)
+                if len(moved) != len(edits):
+                    raise ProjectError(f"{rel}의 블록이 실행하는 사이 바뀌었습니다(다른 명령·편집기) — 결과 구역은 쓰지 않았습니다. "
+                                       f"기록은 남았습니다({', '.join(i for s in stats for i in s.records) or '없음'}) — 다시 실행하세요")
+            ch = None
+            if new != cur:
+                ch = history_of(p).write_files({rel: new}, _who(who), command or f"note run {rel}",
+                                               note=f"블록 {', '.join(str(s.n) for s in stats if s.status in ('run', 'error', 'denied'))}")
+        change = ch.id if ch else None
+    return NoteResult(rel, "run", stats, change)
+
+
+def _apply_regions(text: str, edits) -> str:
+    """[(블록, 결과 구역 줄)] → 결과 구역을 넣은(있으면 바꾼) 노트 글. 뒤의 블록부터(앞의 줄 번호가 밀리지 않게)."""
+    lines = text.split("\n")
     for b, region in sorted(edits, key=lambda x: -x[0].start):
         if b.region is not None:
             k, e, _, _ = b.region
             lines[k:e + 1] = region
         else:
             lines[b.end + 1:b.end + 1] = [""] + region
-    new = "\n".join(lines)
-    change = None
-    if new != text:
-        ch = history_of(p).write_files({rel: new}, _who(who), command or f"note run {rel}",
-                                       note=f"블록 {', '.join(str(s.n) for s in stats if s.status in ('run', 'error', 'denied'))}")
-        change = ch.id if ch else None
-    return NoteResult(rel, "run", stats, change)
+    return "\n".join(lines)
+
+
+def region_state(p, meta, store=None):
+    """결과 구역이 지금과 맞나 — (상태, 까닭): ok · stale(낡음) · missing(지워진 기록). `note check`와 `note run --stale`이 같이 쓴다.
+
+    기록이 있는 블록은 그 기록이 계산에 쓴 자료(회차)·정의 파일이 지금과 같은지(stale_reasons). 기록이 없는 블록(ident·assemble·
+    data list 등 — 글만 남는다)은 실행 때의 자료 회차와 정의 파일 해시를 지금과 견준다(그것을 적지 않은 옛 구역은 회차만)."""
+    store = store or store_of(p)
+    ids = meta.get("records") or []
+    if ids:
+        missing = [r for r in ids if not _exists(store, r)]
+        if missing:
+            return "missing", "지워진 기록: " + ", ".join(missing)
+        why = [w for r in ids for w in stale_reasons(p, store.get(r))]
+        return ("stale", "; ".join(dict.fromkeys(why))) if why else ("ok", "")
+    why = []
+    v0, v1 = meta.get("v"), p.vintage
+    if v0 is None and v1 is not None:
+        why.append("실행 때의 자료 회차를 모름 — 다시 실행해 확인")
+    elif v1 is not None and v0 != v1:
+        why.append(f"자료 회차 {v0} → 지금 {v1}")
+    if meta.get("d") and meta["d"] != _defs_hash(p):
+        why.append("정의 파일이 바뀜")
+    return ("stale", "; ".join(why)) if why else ("ok", "")
 
 
 def _stale_block(p, meta) -> bool:
-    store = store_of(p)
-    ids = meta.get("records") or []
-    if not ids:
-        return True
-    for rid in ids:
-        try:
-            if stale_reasons(p, store.get(rid)):
-                return True
-        except RecordError:
-            return True
-    return False
+    return region_state(p, meta)[0] != "ok"
 
 
 def check_note(p, note: str) -> NoteResult:
@@ -356,12 +411,8 @@ def check_note(p, note: str) -> NoteResult:
         if meta.get("h") and _h(body) != meta["h"]:
             stats.append(BlockStatus(b.n, b.lang, "edited", ids, "결과 구역을 손으로 고쳤습니다"))
             continue
-        missing = [r for r in ids if not _exists(store, r)]
-        if missing:
-            stats.append(BlockStatus(b.n, b.lang, "missing", ids, "지워진 기록: " + ", ".join(missing)))
-            continue
-        why = [w for r in ids for w in stale_reasons(p, store.get(r))]
-        stats.append(BlockStatus(b.n, b.lang, "stale" if why else "ok", ids, "; ".join(dict.fromkeys(why))))
+        state, why = region_state(p, meta, store)
+        stats.append(BlockStatus(b.n, b.lang, state, ids, why))
     return NoteResult(rel, "check", stats)
 
 
@@ -373,10 +424,10 @@ def _exists(store, rid) -> bool:
         return False
 
 
+@locked
 def append_block(p, note: str, cmd: str, rid: str, who: str = None):
     """노트 끝에 명령 블록과 그 결과 구역을 더한다(`an … --note`). 노트가 없으면 만든다."""
-    from .config import project_path
-    path = project_path(p.root, note, "노트")
+    path = _note_file(p, note)
     rel = os.path.relpath(path, p.root).replace(os.sep, "/")
     toks = shlex.split(cmd)
     clean = []
@@ -449,12 +500,12 @@ def _clean_line(line: str) -> str:
     return shlex.join(clean)
 
 
+@locked
 def add_block(p, note: str, lines=None, record: str = None, title: str = None, who: str = None, command: str = None) -> NoteAdded:
     """노트 끝에 ```equion 블록 하나 — lines는 실행하지 않고 블록만, record는 그 명령과 결과 구역(카드)까지. 노트가 없으면 만든다."""
-    from .config import project_path
     if not lines and not record:
         raise ProjectError("더할 것이 없습니다 — 명령 줄(lines) 또는 기록(record)")
-    path = project_path(p.root, note, "노트")
+    path = _note_file(p, note)
     if not path.lower().endswith(".md"):
         raise ProjectError(f"노트는 .md 파일 — {note!r}")
     rel = os.path.relpath(path, p.root).replace(os.sep, "/")

@@ -29,6 +29,7 @@ from .vintage import (AddResult, BuildResult, VintageDiff, add_raw, build_vintag
 from ..data.source import read_source
 from ..workfile.output import TextOutput
 from ..work.store import detect_who
+from ..work.lock import locked
 
 
 @dataclass
@@ -89,6 +90,7 @@ class Project:
         self._data_cols: List[str] = []
         self._sources: Dict[tuple, str] = {}           # 식 → 어디서 온 계수(adopted:est:… · estimated · swap:…)
         self._swap_saved: Dict[tuple, tuple] = {}      # (부품, 식) → (est:기록, 저장된 식) — 기록의 계수로 바꿔 끼우기
+        self._stamp0 = self._stamp()                   # 읽어 둔 정의 파일의 때·크기 — 잠금을 잡은 뒤 낡았는지 본다(_fresh)
 
     # ---- 열기·만들기 ---------------------------------------------------
     @classmethod
@@ -195,6 +197,28 @@ class Project:
         self.config = load_config(self.config.path)
         self._wf, self._parts, self._part_problems, self._est = None, None, {}, {}
         self._sources, self._swap_saved = {}, {}
+        self._stamp0 = self._stamp()
+
+    def _stamp(self) -> tuple:
+        """읽어 둔 정의 파일(equion.toml·블록 파일·채택표·자료 정의)의 (경로, 고친 때, 크기)."""
+        c = self.config
+        paths = [c.path, os.path.join(c.root, "EQUATIONS", "adopted.toml")] + [b.path for b in c.blocks.values()]
+        if getattr(c, "series_file", None):
+            paths.append(os.path.join(c.root, c.series_file))
+        out = []
+        for q in paths:
+            try:
+                st = os.stat(q)
+                out.append((q, st.st_mtime_ns, st.st_size))
+            except OSError:
+                out.append((q, None, None))
+        return tuple(out)
+
+    def _fresh(self):
+        """프로젝트 잠금을 잡은 뒤(@locked) — 이 객체가 읽어 둔 정의를 그사이 다른 명령(터미널·Desk·Claude)이 고쳤으면 다시 읽는다.
+        기다리는 사이 바뀐 블록 파일·채택표 위에 고치도록(낡은 내용으로 덮어 다른 명령의 고침이 사라지지 않게)."""
+        if self._stamp() != self._stamp0:
+            self._reset()
 
     # ---- 자료 정의·회차(D34) -------------------------------------------
     def _need_defs(self):
@@ -204,7 +228,9 @@ class Project:
         c = self.config
         return load_defs(c.root, c.series_file, c.derived_file, c.freq)
 
-    def data_build(self, use: bool = False, inbox: str = None, ask=None, who: str = None, command: str = None) -> BuildResult:
+    @locked
+    def data_build(self, use: bool = False, inbox: str = None, ask=None, who: str = None, command: str = None,
+                   allow_shorter: bool = False) -> BuildResult:
         """자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다.
 
         같은 원자료·정의로 만든 회차가 이미 있으면 새로 만들지 않고 그 회차를 알린다. 지금 회차는 저절로 바뀌지 않는다(use=True면 바꾼다).
@@ -215,12 +241,14 @@ class Project:
             use: 참이면 만든(또는 같은) 회차를 지금 회차로
             inbox: None · 'auto'(짝이 하나이고 틀이 맞으면 넣는다) · 'ask'(ask(item)이 참인 것만 — ask가 없으면 auto)
             ask: 받은 파일마다 부르는 함수(InboxItem → 참거짓) — 명령줄은 터미널이면 묻는다
+            allow_shorter: 지금 회차보다 짧은 자료(시리즈의 시작이 늦거나 끝이 이름 — 지난 파일·일부 기간만 든 파일)도 만든다(기본은 거절 — ShorterError)
 
         돌려주는 것
             BuildResult — .id · .created · .n_series · .span · .implicit(알아서 한 것) · .text()
 
         오류
             ProjectError: 정의·원자료 문제(없는 열·틀이 맞지 않음·주기 변환·파생식 — 위치와 함께)
+            ShorterError: 새 자료가 지금 회차보다 짧다(아무것도 바꾸지 않음 — allow_shorter로 만든다)
 
         예
             >>> import tempfile, os
@@ -229,20 +257,8 @@ class Project:
             >>> r.created, r.id == p.vintage        # 정의가 그대로라 같은 회차
             (False, True)
         """
-        from ..version import project_version
         from . import inbox as ib
-        taken = []
-        if inbox and inbox != "no":
-            taken = ib.take(self, inbox, ask=ask, who=who, command=command)
-        defs = self._need_defs()
-        res = build_vintage(defs, project_version())
-        res.inbox = taken
-        if not inbox or inbox == "no":
-            res.waiting = len(ib.inbox_files(self.root))
-        say(f"[{self.name}] " + (f"자료 회차 {res.id}를 만들었습니다" if res.created else f"자료 회차 {res.id}와 같습니다"))
-        if use and res.id != self.config.vintage:
-            self.data_use(res.id, who=who, command=command)
-        return res
+        return ib.data_build(self, use=use, inbox=inbox, ask=ask, who=who, command=command, allow_shorter=allow_shorter)
 
     def data_inbox(self) -> list:
         """받은 상자(DATA/raw/inbox/)의 파일마다 짝지을 출처와 틀 검사 — 미리보기(아무것도 바꾸지 않는다). InboxItem 목록.
@@ -260,6 +276,7 @@ class Project:
         from . import inbox as ib
         return ib.plan(self)
 
+    @locked
     def data_use(self, vid: str, who: str = None, command: str = None) -> str:
         """이 회차로 바꾸기 — equion.toml의 [data] vintage를 고치고(주석·순서는 그대로) 자료를 다시 연다. 이전 회차를 돌려준다.
 
@@ -345,6 +362,7 @@ class Project:
         return ImpactReport(d, [x.id for x in parts], models,
                             {x.id: sorted(touched & (x.data_vars | x.variables)) for x in parts})
 
+    @locked
     def data_add(self, path: str, source: str = None, as_name: str = None, note: str = None, who: str = None,
                  command: str = None) -> AddResult:
         """원자료 넣기 — 파일을 DATA/raw/에 복사한다(받은 그대로, 같은 이름이면 날짜를 붙여 나란히). source를 주면 그 출처가
@@ -352,7 +370,7 @@ class Project:
         때만 넣고 고친다(틀 검사 — 맞지 않으면 아무것도 바꾸지 않고 `.problems`에 까닭).
 
         매개변수
-            path: 넣을 파일(csv·xlsx·xls)
+            path: 넣을 파일(csv·xlsx — .xls는 xlrd가 있을 때만. 상대 경로는 지금 폴더에서 먼저, 없으면 프로젝트 폴더에서)
             source: 바꿀 출처 이름([source.이름]) — 원자료 바꾸기
             as_name: DATA/raw/에 둘 이름(기본: 파일 이름)
             note: 출처 메모(옆 파일 *.source.toml에)
@@ -368,12 +386,15 @@ class Project:
             (False, 'DATA/raw/toy_q.csv')
         """
         defs = self._need_defs()
+        given = path
+        path = resolve_path(self.root, path, inside_only=False, fallback=True)     # 지금 폴더에서 먼저, 없으면 프로젝트 폴더에서
+        _readable(path)
         if not source:
             return add_raw(self.root, path, as_name=as_name, note=note)
         if source not in defs.sources:
             raise ProjectError(f"없는 출처 '{source}' (있는 출처: {', '.join(defs.sources)})")
         if not os.path.isfile(path):
-            raise ProjectError(f"파일이 없습니다: {path}")
+            raise ProjectError(f"파일이 없습니다: {given} (지금 폴더와 프로젝트 폴더 {self.root}에서 찾음)")
         sp = defs.sources[source]
         from ..data.source import file_sha256
         problems = self._source_problems(defs, source, path)
@@ -398,7 +419,7 @@ class Project:
         아무것도 쓰지 않고 기록도 남기지 않는다. 틀이 맞지 않으면 예외가 아니라 `.ok`가 거짓이고 `.error`에 까닭(칸 위치와 함께).
 
         매개변수
-            file: 원자료 파일(csv·xlsx·xls — 프로젝트 기준 경로 또는 절대 경로)
+            file: 원자료 파일(csv·xlsx — 상대 경로는 지금 폴더에서 먼저, 없으면 프로젝트 폴더에서 · 절대 경로)
             sheet · header_row · unit_row · time_col · missing · thousands · freq: 불러오기 틀(docs/reference/formats.md) —
                 header_row는 여러 줄도 된다([3, 4] · "3,4" — 이어 붙인 이름)
             time_axis · time_row · name_col · unit_col: 시점이 열로 가는 표(time_axis="columns") — 시점 줄 · 이름 열 · 단위 열
@@ -422,6 +443,8 @@ class Project:
             data_define · data_add · data_build
         """
         from .vintage import _frame_spec, preview_series, preview_source
+        file = resolve_path(self.root, file, inside_only=False)      # 지금 폴더에서 먼저, 없으면 프로젝트 폴더에서
+        _readable(file)
         out = preview_source(self.root, file, sheet, header_row, unit_row, time_col, missing, thousands, freq, rows, time_axis, time_row,
                              name_col, unit_col)
         if series and out.ok:
@@ -434,6 +457,7 @@ class Project:
             out.series = preview_series(self.config.freq or out.freq, spec, column, **given)
         return out
 
+    @locked
     def data_define(self, source: str, file: str = None, sheet=None, header_row=None, unit_row=None, time_col=None,
                     missing=None, thousands=None, freq=None, desc: str = None, series: dict = None, replace: bool = False,
                     who: str = None, command: str = None, time_axis=None, time_row=None, name_col=None, unit_col=None) -> "DefineResult":
@@ -471,6 +495,9 @@ class Project:
         from .records import history_of
         from .vintage import define_text
         c = self.config
+        if file:
+            file = resolve_path(self.root, file)                       # 프로젝트 안의 파일 — 지금 폴더에서 먼저
+            _readable(file)
         frame = {k: v for k, v in (("sheet", sheet), ("header_row", header_row), ("unit_row", unit_row), ("time_col", time_col),
                                    ("missing", missing), ("thousands", thousands), ("freq", freq), ("time_axis", time_axis),
                                    ("time_row", time_row), ("name_col", name_col), ("unit_col", unit_col)) if v is not None}
@@ -488,6 +515,9 @@ class Project:
         from dataclasses import replace
         sp = defs.sources[source]
         problems = []
+        why = xls_problem(path)
+        if why:
+            return [why]
         try:
             t = read_source(replace(sp, file=os.path.basename(path), path=os.path.abspath(path)))
             for s in defs.series.values():
@@ -500,6 +530,7 @@ class Project:
             problems.append(str(e))
         return problems
 
+    @locked
     def model_define(self, name: str, blocks=None, include=None, exclude=None, desc: str = None, who: str = None,
                      command: str = None) -> "ConfigChange":
         """모형 정의 쓰기 — `equion.toml`의 `[model.이름]`을 더하거나 고친다(블록·끼울 모형·뺄 식·설명). 준 것만 바꾸고(None은 그대로,
@@ -531,12 +562,14 @@ class Project:
         """
         from .config import ConfigChange, model_text
         from .records import history_of
-        text, new = model_text(self.config.path, name, blocks=blocks, include=include, exclude=exclude, desc=desc)
+        text, new = model_text(self.config.path, name, blocks=blocks, include=include, exclude=exclude, desc=desc,
+                               parts_by_block=self._load())
         ch = history_of(self).write_files({"equion.toml": text}, who or detect_who("python"), command or f"model define {name}",
                                           note=f"[model.{name}]" + (" 새 모형" if new else ""))
         self._reset()
         return ConfigChange("model", name, new, [], ch.id if ch else None)
 
+    @locked
     def block_define(self, name: str, file: str = None, desc: str = None, who: str = None, command: str = None) -> "ConfigChange":
         """블록 더하기 — `equion.toml`의 `[block]`에 블록(방정식 파일 하나)을 더하거나 설명을 고친다. 새 블록의 파일이 아직 없으면
         머리 주석만 있는 빈 블록 파일을 함께 만든다(file을 주지 않으면 `EQUATIONS/<이름>.txt`). 바뀜 기록에 남긴다.
@@ -574,6 +607,7 @@ class Project:
         self._reset()
         return ConfigChange("block", name, new, [rel] if create else [], ch.id if ch else None)
 
+    @locked
     def group_define(self, name: str, series=None, desc: str = None, transform: str = None, who: str = None,
                      command: str = None) -> "ConfigChange":
         """묶음 저장 — equion.toml의 `[group]`에 이름 붙인 시리즈 묶음을 더하거나 고친다. 준 것만 바꾸고(None은 그대로, 빈 글은 그 키를 지움)
@@ -616,6 +650,7 @@ class Project:
         self._reset()
         return ConfigChange("group", name, new, [], ch.id if ch else None)
 
+    @locked
     def group_remove(self, name: str, who: str = None, command: str = None) -> "ConfigChange":
         """묶음 지우기 — equion.toml의 `[group]`에서 그 묶음을 뺀다(시리즈·기록은 그대로). 바뀜 기록에 남긴다.
 
@@ -639,6 +674,7 @@ class Project:
         self._reset()
         return ConfigChange("group", name, False, [], ch.id if ch else None, removed=True)
 
+    @locked
     def part_add(self, block: str, text: str, desc: str = None, from_part: str = None, who: str = None,
                  command: str = None) -> "PartChange":
         """블록에 식 한 줄을 더한다 — 블록 파일 끝에 적는다(다른 줄·주석은 그대로). 쓰기 전에 식 문법과 '한 블록에 목표 하나'를 본다.
@@ -669,7 +705,12 @@ class Project:
             part_remove · block_define · used_by
         """
         from .records import history_of
-        from .partedit import ADOPTED, PartChange, add_text, adopted_without, remove_text
+        from .partedit import ADOPTED, SINGLE, PartChange, add_text, adopted_without, remove_text
+        made = None
+        if block == SINGLE and block not in self.config.blocks:   # 개별 식 블록은 처음 쓸 때 만든다(모형에는 넣지 않는다 — Desk와 같게)
+            add_text(self, block, text, desc, check_block=False)  # 식을 먼저 검사한다 — 틀린 식이면 블록도 만들지 않는다
+            made = self.block_define(SINGLE, desc="개별 식", who=who,
+                                     command=("equion " if str(command or "").startswith("equion ") else "") + f"block define {SINGLE}")
         new, pid, rel, line = add_text(self, block, text, desc)
         files = {rel: new}
         moved = None
@@ -688,8 +729,10 @@ class Project:
         ch = history_of(self).write_files(files, who or detect_who("python"), command or f"block add {block}",
                                           note=f"{pid}" + (f" ← {moved}" if moved else " 새 식"))
         self._reset()
-        return PartChange("add", pid, sorted(files), ch.id if ch else None, moved, line)
+        return PartChange("add", pid, sorted(files), ch.id if ch else None, moved, line,
+                          new_block=(f"{SINGLE}" + (f" ({made.change})" if made.change else "")) if made else None)
 
+    @locked
     def part_remove(self, part: str, who: str = None, command: str = None) -> "PartChange":
         """블록에서 식 한 줄을 뺀다 — 그 줄만 지우고(다른 줄·주석은 그대로) 채택표의 그 부품 줄도 함께 지운다. 바뀜 기록에 남긴다.
 
@@ -757,6 +800,7 @@ class Project:
         from . import milestones
         return [{**m.to_dict(), "files": len(m.files)} for m in milestones.list_all(self)]
 
+    @locked
     def milestone_make(self, name: str, note: str = None, who: str = None):
         """이정표를 만든다(명령줄 `equion milestone make`) — 지금의 정의 파일 사본·자료 회차·고정한 기록을 `work/milestones/이름/`에.
         정의 파일은 바꾸지 않는다. 이정표가 적은 기록은 정리(`work clean`)에서 빠진다.
@@ -790,6 +834,7 @@ class Project:
         from . import milestones
         return milestones.diff(self, name)
 
+    @locked
     def milestone_restore(self, name: str, files=None, who: str = None, command: str = None):
         """정의를 이정표 때로 되돌린다(명령줄 `equion milestone restore`) — 그때 있던 파일은 그때 내용으로, 그 뒤에 생긴 정의 파일은
         지운다(files를 주면 그 파일만). 바뀜 기록 하나로 남아 그것도 되돌릴 수 있다. 계산은 하지 않는다.
@@ -873,6 +918,7 @@ class Project:
                 out.append({"name": n, "file": f"{FOLDER}/{n}.toml", "error": str(e)})
         return out
 
+    @locked
     def scenario_define(self, name: str, desc: str = None, base: str = None, addfactors: str = None, model: str = None,
                         shocks=None, addfactor=None, who: str = None, command: str = None):
         """시나리오를 더하거나 고친다 — `SCENARIOS/이름.toml`(명령줄 `equion scenario define`). 준 것만 바꾸고(글은 빈 글이면 그 키를 지움),
@@ -903,14 +949,16 @@ class Project:
         """
         from .records import history_of
         from .scenarios import ScenarioChange, scenario_text
+        warns = []
         text, new, raw = scenario_text(self, name, desc=desc, base=base, addfactors=addfactors, model=model, shocks=shocks,
-                                       addfactor=addfactor)
+                                       addfactor=addfactor, warnings=warns)
         rel = f"SCENARIOS/{name}.toml"
         ch = history_of(self).write_files({rel: text}, who or detect_who("python"), command or f"scenario define {name}",
                                           note=rel + (" 새 시나리오" if new else ""))
         return ScenarioChange(name, rel, new=new, change=ch.id if ch else None, shocks=len(raw.get("shock") or []),
-                              addfactor=len(raw.get("addfactor") or []))
+                              addfactor=len(raw.get("addfactor") or []), warnings=warns)
 
+    @locked
     def scenario_remove(self, name: str, who: str = None, command: str = None):
         """시나리오 파일을 지운다(명령줄 `equion scenario remove`) — 바뀜 기록에 남아 되돌릴 수 있다. 그 시나리오로 푼 기록은 그대로다.
 
@@ -972,6 +1020,7 @@ class Project:
         from .views import load_views
         return [v.to_dict() for v in load_views(self.root)]
 
+    @locked
     def view_define(self, name: str, series=None, show: str = None, title: str = None, range: str = None, who: str = None,
                     command: str = None) -> "ViewChange":
         """보기 저장 — `VIEWS/이름.toml`에 시리즈와 보이기(level·qoq·yoy·annual·diff)·제목·구간을 적는다. 준 것만 바꾸고(None은 그대로,
@@ -1004,7 +1053,7 @@ class Project:
         from .records import history_of
         from .views import ViewChange, view_text
         text, new, spec = view_text(self.root, name, series=series, show=show, title=title, range=range,
-                                    known=[str(c) for c in self.workfile.data.columns])
+                                    known=[str(c) for c in self.workfile.data.columns], span=self.span)
         ch = history_of(self).write_files({spec.file: text}, who or detect_who("python"), command or f"view define {name}",
                                           note=f"{spec.file}" + (" 새 보기" if new else ""))
         return ViewChange(name, spec.file, new, ch.id if ch else None, list(spec.series))
@@ -1273,12 +1322,14 @@ class Project:
                     used.append(f"{x.id}({src[8:]})")
         for note in self.notes[n0:]:
             say(f"[{name}] {note}")
+        def few(xs, k=8):          # 큰 모형은 수와 앞의 몇 개(전부는 기록의 조립 명세 assembly.json)
+            return ", ".join(xs) if len(xs) <= k else ", ".join(xs[:k - 2]) + f" … 외 {len(xs) - k + 2}(모두 {len(xs)})"
         if used:
-            note = f"채택 계수: {', '.join(used)}"
+            note = f"채택 계수: {few(used)}"
             self.notes.append(note)
             say(f"[{name}] {note}")
         if new:
-            note = f"채택 기록 없이 지금 자료로 추정: {', '.join(new)}"
+            note = f"채택 기록 없이 지금 자료로 추정: {few(new)}"
             self.notes.append(note)
             say(f"[{name}] {note}")
         return m
@@ -1310,7 +1361,31 @@ class Project:
         if is_relative(start) or is_relative(end):
             s, e = self.span(f"{start or 'first'}:{end or 'last'}")
             start, end = s, e
+        self._ordered(start, end)
         return start, end
+
+    def _ordered(self, start, end):
+        """구간의 시작이 끝보다 뒤면 ProjectError — 기간 라벨로 말한다(엔진의 '구간이 비었습니다: 199 > 196'이 아니라)."""
+        if start is None or end is None:
+            return
+        from ..data.periods import parse_period
+        f = self.workfile.freq
+        try:
+            a, b = parse_period(str(start), f), parse_period(str(end), f, end=True)
+        except (ValueError, TypeError, AttributeError):
+            return                                   # 라벨을 읽지 못하면 엔진이 그 까닭을 말한다
+        if a is not None and b is not None and a > b:
+            raise ProjectError(f"구간의 시작({start})이 끝({end})보다 뒤입니다 — 시작:끝 차례로({end}:{start})")
+        idx = self.workfile.data.index                 # 자료 밖의 구간 — 엔진의 '(늘리려면 extend)'(파이썬 API의 처방) 대신 명령줄의 처방으로
+        if len(idx) and a is not None and b is not None:
+            from ..data.periods import format_period, to_period
+            lo, hi = to_period(idx[0], f), to_period(idx[-1], f)
+            if a < lo or b > hi:
+                lo_s, hi_s = format_period(idx[0], f), format_period(idx[-1], f)
+                raise ProjectError(f"구간 {start}~{end}이(가) 자료 밖입니다 — 자료는 {lo_s}~{hi_s}"
+                                   + (f"(자료 회차 {self.vintage})" if self.vintage else "")
+                                   + f". 구간을 자료 안으로(예: --range {lo_s}:last · equion.toml [hs] range) 하거나, "
+                                   "자료 회차가 맞는지 확인하세요(equion data list · equion data diff)")
 
     def hs(self, name: str = None, start=None, end=None, mode: str = None, swap: dict = None, record: bool = False,
            vs: str = None, as_name: str = None, who: str = None, command: str = None, **opts):
@@ -1327,7 +1402,8 @@ class Project:
             vs: 견줄 HS 기록(record=True일 때 — 변수별 RMSPE 전후)
             as_name: 기록 이름(기본 hs_0001, hs_0002 …)
             who, command: 기록에 적을 '누가'·'명령'(명령줄이 채운다)
-            **opts: ModelObject.solve의 선택지(on_missing · on_fail · tolerance …)
+            **opts: ModelObject.solve의 선택지(on_missing · on_fail · tolerance …). record=True면 mce='fair-taylor'·'stacked'·False로
+                선행변수 풀이(기본 [hs] mce, 없으면 선행 값에 실측)
 
         돌려주는 것
             SolveResult — .statistics() · .counts() · .summary() (record=True면 HSRecord — .id · .stats · .text())
@@ -1438,7 +1514,7 @@ class Project:
         return replay_hs(self, record, as_name=as_name, who=who, command=command)
 
     def sim(self, scenario: str = "base", model: str = None, range: str = None, vintage: str = None, vs: str = None,
-            as_name: str = None, mode: str = None, who: str = None, command: str = None):
+            as_name: str = None, mode: str = None, who: str = None, command: str = None, mce=None):
         """전망·시나리오 — 가정 세트(`ASSUMPTIONS/이름.csv`, 빈 외생은 `[forecast] fill`)·보정항(`ADDFACTORS/이름.toml`)·시나리오
         (`SCENARIOS/이름.toml`)로 풀고 작업 기록(`work/sim/<이름>/`)을 남긴다. 시나리오면 같은 가정·보정항의 기준선도 풀어 차이를 적는다.
 
@@ -1450,6 +1526,7 @@ class Project:
             vs: 견줄 전망 기록(sim:…) — 연간 증가율 전후
             as_name: 기록 이름(기본: 연-월_시나리오)
             mode: 'dynamic'(기본) · 'static'
+            mce: 선행변수 풀이 — 'fair-taylor' · 'stacked' · False(기본 [forecast] mce, 없으면 선행변수가 있을 때 'fair-taylor')
 
         돌려주는 것
             SimRecord — .id · .levels · .flags(값의 종류) · .annual · .diff · .text()
@@ -1467,8 +1544,20 @@ class Project:
             True
         """
         from .sim import run_sim
-        return run_sim(self, scenario, model=model, rng=range, vintage=vintage, vs=vs, as_name=as_name, mode=mode,
-                       who=who, command=command)
+        try:
+            return run_sim(self, scenario, model=model, rng=range, vintage=vintage, vs=vs, as_name=as_name, mode=mode,
+                           who=who, command=command, mce=mce)
+        except ValueError as e:
+            msg = str(e)
+            if EXOG_EMPTY not in msg:
+                raise
+            # 엔진의 처방(워크파일 API: wf.fill · exog_fill)을 프로젝트의 처방(가정 세트 · [forecast] fill)으로
+            head, _, rest = msg.partition("\n")
+            lead = head.split(EXOG_EMPTY)[0]
+            fill = (self.config.forecast or {}).get("fill", "last")
+            raise ProjectError(f"{lead}{EXOG_EMPTY} — 가정 세트(ASSUMPTIONS/이름.csv — 시나리오의 base)에 그 기간 값을 적거나 "
+                               f"equion.toml [forecast] fill = \"last\" · \"growth\" · \"trend\"로 채웁니다(지금 fill = \"{fill}\"):"
+                               + (f"\n{rest}" if rest else "")) from None
 
     # ---- 분석·노트·보고서(D37) ------------------------------------------
     def an(self, analysis: str, target: str, smpl: str = None, as_name: str = None, note: str = None, who: str = None,
@@ -1601,12 +1690,16 @@ class Project:
         """새 기록으로 바꾸기 — 구역을 같은 모양으로 다시 만들어 차이를 보이고 적용한다(기본: 같은 갈래의 가장 새 기록). 손으로 고친 구역은
         고친 곳을 차이로 보이고 force일 때만 덮는다.
 
+        같은 갈래는 같은 계산을 새 자료로 다시 한 것만이다 — 바꿔 끼운 HS(--swap)·그때 그대로 다시(--replay)·다른 회차에 묶은 전망
+        (--vintage)·다른 식 후보·다른 표본은 구역을 바꿔 끼지 않는다.
+
         예
             >>> import tempfile, os
             >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
             >>> _ = p.report_new("m")
             >>> _ = p.report_add("m", p.hs("main", record=True).id)
-            >>> h2 = p.hs("main", record=True, swap={"demand:CN": "CN c Y"})
+            >>> h_swap = p.hs("main", record=True, swap={"demand:CN": "CN c Y"})
+            >>> h2 = p.hs("main", record=True)
             >>> p.report_update("m").items[0]["to"] == h2.id
             True
         """
@@ -1852,8 +1945,58 @@ class Project:
         from ..data.periods import is_relative
         if is_relative(start) or is_relative(end):
             start, end = self.span(f"{start or 'first'}:{end or 'last'}")
+        self._ordered(start, end)
         s, e = wf._bounds(start, end) if (start is not None or end is not None) else (0, len(wf.data) - 1)
         return check_identity(part, wf._data, s, e, wf._label, tol=tol)
+
+
+EXOG_EMPTY = "전망 구간에 외생변수 값이 없습니다"
+
+
+def xls_problem(path) -> Optional[str]:
+    """엑셀 97-2003(.xls)인데 읽는 패키지(xlrd — 필수 의존성이 아니다)가 없으면 그 까닭, 아니면 None."""
+    if not str(path or "").lower().endswith(".xls"):
+        return None
+    try:
+        import xlrd  # noqa: F401
+    except ImportError:
+        return (f"엑셀 97-2003 파일(.xls)은 읽지 못합니다: {os.path.basename(str(path))} — 엑셀에서 .xlsx나 .csv로 저장해 넣으세요"
+                f"(또는 xlrd를 설치)")
+    return None
+
+
+def _readable(path) -> None:
+    """원자료 파일을 읽을 수 있는 형식인가 — 아니면 ProjectError(.xls에 xlrd 없음)."""
+    why = xls_problem(path)
+    if why:
+        raise ProjectError(why)
+
+
+def resolve_path(root: str, path, inside_only: bool = True, fallback: bool = False):
+    """사람이 준 경로를 명령마다 같은 규칙으로 — **있는 파일을 가리키는 상대 경로는 지금 폴더에서 먼저 찾고, 없으면 프로젝트 폴더에서**.
+    새로 만드는 파일(보고서·노트·내보내기·묶음)의 상대 경로는 프로젝트 폴더 기준이다(그것은 부르는 쪽이 정한다).
+
+    매개변수
+        root: 프로젝트 폴더
+        path: 준 경로(절대 경로·빈 값은 그대로)
+        inside_only: 참이면 지금 폴더에서 찾은 파일이 프로젝트 안일 때만 그것을 쓴다(노트·보고서·자료 정의처럼 프로젝트 안의 파일 —
+            다른 프로젝트 폴더에서 `-p`로 부를 때 그 폴더의 같은 이름 파일을 잡지 않게)
+        fallback: 참이면 지금 폴더에 없을 때 프로젝트 폴더에서 찾아 있으면 그 절대 경로(거짓이면 준 그대로 — 부르는 쪽이 프로젝트 기준으로 푼다)
+
+    돌려주는 것
+        찾은 파일의 절대 경로, 못 찾으면 준 그대로(오류 글이 사람이 준 경로를 말하게)
+    """
+    from .config import inside
+    if not path or os.path.isabs(str(path)):
+        return path
+    here = os.path.abspath(str(path))
+    if os.path.exists(here) and (not inside_only or inside(root, here)):
+        return here
+    if fallback:
+        there = os.path.normpath(os.path.join(root, str(path)))
+        if os.path.exists(there):
+            return there
+    return path
 
 
 def open_project(path: str = ".") -> Project:

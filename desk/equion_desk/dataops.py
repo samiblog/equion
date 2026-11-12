@@ -293,12 +293,52 @@ def diff(project: Any, a: str | None = None, b: str | None = None) -> dict:
     return out
 
 
-def build(project: Any) -> dict:
-    """자료 만들기 — 원자료를 정의대로 읽어 새 회차를 만든다(내용이 같으면 만들지 않는다). 지금 회차는 그대로다."""
+class Shorter(ValueError):
+    """자료 만들기가 멈춤 — 새 자료가 지금 회차보다 짧다(시작이 늦거나 끝이 이름, 패키지의 `ShorterError`). 사람이 확인할 일이라
+    작업 프로세스가 kind 'shorter'(409)로 알리고 `detail`에 시리즈마다 지금 회차와 새 자료의 구간을 보낸다 — 화면이 보이고 '그래도 만들기'를 묻는다.
+    작업 프로세스는 `__main__`으로 돌므로 그 안에서 던질 클래스는 이 모듈에 둔다(되돌리기의 겹침 `reviewops.RevertBlocked`와 같은 길)."""
+
+    kind = "shorter"
+
+    def __init__(self, message: str, detail: Any = None) -> None:
+        super().__init__(message)
+        self.detail = detail
+
+
+def _shorter_series(project: Any, current: str | None) -> list[dict]:
+    """지금 회차보다 짧아지는 시리즈 — [{name, now: [처음, 끝], new: [처음, 끝]}]. 읽지 못하면 [](까닭 글에 앞의 몇 개가 있다)."""
+    from equion.projects.vintage import series_spans, shrink_notes, vintage_frame
+
+    try:
+        defs = project._need_defs()
+        df, _, _, _ = vintage_frame(defs)
+        notes = shrink_notes(str(project.root), current, series_spans(df, defs.freq), defs.freq)
+    except Exception:
+        return []
+    out = []
+    for note in notes:                      # '{이름} 1970Q1~2020Q1 → 1970Q2~2020Q1'
+        name, _, rest = note.partition(" ")
+        old, _, new = rest.partition(" → ")
+        out.append({"name": name, "now": old.split("~"), "new": new.split("~")})
+    return out
+
+
+def build(project: Any, allow_shorter: bool = False) -> dict:
+    """자료 만들기 — 원자료를 정의대로 읽어 새 회차를 만든다(내용이 같으면 만들지 않는다). 지금 회차는 그대로다.
+
+    새 자료가 지금 회차보다 짧으면(지난 파일을 다시 받음 · 일부 기간만 든 파일) 아무것도 바꾸지 않고 `Shorter`(409) — 화면이 까닭을 보이고
+    사람이 고르면 allow_shorter 로 다시 부른다(`equion data build --allow-shorter`). 패키지가 알린 것(짧은 자료로 만듦 · 옛 회차와 같음)은 `warnings`."""
+    from equion.projects.vintage import ShorterError
+
     before = project.vintage
-    result = project.data_build(who="desk", command=command("data", "build")).to_dict()
+    try:
+        result = project.data_build(who="desk", command=command("data", "build", "--allow-shorter" if allow_shorter else None),
+                                    allow_shorter=bool(allow_shorter)).to_dict()
+    except ShorterError as exc:
+        raise Shorter(str(exc), {"current": before, "series": _shorter_series(project, before)}) from None
     out = {"id": result.get("id"), "created": bool(result.get("created")), "span": result.get("span"), "n_series": result.get("n_series"),
-           "implicit": result.get("implicit") or [], "current": before, "kind": "data", "record": f"data:{result.get('id')}"}
+           "implicit": result.get("implicit") or [], "current": before, "kind": "data", "record": f"data:{result.get('id')}",
+           "warnings": list(result.get("warnings") or [])}
     if out["created"] and before and before != out["id"]:
         try:
             out["diff"] = _diff(project.data_diff(before, out["id"]))
@@ -308,9 +348,16 @@ def build(project: Any) -> dict:
 
 
 def use(project: Any, vintage: str) -> dict:
-    """이 회차로 바꾸기 — `equion.toml [data] vintage`를 고친다(바뀜 기록에 남는다). 결과는 다시 계산하지 않는다."""
+    """이 회차로 바꾸기 — `equion.toml [data] vintage`를 고친다(바뀜 기록에 남는다). 결과는 다시 계산하지 않는다.
+    더 옛 회차로 돌아가거나 끝이 이른 회차로 바꾸면 하라는 대로 하되 `warnings`로 알린다(`equion data use`가 '!'로 적는 것과 같다)."""
+    from equion.projects.vintage import move_notes
+
     previous = project.data_use(vintage, who="desk", command=command("data", "use", vintage))
-    return {"vintage": vintage, "previous": previous}
+    try:
+        warnings = list(move_notes(str(project.root), previous, vintage))
+    except Exception:
+        warnings = []
+    return {"vintage": vintage, "previous": previous, "warnings": warnings}
 
 
 def add(project: Any, path: str, source: str | None = None, name: str | None = None, inbox: bool = False) -> dict:

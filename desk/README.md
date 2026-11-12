@@ -1,13 +1,16 @@
 # Equion Desk
 
-Equion 프로젝트(자료 → 식 → 조립 → 과거 재현 → 전망 → 보고서)를 화면에서 다루는 데스크톱 앱입니다. **Windows 전용**이고,
-패키지 [`equion`](../README.md)의 함수를 부르는 화면입니다 — 계산과 파일 형식은 모두 패키지에 있습니다.
+Equion 프로젝트(자료 → 식 → 조립 → 과거 재현 → 전망 → 보고서)를 화면에서 다루는 데스크톱 앱입니다. **Windows 11 전용**(화면은 Windows에 든
+WebView2 — D29·D63)이고, 패키지 [`equion`](../README.md)의 함수를 부르는 화면입니다 — 계산과 파일 형식은 모두 패키지에 있습니다.
 
-**2차판 출시 후보(0.2.0rc2 — 사전 릴리스, D62·D65)**: 대상에서 출발하는 화면(D50~D54 — [`docs/DESK_V2.md`](../docs/DESK_V2.md)) — 세 열 1/3 · 왼쪽 작업대 줄과
+**사용설명서**: [`docs/desk/`](../docs/desk/README.md) — 설치부터 자료 · 분석 · 식 · 모형 · 전망 · 보고서 · 기록 · Claude Code까지, 예제 프로젝트로
+그림과 함께 따라 하는 9장. 앱 안의 도움말은 `F1`.
+
+**2차판 출시 후보(0.2.0rc3 — 사전 릴리스, D62·D65~D67)**: 대상에서 출발하는 화면(D50~D54 — [`docs/DESK_V2.md`](../docs/DESK_V2.md)) — 세 열 1/3 · 왼쪽 작업대 줄과
 탭 다섯(변수 · 분석 · 모형 · 파일 · 기록) · 변수 여럿 고르기와 우클릭 메뉴 · 묶음 · 변수 창 · 그룹 창 · 분석 탭(개별 식 · 모형에 넣기) · 터미널 다섯 · 명령 창,
 그리고 혼자 하는 폼과 노트(D55~D58) — 후보 묶음 · 시나리오 폼 · 노트 화면(▶ 실행) · 같은 분석의 두 기록 비교, 자료 쪽 셋(D59~D61) — 전망의 요인 나누기 ·
 시점이 열로 가는 표 · 여러 줄 머리 불러오기 · 이정표 · 묶어 보내기와 묶음 열기.
-설치 파일로 낸 판은 **1차판 출시 후보(0.1.0rc1)** — 뼈대(D1) · 식·자료(D2) · 모형과 흐름(D3) · 전망과 보고서(D4) · Claude와 되돌리기(D5)까지 만들었습니다 — 프로젝트를 탭으로 열고, 식을 다듬어 후보를 견주고 채택하고, 받은 통계표의 열을 시리즈로
+설치 파일은 저장소 Releases의 `desk-v<판>`(출시 후보는 사전 릴리스 — 가장 새 것은 2차판의 `0.2.0rc3`)입니다. 1차판(0.1.0rc1)은 뼈대(D1) · 식·자료(D2) · 모형과 흐름(D3) · 전망과 보고서(D4) · Claude와 되돌리기(D5)까지 만들었습니다 — 프로젝트를 탭으로 열고, 식을 다듬어 후보를 견주고 채택하고, 받은 통계표의 열을 시리즈로
 짝짓고, 새 회차를 만들어 견주어 바꾸고, 분석을 돌려 남기고, 모형을 조립해 과거를 풀어 오차의 원인을 따라가고, 스크립트를 단계로 보며 실행하고, 가정을 적어 기준선과 시나리오를 풀어 결과를 보고서와 엑셀로 내고, Claude에게 맡기거나 제안을 받아 적용·버림하고, 마음에 들지 않는 바뀜은 되돌립니다(F1 도움말). 터미널(사람·Claude)에서 친 명령의 기록이 생기는 순간 화면의 띠와 후보 목록에 뜹니다. 닫았다 열면 지난 화면이 이어집니다. 계획은 [`docs/DESK_DEVPLAN.md`](../docs/DESK_DEVPLAN.md),
 만들며 정한 것은 [`docs/DECISIONS.md`](../docs/DECISIONS.md)의 D39~D65, 설치 점검은 [`docs/DESK_D0_CHECK.md`](../docs/DESK_D0_CHECK.md).
 설치 파일은 저장소의 Releases에 있습니다(태그 `desk-v<판>` — 출시 후보는 사전 릴리스).
@@ -17,6 +20,7 @@ Equion 프로젝트(자료 → 식 → 조립 → 과거 재현 → 전망 → �
     uv run --package equion-desk equion-desk --browser 폴더       # 개발용: 서버만 띄우고 브라우저로(http://127.0.0.1:8766/)
     uv run --package equion-desk pytest desk                      # 앱 시험(서버·작업 프로세스·터미널·탭·기록 읽기·감시·식 작업대·자료 작업대·분석)
     uv run --package equion-desk --group ui python desk/tests/ui_check.py [--shots 폴더]   # 화면 점검 — PC의 Edge를 몬다
+    uv run --package equion-desk --group ui python desk/tests/guide_shots.py              # 사용설명서 그림 다시 찍기(docs/desk/img/)
     uv run --package equion-desk python desk/tests/bench_s1.py    # 추정 1초 기준(S1) 재기 — 합성 큰 모형
     uv run python desk/build/make.py                              # 설치 파일(Inno Setup 6 필요) → desk/dist/EquionDesk-<판>-setup.exe
     uv run python desk/build/smoke.py "<설치 폴더>" [--window]     # 설치본 기동 시험 — 설치 폴더의 런타임만으로
@@ -25,7 +29,7 @@ Equion 프로젝트(자료 → 식 → 조립 → 과거 재현 → 전망 → �
 
 | 자리 | 내용 |
 |---|---|
-| 제목줄 | 프로젝트 탭(8개까지) · 바뀜 기록 · 왼쪽 열·오른쪽 열 보이기 · 설정(바탕 자동·밝게·어둡게, 글자 크기, 터미널 색) |
+| 제목줄 | 프로젝트 탭(8개까지) · 바뀜 기록 · 왼쪽 열·오른쪽 열 보이기 · 도움말 · 설정(바탕 자동·밝게·어둡게, 글자 크기, 터미널 색, 터미널 글자 크기 — D65) |
 | 세 열 | 기본 1/3씩 — 창이 좁으면 가운데 540px을 지키고 양옆이 나눈다(D53). 경계를 끌어 바꾸고 두 번 누르면 기본 |
 | 왼쪽 열 | **작업대 줄**(개요 · 자료 · 분석 실행 · 전망 · 보고서 · 지금 표본) · 탭 **변수**(시리즈 · 묶음 · 즐겨찾기, 모형과의 관계 — 여럿 고르기 · 우클릭 메뉴 · 고른 변수 줄) · **분석**(개별 식 · 돌린 분석 — 대상별 가장 새 것, 낡음, 다시 돌리기) · **모형**(모형 · 모형이 쓰는 블록과 식 — 식 옆의 점은 가장 최근 추정의 통과·걸러짐, ★는 채택 · 가정·시나리오·스크립트) · **파일** · **기록**(결과 · 바뀜과 제안) |
 | 가운데 탭 | 개요(모형마다 모형 작업대·과거 재현·전망) · **식 작업대** · **자료 작업대** · **불러오기** · **분석** · **모형 작업대** · **흐름**(아래) · 결과 카드(`summary.md` — 표와 차트, 만든 명령, 바꿔 끼운 과거 재현이면 전후 비교) · 파일(md·csv·글 — 정의 파일은 고치기) · 작업 기록(골라서 스크립트로) · 바뀜 기록(차이) |
@@ -49,11 +53,11 @@ Equion 프로젝트(자료 → 식 → 조립 → 과거 재현 → 전망 → �
 
 | 폴더 | 내용 |
 |---|---|
-| `equion_desk/` | 창(`__main__`) · 로컬 서버(`server`) · 프로젝트 탭과 파일 읽기(`projects`) · 작업 프로세스(`worker`) · 자료와 분석(`dataops`)·모형과 흐름(`modelops`) — 둘 다 작업 프로세스 안에서 돈다 · 알림 줄과 감시(`watch`) · 기록 읽기(`records`) · 설정과 지난 화면(`config`) · 창은 하나(`instance`) · 작업 개체(`jobs`) · 터미널(`terminal`·`conpty`) · 격리 환경(`runtime`) |
-| `equion_desk/web/` | 화면 — 순수 JS 모듈(`js/main.js` 틀 · `project.js` 프로젝트 탭 · `views/` 화면들(`bench`·`candidates`·`result`·`data`·`importer`·`analysis`·`model`·`flow`·`card`·`file`·`home`·`lists`) · `md.js` 문서와 차트 · `chart.js` 식 작업대 차트 · `dialog.js` 확인 상자·메뉴 · `terminal.js`), 스타일(`css/tokens.css` 색과 치수 · `app.css` 틀 · `views.css` 화면 · `bench.css` 식 작업대 · `data.css` 자료 작업대와 분석 · `model.css` 모형 작업대와 흐름 — 색은 tokens의 이름으로만), 내장 라이브러리 `vendor/`. 패키지 안에 두어 설치본의 런타임에 함께 설치된다 |
+| `equion_desk/` | 창(`__main__`) · 로컬 서버(`server`) · 프로젝트 탭과 파일 읽기(`projects`) · 작업 프로세스(`worker`) · 작업 프로세스 안에서 도는 일 — 자료와 분석(`dataops`) · 모형과 흐름(`modelops`) · 전망과 보고서(`simops`) · 제안 · 되돌리기 · 고정(`reviewops`) · 변수 · 분석 목록 · 묶음 · 식 더하기 · 명령 한 줄(`sideops`) · 후보 묶음 · 시나리오 폼 · 노트 · 두 기록(`formops`) · 알림 줄과 감시(`watch`) · 기록 읽기(`records`) · 설정과 지난 화면(`config`) · 창은 하나(`instance`) · 작업 개체(`jobs`) · 터미널(`terminal`·`conpty`) · 격리 환경(`runtime`) · 서버 문구(`i18n` — 영문 화면을 더할 자리) |
+| `equion_desk/web/` | 화면 — 순수 JS 모듈(`js/main.js` 틀 · `project.js` 프로젝트 탭 · `side.js` 왼쪽 열 · `varmenu.js` 변수 메뉴 · `command.js` 명령 창 · `claude.js` Claude ▾ · `partops.js` 개별 식·모형에 넣기 · `noteops.js` 노트에 담기 · `views/` 화면들(`bench`·`candidates`·`result`·`batch` 식 · `data`·`importer` 자료 · `analysis`·`ancompare`·`variable` 분석과 변수 창 · `model`·`flow` 모형과 흐름 · `forecast`·`scenario` 전망 · `reports`·`send`·`note` 보고서와 노트 · `proposals`·`milestone` 제안과 이정표 · `card`·`file`·`home`·`lists`·`help`) · `md.js` 문서와 차트 · `chart.js` 차트 · `dialog.js` 확인 상자·메뉴 · `terminal.js`), 스타일(`css/tokens.css` 색과 치수 · `app.css` 틀 · `side.css` 왼쪽 열 · `views.css` 화면 · `bench.css` 식 작업대 · `data.css` 자료와 분석 · `model.css` 모형과 흐름 · `forecast.css` 전망 · `forms.css` 폼 · `review.css` 제안과 기록 — 색은 tokens의 이름으로만), 도움말 `help/ko.md`, 내장 라이브러리 `vendor/`. 패키지 안에 두어 설치본의 런타임에 함께 설치된다 |
 | `equion_desk/assets/` | 아이콘(`equion-desk.ico` — `build/icon.py`가 그린다) |
 | `build/` | `runtime.py`(설치본의 Python 런타임 만들기) · `make.py`·`equiondesk.iss`(설치 파일) · `icon.py`(아이콘) · `smoke.py`(설치본 기동 시험) |
-| `tests/` | `test_desk.py`(경계·뼈대·화면 스크립트 문법·색 규칙) · `test_app.py`(서버·작업 프로세스·터미널·탭·읽기·감시·식 작업대·자료 작업대와 분석·불러오기·모형 작업대와 흐름·창은 하나) · `ui_check.py`(화면 점검 — 브라우저가 있어야 해서 pytest가 모으지 않는다) · `bench_s1.py` |
+| `tests/` | `test_desk.py`(경계·뼈대·화면 스크립트 문법·색 규칙) · `test_app.py`(서버·작업 프로세스·터미널·탭·읽기·감시·식 작업대·자료 작업대와 분석·불러오기·모형 작업대와 흐름·창은 하나) · `ui_check.py`(화면 점검 — 브라우저가 있어야 해서 pytest가 모으지 않는다) · `guide_shots.py`(사용설명서 `docs/desk/`의 그림을 설명서 순서대로 찍는다) · `bench_s1.py` |
 
 앱 프로세스는 `equion`을 불러오지 않습니다(계산은 작업 프로세스가, 기록·파일은 그대로 읽는다 — D41). 설정과 지난 화면은 사용자 폴더
 (`%APPDATA%\EquionDesk\config.json`)에 적고 프로젝트 폴더에는 쓰지 않습니다 — 시험·점검은 `EQUION_DESK_CONFIG_DIR`로 다른 곳을 줍니다.

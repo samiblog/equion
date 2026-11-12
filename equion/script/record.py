@@ -2,17 +2,198 @@
 # -*- coding: utf-8 -*-
 """실행 기록 `work/run/<이름>/`(`run:`) 쓰기·읽기와 결과 글."""
 
+import json
 import os
+import re
 import time
-from dataclasses import dataclass, field
-from typing import List, Optional
+from dataclasses import dataclass, field, fields
+from datetime import datetime
+from types import SimpleNamespace
+from typing import List, Optional, Set
 
 from ..reporting import markdown as md
-from ..work.store import WHO_KO, now_iso
-from .session import MARK, STATUS_KO, StepResult, versions
+from ..work.store import WHO_KO, RecordError, WorkStore, move_into_place, now_iso
+from .session import EXIT_INTERRUPT, MARK, STATUS_KO, StepResult, versions
 
 FORMAT = "equion-run"
 FORMAT_VERSION = 1
+ACTIVE = ".active"          # work/run/.active/<이름>.json — 도는 실행이 이름을 잡아 두고 단계마다 상태를 적는 곳
+_HERE: Set[tuple] = set()   # 이 프로세스에서 지금 도는 실행 (프로젝트, 이름)
+
+
+# ---------------------------------------------------------------------------
+# 도는 실행 — 이름 잡기 · 상태 · 끝나지 못한 실행의 기록
+# ---------------------------------------------------------------------------
+def _active_dir(store) -> str:
+    return os.path.join(store.dir("run"), ACTIVE)
+
+
+def active_names(store) -> Set[str]:
+    """지금 돌거나 끝나지 못한 실행이 잡아 둔 이름."""
+    try:
+        return {n[:-5] for n in os.listdir(_active_dir(store)) if n.endswith(".json")}
+    except OSError:
+        return set()
+
+
+def next_run_name(store, prefix: str) -> str:
+    """prefix_0001 … — 남은 실행 기록과 잡아 둔 이름(도는 실행·끝나지 못한 실행) 모두의 가장 큰 번호 다음."""
+    rx = re.compile(rf"^{re.escape(prefix)}_(\d+)$")
+    names = set(store.names("run")) | active_names(store)
+    nums = [int(m[1]) for n in names for m in [rx.match(n)] if m]
+    return f"{prefix}_{(max(nums) if nums else 0) + 1:04d}"
+
+
+def reserve(store, name: Optional[str], prefix: str) -> str:
+    """실행 이름을 잡는다 → 이름. 이름을 주지 않으면 다음 번호(다른 프로세스가 같은 번호를 먼저 잡으면 그다음). 이미 있는 기록이나
+    지금 도는 실행의 이름이면 RecordError — 실행 기록의 이름은 다시 쓰지 않는다(그 이름을 가리키는 바뀜 기록이 있을 수 있다)."""
+    d = _active_dir(store)
+    os.makedirs(d, exist_ok=True)
+    for _ in range(50):
+        nm = name or next_run_name(store, prefix)
+        store.check_new("run", nm)
+        try:
+            fd = os.open(os.path.join(d, nm + ".json"), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if name:
+                raise RecordError(f"지금 도는(또는 끝나지 못한) 실행이 이 이름을 씁니다: run:{nm} — 다른 이름으로") from None
+            continue
+        os.close(fd)
+        _HERE.add((os.path.normcase(store.root), nm))
+        return nm
+    raise RecordError(f"실행 이름을 잡지 못했습니다(run:{prefix}_…)")
+
+
+def save_active(s, current: StepResult = None) -> None:
+    """도는 실행의 상태를 적는다(단계마다) — 프로세스가 끝나 버려도(Desk의 '취소' 등) 다음 실행이 이것으로 기록을 남긴다."""
+    state = {"format": "equion-run-active", "pid": os.getpid(), "name": s.name, "id": s.id, "project": s.p.name,
+             "who": s.who, "command": s.command, "script": s.script, "title": s.title, "params": s.params,
+             "from": s.from_step, "today": s.today, "fail_on": s.fail_on, "origin": s.origin, "replay_of": s.replay_of,
+             "vintage0": s.vintage0, "data0": s.data0, "started": now_iso(s.started), "updated": now_iso(),
+             "elapsed": round(time.perf_counter() - s._t0, 2), "lines": list(s.lines), "implicit": list(s.implicit),
+             "steps": [dict(x.to_dict(), out=x.out) for x in s.steps],
+             "current": dict(current.to_dict(), status="interrupted") if current is not None else None}
+    path = os.path.join(_active_dir(s.store), s.name + ".json")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(state, ensure_ascii=False, default=str))
+    move_into_place(tmp, path)
+
+
+def release(store, name: str) -> None:
+    """실행이 끝나 기록을 남겼다 — 잡아 둔 이름을 놓는다."""
+    _HERE.discard((os.path.normcase(store.root), name))
+    for fn in (name + ".json", name + ".json.tmp"):
+        try:
+            os.remove(os.path.join(_active_dir(store), fn))
+        except OSError:
+            pass
+
+
+def _pid_alive(pid) -> bool:
+    """그 프로세스가 아직 있나(모르면 있다고 본다 — 도는 실행을 끝난 것으로 적지 않게)."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if os.name == "nt":
+        import ctypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        h = k.OpenProcess(0x1000, False, pid)             # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return ctypes.get_last_error() == 5             # 권한 없음 = 프로세스는 있다
+        try:
+            code = ctypes.c_ulong()
+            if not k.GetExitCodeProcess(h, ctypes.byref(code)):
+                return True
+            return code.value == 259                        # STILL_ACTIVE
+        finally:
+            k.CloseHandle(h)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def _running(store, state: dict) -> bool:
+    if state.get("pid") == os.getpid():
+        return (os.path.normcase(store.root), state.get("name")) in _HERE
+    return _pid_alive(state.get("pid"))
+
+
+def recover(root: str) -> List[str]:
+    """끝나지 못한 실행(프로세스가 끝났는데 기록이 없는 것 — Desk의 '취소'·창 닫기·강제 종료)의 실행 기록을 남긴다 → 남긴 기록 이름들.
+
+    기록은 그때까지 끝난 단계와 하던 단계(그 단계가 만든 기록 — 기록의 run이 이 실행인 것), 상태 '끝나지 못함(취소·중단)'·종료 코드 130.
+    정의 사본(defs/)이 없어 다시 하기(--replay)는 안 된다. 도는 실행(다른 프로세스·이 프로세스)은 건드리지 않는다."""
+    store = WorkStore(root)
+    d = _active_dir(store)
+    if not os.path.isdir(d):
+        return []
+    made = []
+    for fn in sorted(os.listdir(d)):
+        if not fn.endswith(".json"):
+            continue
+        name = fn[:-5]
+        try:
+            with open(os.path.join(d, fn), encoding="utf-8") as f:
+                text = f.read()
+            state = json.loads(text) if text.strip() else None
+        except (OSError, ValueError):
+            continue
+        if state is None:                    # 이름만 잡고 아직 쓰기 전 — 도는 중일 수 있다(하루가 지났으면 놓는다)
+            try:
+                if time.time() - os.path.getmtime(os.path.join(d, fn)) > 86400:
+                    release(store, name)
+            except OSError:
+                pass
+            continue
+        if store.exists("run", name):        # 기록은 남았고 이름만 덜 놓였다
+            release(store, name)
+            continue
+        if _running(store, state):
+            continue
+        made.append(_write_cancelled(store, name, state))
+        release(store, name)
+    return made
+
+
+def _step(d: dict) -> StepResult:
+    keys = {f.name for f in fields(StepResult)}
+    return StepResult(**{k: v for k, v in d.items() if k in keys})
+
+
+def _write_cancelled(store, name: str, state: dict) -> str:
+    steps = [_step(x) for x in state.get("steps") or []]
+    cur = state.get("current")
+    done = {r for st in steps for r in st.records}
+    rid = state.get("id") or f"run:{name}"
+    if cur and not any(st.n == cur.get("n") for st in steps):
+        st = _step(cur)
+        st.status, st.code = "interrupted", None
+        st.detail = "이 단계 도중에 끝났습니다(취소·프로세스 끝남)"
+        st.records = [x["id"] for x in store.log() if x.get("run") == rid and x["id"] not in done]
+        steps.append(st)
+    last = next((st for st in reversed(steps) if st.status != "skip"), None)
+    implicit = list(state.get("implicit") or []) + [
+        "끝나지 못한 실행 — " + (f"[{last.n}] {last.line} " if last else "") + "에서 취소되었거나 프로세스가 끝났습니다. 그때까지의 단계와 "
+        "기록만 남겼습니다(정의 파일·자료 회차는 그 단계까지 바뀌었을 수 있다 — equion history list). 다시 하려면 스크립트를 새로 돌린다"]
+    try:
+        started = datetime.fromisoformat(state.get("started"))
+    except (TypeError, ValueError):
+        started = datetime.now()
+    s = SimpleNamespace(
+        _t0=None, elapsed=state.get("elapsed") or 0.0, who=state.get("who"), command=state.get("command"), script=state.get("script"),
+        p=SimpleNamespace(name=state.get("project")), title=state.get("title") or "", params=state.get("params") or {},
+        from_step=state.get("from"), today=state.get("today"), fail_on=state.get("fail_on") or "failed", status="cancelled",
+        exit_code=EXIT_INTERRUPT, steps=steps, vintage0=state.get("vintage0"), data0=state.get("data0"), implicit=implicit,
+        replay_of=state.get("replay_of"), origin=state.get("origin") or "eqs", started=started, name=name, id=rid, sources={}, defs={},
+        store=store, root=store.root, lines=state.get("lines") or [], created=state.get("updated"),
+        end_vintage=next((st.vintage for st in reversed(steps) if st.vintage), None) or state.get("vintage0"))
+    return write_run(s).id
 
 
 @dataclass
@@ -105,9 +286,9 @@ def _vint(s):
 
 
 def write_run(s) -> RunResult:
-    """Session → 실행 기록."""
-    elapsed = time.perf_counter() - s._t0
-    end_v = _vint(s)
+    """Session → 실행 기록(끝나지 못한 실행은 recover가 그 상태로 만든 것을 받는다)."""
+    elapsed = s.elapsed if getattr(s, "_t0", None) is None else time.perf_counter() - s._t0
+    end_v = getattr(s, "end_vintage", None) or _vint(s)
     meta = {"who": s.who, "command": s.command or f"(Python) {s.script or ''}".strip(), "project": s.p.name,
             "equion": versions()["equion"], "versions": versions(), "target": s.script or "(Python)",
             "script": s.script, "title": s.title, "params": s.params, "from": s.from_step, "today": s.today,
@@ -118,6 +299,8 @@ def write_run(s) -> RunResult:
             "inbox": [i for x in s.steps for i in x.inbox], "replay_of": s.replay_of, "origin": s.origin,
             "started": now_iso(s.started), "elapsed": round(elapsed, 2), "python_steps": [x.n for x in s.steps if x.kind == "py"],
             "path": f"work/run/{s.name}", "id": s.id}
+    if getattr(s, "created", None):
+        meta["created"] = s.created
     files = {"script.eqs": resolved_script(s)}
     for rel, data in s.sources.items():
         files[f"src/{rel}"] = data
@@ -152,6 +335,9 @@ def run_md(m: dict, steps: List[StepResult], script: str) -> str:
     flags = [x for x in steps if x.status in ("flag", "stop", "error", "denied")]
     if flags:
         sections.append(("볼 것", md.bullets([f"[{x.n}] {STATUS_KO[x.status]} — `{x.line}` — {x.detail}" for x in flags])))
+    warned = [f"[{x.n}] {w}" for x in steps for w in (getattr(x, "warnings", None) or [])]
+    if warned:                                   # 경고는 결과 줄을 가리지 않게 따로(단계 출력 steps/NN.txt에도 있다)
+        sections.append(("경고", md.bullets(warned[:40] + ([f"… 외 {len(warned) - 40}"] if len(warned) > 40 else []))))
     if m.get("inbox"):
         sections.append(("받은 원자료", md.bullets([f"{i['from']} → {i['to']}" for i in m["inbox"]])))
     if m.get("implicit"):

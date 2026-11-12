@@ -31,6 +31,7 @@ The commands used most often. `wf` is a workfile, `eq` an equation object, `m` a
 | Robust standard errors | `.ls(spec, cov="white")` · `cov="hac", lags=4` |
 | Two-stage least squares | `.tsls("CN c Y CN(-1) @inst G R CN(-1) Y(-1)")` |
 | Non-linear | `.ls("Y = c(1) + c(2)*X^c(3) @start 1 1 1")` |
+| Non-linear two-stage least squares | `.tsls("Y = c(1) + c(2)*X^c(3) @start 1 1 1 @inst Z1 Z2 X(-1)")` (NL-TSLS) |
 | AR(1) errors · PDL | `.ls("CN c Y ar(1)")` · `.ls("CN c pdl(Y, 4, 2)")` |
 | GMM · LIML · WLS | `.gmm(spec + " @inst …")` · `.liml(…)` · `.wls(spec, weights="W")` |
 | Fixed coefficients | `wf.equation("f").fixed("CN c Y", [10, 0.6])` |
@@ -59,7 +60,7 @@ The commands used most often. `wf` is a workfile, `eq` an equation object, `m` a
 
 | Task | Code |
 |---|---|
-| System estimation | `s = wf.system("s"); s.append("…", "…", "@inst …"); s.sur()` · `.three_sls()` · `.fiml()` |
+| System estimation | `s = wf.system("s"); s.append("…", "…", "@inst …"); s.sur()` · `.three_sls()` · `.fiml()` — also for non-linear `c(n)` equations |
 | Cross-equation restrictions | the same `c(n)` in two equations · `s.sur(restrict=["c(2) = c(5)"])` |
 | VAR | `v = wf.var("v", ["dlog(Y)", "R"], lags=2)` → `.lag_order()` · `.granger(…)` · `.irf(8)` · `.fevd(8)` · `.forecast(4)` |
 | VECM | `k = wf.vecm("k", ["RL", "R"], rank=1)` → `.alpha` · `.beta` · `.forecast(4)` |
@@ -74,6 +75,23 @@ The commands used most often. `wf` is a workfile, `eq` an equation object, `m` a
 | Failures as exit codes | `--fail-on fallback` (exit code 2) |
 | Check without running | `equion check model.txt --data data.csv` |
 | Summaries | `equion info data.csv` · `equion info out/<run id>` |
-| New project | `equion new folder` |
+| New project | `equion new folder` · a project with blocks, models and data vintages: `equion new folder --template desk` |
 
 Exit codes: 0 success · 1 script error · 2 solve failure (`--fail-on`) · 3 input error · 130 interrupted.
+
+## Projects (a record for every command)
+
+| Task | Command |
+|---|---|
+| Check the assembly | `equion assemble main` |
+| Data vintages | `equion data list` · `data inbox` · `data build --use` · `data diff` · `data impact` |
+| Estimate, compare, adopt | `equion est demand:CN` · `est "equation" --for demand:CN` · `compare --part demand:CN` · `adopt est:…` |
+| Historical simulation | `equion hs` · `hs --swap demand:CN=est:… --vs hs:…` · `hs --replay hs:…` |
+| Forecasts and scenarios | `equion sim base oil20` · `scenario define name --shock POIL=+20%` · `an split "sim:… sim:…"` |
+| Analyses, notes, reports | `equion an unitroot core` · `note run notes/x.md` · `report add report sim:… --show yoy` · `report update report` |
+| Records and changes | `equion work list` · `work show record` · `history list` · `history revert h…` |
+| Scripts | `equion run FLOWS/monthly.eqs [--dry-run]` · `run --replay run:…` · `check FLOWS/monthly.eqs` |
+| Milestones, moving a project | `equion milestone make name` · `bundle make` · `bundle open bundle.zip folder` |
+| Guide for Claude | `equion guide` · `guide skill --install project` |
+
+The project workflow is described (in Korean) in [tutorial 9](../tutorial/09-project.md) and the [guides](../guide/README.md); the desktop app Equion Desk has its own manual in [`docs/desk/`](../desk/README.md).

@@ -96,6 +96,28 @@ def main():
           and close(r2.fittedvalues, R.ols(pd.Series(yv, index=idx),
                                            pd.DataFrame(np.column_stack([np.ones(n), x1]), index=idx)).fittedvalues))
     check("결과 객체 = eqn.stats.Results", isinstance(eqs["cp"].results, eqn.stats.Results))
+    # 열 크기가 크게 다른 회귀변수(원 단위 수준 ~1e14와 % 금리): 유사역행렬이 한 방향을 잘라 계수가 경고 없이 틀리던 것
+    wsc = eqn.datasets.load("toy_q")
+    b_tr = wsc.equation("b").ls("CN c Y CN(-1) R").coefs.to_numpy()
+    k_ = 1e12
+    wsc["CNW"], wsc["YW"] = wsc["CN"] * k_, wsc["Y"] * k_
+    esc = wsc.equation("w").ls("CNW c YW CNW(-1) R")
+    check("열 크기가 크게 다른 회귀변수(×1e12) → 단위를 바꾼 식의 계수와 같다(열 크기를 맞춰 푼다)",
+          close(esc.coefs.to_numpy(), [b_tr[0] * k_, b_tr[1], b_tr[2], b_tr[3] * k_], 1e-7)
+          and esc.results.extra.get("column_scaled") is True and not esc.stats.get("collinear"), str(esc.coefs.to_numpy()))
+    wls_sc = wsc.equation("ww").wls("CNW c YW CNW(-1) R", weights="1/Y")
+    wls_tr = wsc.equation("wt").wls("CN c Y CN(-1) R", weights="1/Y").coefs.to_numpy()
+    check("WLS도 같다", close(wls_sc.coefs.to_numpy(), [wls_tr[0] * k_, wls_tr[1], wls_tr[2], wls_tr[3] * k_], 1e-7))
+    rng_sc = np.random.default_rng(11)
+    same = True
+    for t_ in range(30):
+        Xr = rng_sc.normal(size=(40 + t_, 2 + t_ % 5)) * (10.0 ** rng_sc.integers(-3, 6, size=2 + t_ % 5))
+        P1, s1 = R.pinv_svd(Xr)
+        P2, s2, sc_ = R.pinv_cols(Xr)
+        same &= (not sc_) and np.array_equal(P1, P2) and np.array_equal(s1, s2)
+    Xc = np.column_stack([np.ones(n), x1, 2 * x1])
+    check("보통 입력은 pinv_svd 그대로(바이트까지 같다) · 진짜 공선은 맞추지 않는다", bool(same)
+          and R.pinv_cols(Xc)[2] is False and R.ols(pd.Series(yv, index=idx), pd.DataFrame(Xc, index=idx)).rank == 2)
 
     print("\n" + "=" * 80)
     print("B. 강건 공분산")

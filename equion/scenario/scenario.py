@@ -170,7 +170,7 @@ class Scenario:
             AF[b + 1:end + 1, k] += val
         for var, value, s0, e0, kind in self.shocks:
             a = model._to_index(s0)
-            b = model._to_index(e0) if e0 is not None else a
+            b = model._to_index(e0, end=True) if e0 is not None else a
             if kind == "add_factor" or var in eq_slot and var in system.endogenous:
                 if var not in eq_slot:
                     raise SimulationError(f"shock: '{var}'에 해당하는 추정식이 없습니다(항등식 변수는 조정항 불가)")
@@ -198,7 +198,7 @@ class Scenario:
         return ov, dict(self.excludes), AF, ctrls
 
     def run(self, model, start, end, mode: str = "dynamic", store: bool = True, **kw) -> ScenarioResult:
-        s, e = model._to_index(start), model._to_index(end)
+        s, e = model._to_index(start), model._to_index(end, end=True)
         ov, ex, AF, ctrls = self.build(model, s, e)
         sim = model.simulate(s, e, mode=mode, sim_id=self.name, add_factors=AF,
                              overrides=ov, excludes=ex, controls=ctrls, **kw)
@@ -215,7 +215,7 @@ class Scenario:
 # ---------------------------------------------------------------------------
 def missing_exogenous(model, start, end, scenario: Scenario = None) -> Dict[str, List[str]]:
     """지평에서 현시점 값이 비어 있는 외생변수 → 비어 있는 기간 라벨 목록."""
-    s, e = model._to_index(start), model._to_index(end)
+    s, e = model._to_index(start), model._to_index(end, end=True)
     T = len(model.data.data)
     ov = {}
     if scenario is not None:
@@ -292,8 +292,10 @@ def stochastic_simulation(model, start, end, reps: int = 200, seed: int = None,
     매 반복마다 기간별로 잔차가 모두 있는 날짜 하나를 뽑아 그 날의 잔차 벡터를 조정항으로 더한다.
     coef_uncertainty=True면 식별 계수를 N(b, Cov)에서 뽑는다(공분산이 있는 식만).
     """
+    if isinstance(reps, bool) or not isinstance(reps, (int, np.integer)) or reps < 1:
+        raise ValueError(f"reps는 1 이상의 정수입니다(받은 값 {reps!r}) — 몇 번 되풀이해 풀지입니다")
     rng = np.random.default_rng(seed)
-    s, e = model._to_index(start), model._to_index(end)
+    s, e = model._to_index(start), model._to_index(end, end=True)
     T = len(model.data.data)
     sc = scenario or Scenario("stochastic")
     ov, ex, AF0, ctrls = sc.build(model, s, e)

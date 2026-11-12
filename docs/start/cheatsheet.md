@@ -30,6 +30,7 @@
 | 강건 표준오차 | `.ls(spec, cov="white")` · `cov="hac", lags=4` |
 | 2단계 최소제곱 | `.tsls("CN c Y CN(-1) @inst G R CN(-1) Y(-1)")` |
 | 비선형 | `.ls("Y = c(1) + c(2)*X^c(3) @start 1 1 1")` |
+| 비선형 2단계 최소제곱 | `.tsls("Y = c(1) + c(2)*X^c(3) @start 1 1 1 @inst Z1 Z2 X(-1)")` (NL-TSLS) |
 | AR(1) 오차 · PDL | `.ls("CN c Y ar(1)")` · `.ls("CN c pdl(Y, 4, 2)")` |
 | GMM · LIML · WLS | `.gmm(spec + " @inst …")` · `.liml(…)` · `.wls(spec, weights="W")` |
 | 고정 계수 | `wf.equation("f").fixed("CN c Y", [10, 0.6])` |
@@ -58,7 +59,7 @@
 
 | 하려는 일 | 코드 |
 |---|---|
-| 시스템 추정 | `s = wf.system("s"); s.append("…", "…", "@inst …"); s.sur()` · `.three_sls()` · `.fiml()` |
+| 시스템 추정 | `s = wf.system("s"); s.append("…", "…", "@inst …"); s.sur()` · `.three_sls()` · `.fiml()` — `c(n)` 꼴의 비선형 식도 |
 | 식 사이 제약 | 같은 `c(n)`을 두 식에 · `s.sur(restrict=["c(2) = c(5)"])` |
 | VAR | `v = wf.var("v", ["dlog(Y)", "R"], lags=2)` → `.lag_order()` · `.granger(…)` · `.irf(8)` · `.fevd(8)` · `.forecast(4)` |
 | VECM | `k = wf.vecm("k", ["RL", "R"], rank=1)` → `.alpha` · `.beta` · `.forecast(4)` |
@@ -73,6 +74,23 @@
 | 실패를 종료 코드로 | `--fail-on fallback`(종료 코드 2) |
 | 실행 없이 검사 | `equion check model.txt --data data.csv` |
 | 요약 | `equion info data.csv` · `equion info out/<실행ID>` |
-| 새 프로젝트 | `equion new 폴더` |
+| 새 프로젝트 | `equion new 폴더` · 블록·모형·자료 회차가 있는 프로젝트 `equion new 폴더 --template desk` |
 
 종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(`--fail-on`) · 3 입력 오류 · 130 중단.
+
+## 프로젝트(명령마다 기록)
+
+| 하려는 일 | 명령 |
+|---|---|
+| 조립 검사 | `equion assemble main` |
+| 자료 회차 | `equion data list` · `data inbox` · `data build --use` · `data diff` · `data impact` |
+| 식 추정·후보·채택 | `equion est demand:CN` · `est "식" --for demand:CN` · `compare --part demand:CN` · `adopt est:…` |
+| 과거 재현 | `equion hs` · `hs --swap demand:CN=est:… --vs hs:…` · `hs --replay hs:…` |
+| 전망·시나리오 | `equion sim base oil20` · `scenario define 이름 --shock POIL=+20%` · `an split "sim:… sim:…"` |
+| 분석·노트·보고서 | `equion an unitroot core` · `note run notes/x.md` · `report add 보고서 sim:… --show yoy` · `report update 보고서` |
+| 기록·바뀜 | `equion work list` · `work show 기록` · `history list` · `history revert h…` |
+| 스크립트 | `equion run FLOWS/monthly.eqs [--dry-run]` · `run --replay run:…` · `check FLOWS/monthly.eqs` |
+| 이정표·옮기기 | `equion milestone make 이름` · `bundle make` · `bundle open 묶음.zip 폴더` |
+| Claude용 안내 | `equion guide` · `guide skill --install project` |
+
+흐름은 [튜토리얼 9](../tutorial/09-project.md)와 [가이드](../guide/README.md), 화면으로는 [Equion Desk 사용설명서](../desk/README.md).

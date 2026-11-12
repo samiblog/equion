@@ -197,6 +197,46 @@ class Data:
         self.metadata['n_cols'] = len(self.data.columns)
         self.metadata['columns'] = list(self.data.columns)
 
+    def set_user_columns(self, cols: Dict[str, np.ndarray]):
+        """사용자가 쓰는 열(대입·genr·read) — 지시자 열 이름에 쓰면 그 열은 이제 사용자 자료라 지시자 등록을 지운다
+        (기간을 늘려도 다시 계산해 덮어쓰지 않고, 다음에 그 지시자를 쓰면 _claim_indicator가 알린다)."""
+        for k in cols:
+            self.indicators.pop(k, None)
+        self._set_columns(cols)
+
+    def _claim_indicator(self, col: str, spec: str, values: np.ndarray) -> bool:
+        """지시자 열 이름 col을 지시자로 써도 되는가 — 사용자 열을 지시자로 몰래 쓰거나 덮어쓰지 않는다.
+
+        이미 지시자로 등록된 열이면 그대로 쓴다. 등록되지 않은 같은 이름(대소문자 무시) 열이 있으면, 이름까지 같고 값이
+        지시자 값과 똑같을 때만 지시자로 받아들이고(지시자 열을 파일로 내보냈다 다시 연 경우 — 등록을 잃은 채 기간을
+        늘려 뒤쪽만 빈 칸이면 그 칸을 채운다), 아니면 오류다 — 그 열을 지시자로 쓰면 계수가 몰래 틀리고, 기간을 늘릴 때
+        사용자 자료가 지시자 값으로 덮인다. 열 이름을 바꿀지는 사람이 정한다(엔진이 지시자 열 이름을 바꾸면 계수 이름이
+        바뀌어 기존 결과와 맞지 않는다).
+
+        돌려주는 것: 열을 (다시) 써야 하면 True."""
+        if col in self.indicators and col in self.data.columns:
+            return False
+        low = col.lower()
+        have = next((str(c) for c in self.data.columns if str(c).lower() == low), None)
+        if have is None:
+            return True
+        same, fill = False, False
+        if have == col:
+            try:
+                cur = self.data[have].to_numpy(dtype=float)
+                want = np.asarray(values, dtype=float)
+                n_ok = int(np.isfinite(cur).sum())
+                same = (cur.shape == want.shape and n_ok > 0 and bool(np.isfinite(cur[:n_ok]).all())
+                        and bool(np.array_equal(cur[:n_ok], want[:n_ok])))
+                fill = same and n_ok < len(cur)
+            except (TypeError, ValueError):
+                same = False
+        if not same:
+            raise ValueError(f"자료의 '{have}' 열이 {spec}이(가) 만드는 지시자 열 '{col}'과(와) 이름이 겹칩니다(변수 이름은 "
+                             f"대소문자를 가리지 않습니다) — 사용자 열을 {spec} 대신 쓰거나 덮어쓰지 않도록 멈춥니다. "
+                             f"자료에서 '{have}' 열의 이름을 바꿔 주세요.")
+        return fill
+
     def seasonal_columns(self) -> List[str]:
         """현 주기의 계절더미 컬럼명 목록 (분기 _Q1.._Q4 / 월 _M1.._M12)."""
         freq = self.freq
@@ -219,8 +259,8 @@ class Data:
         self._ensure_datetime_index()
         attr = 'quarter' if self.freq == 'Q' else 'month'
         values = getattr(self.data.index, attr)
-        self._set_columns({c: (values == k).astype(int) for k, c in enumerate(cols, 1)
-                           if c not in self.data.columns})
+        dummies = {c: (values == k).astype(int) for k, c in enumerate(cols, 1)}
+        self._set_columns({c: v for c, v in dummies.items() if self._claim_indicator(c, '@seas', v)})
         for k, c in enumerate(cols, 1):
             self.indicators[c] = f'@seas({k})'
 
@@ -304,13 +344,14 @@ class Data:
           @step(2020Q1)       → 계단 더미 STEP_2020Q1 (해당 시점부터 1)
         """
         spec = spec.strip()
-        if spec == '@trend':
-            col = 'TREND'
+        if spec.lower() == '@trend':                 # 지시자 이름은 대소문자를 가리지 않는다(@TREND·@Step(…))
+            spec, col = '@trend', 'TREND'
         else:
-            m = re.match(r'^@(d|step)\(\s*([^)]+?)\s*\)$', spec)
+            m = re.match(r'^@(d|step)\(\s*([^)]+?)\s*\)$', spec, re.IGNORECASE)
             if not m:
                 raise ValueError(f"인식할 수 없는 지시자: {spec}")
-            kind, arg = m.group(1), m.group(2).strip()
+            kind, arg = m.group(1).lower(), m.group(2).strip()
+            spec = f"@{kind}({arg})"
             if ':' in arg and kind == 'd':
                 a, b = [x.strip() for x in arg.split(':', 1)]
                 col = f"D_{self._period_pos(a)[1]}_{self._period_pos(b)[1]}"
@@ -318,9 +359,11 @@ class Data:
                 col = f"D_{self._period_pos(arg)[1]}"
             else:
                 col = f"STEP_{self._period_pos(arg)[1]}"
-        if col not in self.data.columns:
-            self._set_columns({col: self._indicator_values(spec)})
-            _log.info(f"[OK] 지시자 컬럼 생성: {col} ({spec})")
+        if not (col in self.indicators and col in self.data.columns):
+            values = self._indicator_values(spec)
+            if self._claim_indicator(col, spec, values):
+                self._set_columns({col: values})
+                _log.info(f"[OK] 지시자 컬럼 생성: {col} ({spec})")
         self.indicators[col] = spec
         return col
 
@@ -345,7 +388,7 @@ class Data:
         self._ensure_datetime_index()
         freq = self.freq
         last = to_period(self.data.index[-1], freq)
-        target = parse_period(end, freq)
+        target = parse_period(end, freq, end=True)
         if target <= last:
             return 0
         new_index = period_starts(last + 1, target, freq)
@@ -375,9 +418,13 @@ class Data:
         freq = self.freq
         if window is None:
             window = {'Q': 4, 'M': 12, 'A': 1}.get(freq, 4)
+        elif method in ('growth', 'trend') and (isinstance(window, bool) or not isinstance(window, (int, np.integer))
+                                               or window < 1):
+            raise ValueError(f"window는 1 이상의 정수입니다(받은 값 {window!r}) — 최근 몇 기의 평균 "
+                             f"{'성장률' if method == 'growth' else '증분'}을 이어 갈지입니다")
         periods = [to_period(ts, freq) for ts in self.data.index]
         p_start = parse_period(start, freq) if start is not None else None
-        p_end = parse_period(end, freq) if end is not None else None
+        p_end = parse_period(end, freq, end=True) if end is not None else None
         filled = {}
         for col in columns:
             if col not in self.data.columns:

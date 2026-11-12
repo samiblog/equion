@@ -15,6 +15,29 @@ from .dataops import command
 MAX_POINTS = 4000
 
 
+class Conflict(ValueError):
+    """쓰려던 파일이 화면이 읽은 뒤 밖에서 바뀌었다 — 작업 프로세스가 kind 'conflict'(409)로 알리고 `detail`을 함께 보낸다(화면이 무엇이 겹쳤는지 보인다).
+    ValueError 라 작업 프로세스의 입력 오류 경로로 잡힌다(되돌리기의 겹침 `reviewops.RevertBlocked` 와 같은 길)."""
+
+    kind = "conflict"
+
+    def __init__(self, message: str, detail: Any = None) -> None:
+        super().__init__(message)
+        self.detail = detail
+
+
+def file_hash(path: str) -> str | None:
+    """파일 내용의 지문(sha256) — 화면이 읽은 것과 지금의 것이 같은지 견줄 때. 없으면 None(읽지 못하면 OSError 그대로).
+    앱 쪽 `projects.read_file`의 `hash`와 같은 셈."""
+    import hashlib
+
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except FileNotFoundError:
+        return None
+
+
 def _float(value: Any) -> float | None:
     try:
         out = float(value)
@@ -172,8 +195,11 @@ def check_text(project: Any, path: str, text: str) -> dict:
     return {"path": rel, "kind": kind, "problems": problems}
 
 
-def write_text(project: Any, path: str, text: str) -> dict:
-    """정의 파일을 글로 고쳐 쓴다 — 바뀜 기록에 '누가 Desk'로 남는다. 정의 파일(바뀜 기록이 지켜보는 것)만 받는다."""
+def write_text(project: Any, path: str, text: str, expect: str | None = None) -> dict:
+    """정의 파일을 글로 고쳐 쓴다 — 바뀜 기록에 '누가 Desk'로 남는다. 정의 파일(바뀜 기록이 지켜보는 것)만 받는다.
+
+    expect: 화면이 고치기 시작한(또는 덮겠다고 고른) 파일 내용의 지문(`file_hash`). 지금 파일이 그것과 다르면 쓰지 않고 `Conflict`(409) —
+    화면이 늦게 알았거나(앱을 껐다 켬·다른 창) 보지 못한 바깥 고침(Claude·편집기·명령)을 말없이 덮지 않게."""
     from equion.projects.config import ProjectError
 
     rel = path.replace("\\", "/")
@@ -182,10 +208,20 @@ def write_text(project: Any, path: str, text: str) -> dict:
     full = os.path.join(str(project.root), *rel.split("/"))
     if not os.path.isfile(full):
         raise ProjectError(f"없는 파일입니다: {rel}")
+    from equion.work.lock import as_busy, project_lock
+
     text = text.replace("\r\n", "\n")
     if text and not text.endswith("\n"):
         text += "\n"
-    change = project.history.write_files({rel: text}, "desk", "Desk 에서 고침", note=rel)
+    with project_lock(str(project.root)):          # 지문 견주기 → 쓰기를 한 번에(그 사이 다른 명령이 같은 파일을 고치지 못하게)
+        if expect:
+            try:
+                now = file_hash(full)
+            except OSError as exc:                 # 다른 프로그램이 쥐고 있음 — 그 글 그대로(입력 오류)
+                raise as_busy(exc, rel, reading=True) from None
+            if now != expect:
+                raise Conflict(f"{rel} 이(가) 고치는 동안 밖에서 바뀌었습니다 — 덮지 않고 저장을 멈췄습니다. 새 내용을 보고 다시 고르세요.", {"path": rel, "hash": now})
+        change = project.history.write_files({rel: text}, "desk", "Desk 에서 고침", note=rel)
     return {"path": rel, "change": change.id if change is not None else None}
 
 

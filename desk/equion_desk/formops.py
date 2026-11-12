@@ -44,12 +44,31 @@ def scenario_info(project: Any) -> dict:
     """시나리오 폼의 재료 — 시나리오들 · 가정 세트 · 보정항 · 모형 · 고를 수 있는 변수와 식 · 전망 구간."""
     from equion.projects.scenarios import _names
 
+    from .simops import _labels
+
     cfg = project.config
     fc = getattr(cfg, "forecast", None) or {}
+    fc = dict(fc) if isinstance(fc, dict) else {}
+    # 모형마다 무엇이 내생인지 — 폼이 충격의 대상을 보고 알린다(식이 푸는 변수에 준 충격은 경로가 아니라 그 식의 잔차에 더해진다)
+    models: dict[str, dict[str, list[str]]] = {}
+    for m in cfg.models:
+        try:
+            parts = project.parts(m)
+        except Exception:  # 조립할 수 없는 모형 — 알릴 것이 없다(풀 때 까닭이 나온다)
+            continue
+        eq = {p.target for p in parts if p.kind == "equation"}
+        ident = {p.target for p in parts if p.kind != "equation"}
+        used = {str(v) for p in parts for v in p.variables} - eq - ident
+        models[m] = {"equation": sorted(eq), "identity": sorted(ident), "exogenous": sorted(used)}
+    try:
+        start, end = project.span(fc.get("range") or "next:8")
+        periods = _labels(cfg.freq, start, end)
+    except Exception:  # 구간을 셀 수 없으면 기간의 앞뒤는 서버(미리보기)가 본다
+        periods = []
     return {"scenarios": project.scenarios(), "assumptions": _names(project.root, "ASSUMPTIONS", ".csv"),
             "addfactor_sets": _names(project.root, "ADDFACTORS", ".toml"), "models": list(cfg.models),
             "series": [str(c) for c in project.workfile.data.columns][:800], "parts": [p.id for p in project.parts() if p.kind == "equation"],
-            "forecast": dict(fc) if isinstance(fc, dict) else {}}
+            "forecast": fc, "default_model": fc.get("model") or cfg.default_model(), "model_vars": models, "freq": cfg.freq, "periods": periods}
 
 
 def _scenario_words(name, desc, base, addfactors, model, shocks, addfactor) -> list:

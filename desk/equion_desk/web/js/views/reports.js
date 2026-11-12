@@ -7,7 +7,7 @@
 // 보고서를 만드는 길은 둘: 결과 화면의 '보고서로'(표 하나를 보낸다), 여기의 '새 보고서'(빈 틀 또는 지난 보고서를 틀로).
 // 글은 파일 보기의 '고치기'로 고친다. 하는 일은 모두 `equion report new·add·check·update` 와 같다.
 
-import { confirmDialog } from '../dialog.js';
+import { confirmDialog, nameRule } from '../dialog.js';
 import { renderDoc } from '../md.js';
 import { query } from '../api.js';
 import { clear, flash, h, icon, when } from '../util.js';
@@ -76,7 +76,8 @@ export function reportsView(project, desc) {
     const box = h('div', { class: 'adopt define-form' },
       h('p', {}, '보고서는 사람의 글입니다(reports/이름.md). 지난 보고서를 틀로 삼으면 글과 구역의 자리를 그대로 가져오고, 구역마다 바꿔 낄 새 기록을 알려 줍니다.'),
       h('label', { class: 'field-row' }, h('span', {}, '이름'), name), h('label', { class: 'field-row' }, h('span', {}, '제목'), title), h('label', { class: 'field-row' }, h('span', {}, '틀'), from));
-    if (!(await confirmDialog({ title: '새 보고서', body: box, confirm: '만들기', wide: true }))) return;
+    const valid = () => nameRule(name.value, { what: '보고서 이름', re: /^[A-Za-z0-9][A-Za-z0-9_-]*$/, rule: '영문·숫자로 시작 — 영문·숫자·_·- (한글 제목은 ‘제목’ 칸에)' });
+    if (!(await confirmDialog({ title: '새 보고서', body: box, confirm: '만들기', wide: true, valid, enter: true }))) return;
     try {
       const res = await project.compute('report/new', { name: name.value.trim(), title: title.value.trim(), from: from.value }, { quiet: true });
       flash(`${res.result.report} 를 만들었습니다`);

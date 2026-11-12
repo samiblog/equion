@@ -27,6 +27,21 @@ class Opt:
     choices: Tuple[str, ...] = ()
     help: str = ""
     metavar: Optional[str] = None
+    min: Optional[float] = None       # 수(int·float)의 아래·위 한계 — 벗어나면 계산 전에 거절(이 옵션의 이름으로 말한다)
+    max: Optional[float] = None
+
+    def check(self, value) -> Optional[str]:
+        """값이 한계를 벗어나면 까닭(옵션 이름·한계·받은 값), 아니면 None."""
+        if value is None or self.type not in ("int", "float") or (self.min is None and self.max is None):
+            return None
+        flag = "--" + self.name.replace("_", "-")
+        lo, hi = self.min, self.max
+        if (lo is not None and value < lo) or (hi is not None and value > hi):
+            fmt = (lambda x: f"{x:g}")
+            want = (f"{fmt(lo)}~{fmt(hi)}" if lo is not None and hi is not None
+                    else f"{fmt(lo)} 이상" if lo is not None else f"{fmt(hi)} 이하")
+            return f"{flag}는 {want}이어야 합니다(받은 값 {value})"
+        return None
 
 
 @dataclass
@@ -44,6 +59,7 @@ class Analysis:
     example: str = ""
     run: Optional[Callable] = None     # run(project, target, **opts) → AnOut
     count: str = "any"                 # 대상이 시리즈·식 몇 개인가 — one · two · many(둘 이상) · any (Desk의 우클릭 메뉴가 고른 수로 거른다)
+    smpl: bool = True                  # 표본(--smpl)을 받나 — 두 기록을 나누는 요인 나누기처럼 기록의 구간을 그대로 쓰는 분석은 받지 않는다
 
     def defaults(self) -> dict:
         """옵션 기본값."""

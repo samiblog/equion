@@ -2,6 +2,8 @@
 //
 //   ① 가정      외생 변수 × 전망 구간의 표(ASSUMPTIONS/*.csv). 직접 친 칸이 '가정', 비운 칸은 채우기 규칙이 채운다('채움').
 //               엑셀에서 복사한 칸들을 그대로 붙여 넣는다. 저장해야 풀 때 쓰인다(풀기를 누르면 먼저 저장한다)
+//               저장은 이 화면에서 친 칸만 보낸다 — 서버가 지금 파일에 얹으므로 그 사이 엑셀·Claude 가 고친 다른 칸은 그대로 남는다.
+//               고치는 동안 파일이 밖에서 바뀌면 치지 않은 칸은 새 값으로 바꿔 보이고, 친 칸이 밖에서도 바뀌었으면 저장할 때 어느 값을 쓸지 묻는다.
 //   ② 풀기      기준선(base)과 시나리오를 골라 푼다 — 단추를 누를 때만. 시나리오는 같은 가정의 기준선과 견준 차이를 함께 남긴다
 //   ③ 결과      수준·전기비·전년동기비·연간·기준선 대비, 값의 종류(실측·가정·채움·해)를 칸의 색으로. 여러 기록을 고르면 연간 증가율을 나란히
 //
@@ -11,7 +13,7 @@
 
 import { drawLines } from '../chart.js';
 import { claudeButton } from '../claude.js';
-import { confirmDialog, popMenu } from '../dialog.js';
+import { confirmDialog, nameRule, popMenu } from '../dialog.js';
 import { clear, copyText, flash, h, icon, kindPill, put, when, whoLabel } from '../util.js';
 import { exportXlsx, sendToReport } from './send.js';
 
@@ -28,6 +30,12 @@ export function forecastView(project, desc) {
     model: desc.model || null, info: null, error: null, picks: new Set(desc.scenarios || ['base']), start: desc.start || '', end: desc.end || '', vs: '', vintage: '',
     grid: null, dirty: false, open: typeof desc.open === 'boolean' ? desc.open : null, shown: desc.shown || null, view: null, compare: new Set(), others: new Map(),
     mode: desc.mode || 'level', series: desc.series || null, col: null, stale: false,
+    saveError: null,        // 가정 표를 저장하지 못한 까닭 — 표 아래에(칸을 고치면 지운다). 읽기 오류(error)와 따로: 풀기를 막지 않는다
+    base: null,             // 가정 표를 마지막으로 읽은 값(파일 그대로) — 친 칸의 '읽었던 값'
+    typed: new Map(),       // 이 화면에서 친 칸 `기간|변수` → 치기 시작할 때 읽었던 값(저장할 때 이 칸들만 보낸다)
+    clash: new Set(),       // 친 칸인데 밖에서도 다른 값으로 바뀐 칸 — 저장할 때 묻는다
+    refreshed: 0,           // 고치는 동안 밖에서 바뀌어 새로 읽은(치지 않은) 칸의 수
+    pending: Array.isArray(desc.compare) ? desc.compare : null,       // 열면서 견줄 기록(시나리오 폼의 '저장하고 풀기' — 함께 푼 기준선)
   };
   let disposeChart = () => {};
   let loaded = false;
@@ -35,11 +43,16 @@ export function forecastView(project, desc) {
 
   async function load() {
     loaded = true;
+    let same = false;
     try {
-      st.info = await project.get(`forecast${st.model ? `?model=${encodeURIComponent(st.model)}` : ''}`);
+      const info = await project.get(`forecast${st.model ? `?model=${encodeURIComponent(st.model)}` : ''}`);
+      const key = JSON.stringify(info);
+      same = st.info != null && !st.error && key === st.infoKey;       // 다시 읽어도 같다(이 화면과 무관한 정의 파일이 바뀜) — 다시 그리지 않는다
+      st.infoKey = key;
+      st.info = info;
       st.error = st.info.error;
       st.model = st.info.model;
-      if (!st.dirty) st.grid = st.info.assume ? structuredClone(st.info.assume.values) : null;
+      mergeGrid(st.info.assume ? st.info.assume.values : null);
       for (const name of [...st.picks]) if (name !== 'base' && !st.info.scenarios.some((s) => s.name === name)) st.picks.delete(name);
       if (!st.picks.size) st.picks.add('base');
     } catch (err) {
@@ -48,8 +61,20 @@ export function forecastView(project, desc) {
     const mine = records();
     if (!st.shown || !mine.some((r) => r.id === st.shown)) st.shown = mine[0]?.id || null;
     for (const id of [...st.compare]) if (!mine.some((r) => r.id === id)) st.compare.delete(id);
+    if (same && (!st.shown || st.view?.id === st.shown)) { pairPending(); return; }
     render();
     if (st.shown && st.view?.id !== st.shown) showRecord(st.shown);
+    pairPending();
+  }
+
+  /** 열면서 받은 '견줄 기록'을 고른다(한 번만) */
+  async function pairPending() {
+    const ids = st.pending;
+    st.pending = null;
+    if (!ids?.length) return;
+    st.compare.clear();
+    for (const id of ids) if (id !== st.shown && await fetchOther(id)) st.compare.add(id);
+    drawResult();
   }
 
   /** 이 모형의 전망 기록 — 새것부터 */
@@ -89,18 +114,127 @@ export function forecastView(project, desc) {
 
   // ---- ① 가정 표 --------------------------------------------------------------------------------
 
-  async function saveGrid({ quiet = false } = {}) {
+  const cellKey = (period, name) => `${period}|${name}`;
+  const splitKey = (key) => { const i = key.indexOf('|'); return [key.slice(0, i), key.slice(i + 1)]; };
+
+  /** 읽은 가정 표를 화면의 표에 — 고치는 중이 아니면 통째로. 고치는 중이면 친 칸은 그대로 두고 나머지만 지금 파일의 값으로(밖의 고침을 보인다).
+   *  친 칸이 밖에서도 다른 값으로 바뀌었으면 clash 로 표시한다(저장할 때 묻는다) */
+  function mergeGrid(fresh) {
+    if (!fresh) { Object.assign(st, { grid: null, base: null, dirty: false, refreshed: 0 }); st.typed.clear(); st.clash.clear(); return; }
+    if (!st.dirty || !st.grid) {
+      Object.assign(st, { grid: structuredClone(fresh), base: structuredClone(fresh), dirty: false, refreshed: 0 });
+      st.typed.clear(); st.clash.clear();
+      return;
+    }
+    let refreshed = 0;
+    for (const [p, cells] of Object.entries(fresh)) {
+      const row = (st.grid[p] ||= {});
+      for (const [name, now] of Object.entries(cells)) {
+        const key = cellKey(p, name);
+        const mine = row[name] ?? '';
+        if (st.typed.has(key)) {
+          const was = st.typed.get(key);
+          if (mine === was || mine === now) {            // 고친 것이 없게 됐다(되돌렸거나 밖에서 같은 값을 적었다) — 파일을 따른다
+            st.typed.delete(key); st.clash.delete(key);
+            if (mine !== now) { row[name] = now; refreshed++; }
+          } else if (now !== was) st.clash.add(key);
+          else st.clash.delete(key);
+        } else if (mine !== now) { row[name] = now; refreshed++; }
+      }
+    }
+    st.base = structuredClone(fresh);
+    st.refreshed += refreshed;
+    st.dirty = st.typed.size > 0;
+  }
+
+  /** 칸을 친다 — 처음 치는 칸이면 그때 읽었던 값을 적어 둔다 */
+  function touch(period, name) {
+    const key = cellKey(period, name);
+    if (!st.typed.has(key)) st.typed.set(key, st.base?.[period]?.[name] ?? '');
+  }
+
+  async function saveGrid({ quiet = false, force = false } = {}) {
     const a = st.info.assume;
+    const bad = badCells();
+    if (bad.length) { showBad(bad); return false; }
+    // 친 칸 가운데 읽었던 값과 다른 것만 — 나머지 칸은 서버가 지금 파일 그대로 둔다
+    const rows = {}, bases = {};
+    for (const [key, was] of st.typed) {
+      const [p, name] = splitKey(key);
+      const v = String(st.grid?.[p]?.[name] ?? '').replace(/,/g, '').trim();
+      if (v === was) continue;
+      (rows[p] ||= {})[name] = v;
+      (bases[p] ||= {})[name] = was;
+    }
+    const saved = () => {
+      for (const [p, cells] of Object.entries(rows)) for (const [name, v] of Object.entries(cells)) ((st.base ||= {})[p] ||= {})[name] = v;    // 저장한 값이 이제 파일의 값
+      st.typed.clear(); st.clash.clear();
+      Object.assign(st, { dirty: false, saveError: null, refreshed: 0 });
+    };
+    if (!Object.keys(rows).length) {
+      saved();
+      if (!quiet) { flash('바뀐 것이 없습니다'); render(); }
+      return true;
+    }
     try {
-      const res = await project.compute('assume', { name: a.name, columns: st.info.exogenous.map((x) => x.name), rows: st.grid }, { quiet: true });
-      st.dirty = false;
+      const res = await project.compute('assume', { name: a.name, columns: st.info.exogenous.map((x) => x.name), rows, bases, ...(force ? { force: true } : {}) }, { quiet: true });
+      saved();
       if (!quiet) flash(res.result.change ? `가정 표를 저장했습니다 — 바뀜 기록 ${res.result.change}` : '바뀐 것이 없습니다');
       if (!quiet) render();
       return true;
     } catch (err) {
-      if (err.kind !== 'busy') { st.error = err.message; render(); }
+      if (err.kind === 'conflict' && Array.isArray(err.detail)) return resolveClash(err.detail, { quiet });
+      if (err.kind !== 'busy') { st.saveError = err.message; st.open = true; render(); }
       return false;
     }
+  }
+
+  /** 친 칸이 밖에서도 바뀌었다 — 칸마다 읽었던 값·밖에서 바꾼 값·내가 친 값을 보이고 고르게 한다(밖에서 바꾼 다른 칸은 어느 쪽이든 그대로) */
+  async function resolveClash(list, { quiet }) {
+    for (const c of list) st.clash.add(cellKey(c.period, c.name));
+    st.open = true;
+    render();
+    const show = (v) => (v === '' ? h('span', { class: 'muted' }, '빈칸(채움)') : v);
+    const body = h('div', { class: 'adopt' },
+      h('p', {}, '이 화면에서 친 칸을 밖(엑셀 · Claude · 편집기)에서도 바꿨습니다. 어느 값을 쓸지 고르세요 — 밖에서 바꾼 다른 칸은 어느 쪽이든 그대로 둡니다.'),
+      h('table', { class: 'choice-table' }, h('thead', {}, h('tr', {}, ['칸', '읽었던 값', '밖에서 바꾼 값', '내가 친 값'].map((x) => h('th', {}, x)))),
+        h('tbody', {}, list.slice(0, 12).map((c) => h('tr', {}, h('td', { class: 'mono' }, `${c.name} ${c.period}`), h('td', { class: 'was' }, show(c.base)), h('td', {}, show(c.now)), h('td', { class: 'mine' }, show(c.mine)))))),
+      list.length > 12 ? h('p', { class: 'muted' }, `… 외 ${list.length - 12}칸`) : null);
+    const pick = await confirmDialog({ title: '밖에서도 바뀐 칸이 있습니다', body, confirm: '내 값으로 저장', alt: '밖의 값 쓰기', wide: true });
+    if (pick === true) return saveGrid({ quiet, force: true });
+    if (pick !== 'alt') return false;
+    for (const c of list) {
+      const key = cellKey(c.period, c.name);
+      (st.grid[c.period] ||= {})[c.name] = c.now;
+      ((st.base ||= {})[c.period] ||= {})[c.name] = c.now;
+      st.typed.delete(key); st.clash.delete(key);
+    }
+    st.dirty = st.typed.size > 0;
+    if (st.dirty) return saveGrid({ quiet });
+    render();
+    flash('밖의 값을 표에 넣었습니다 — 저장할 내 칸이 남지 않았습니다');
+    return true;
+  }
+
+  /** 숫자가 아닌 칸 — 저장하면 서버가 받지 않는다(쉼표는 천 단위로 읽는다) */
+  function badCells() {
+    const info = st.info;
+    const out = [];
+    if (!info?.assume || !st.grid) return out;
+    for (const p of info.periods) {
+      for (const c of info.exogenous) {
+        const v = String(st.grid[p]?.[c.name] ?? '').replace(/,/g, '').trim();
+        if (v !== '' && !Number.isFinite(Number(v))) out.push({ name: c.name, period: p, value: st.grid[p][c.name] });
+      }
+    }
+    return out;
+  }
+
+  /** 숫자가 아닌 칸을 펴서 보이고 첫 칸으로 */
+  function showBad(bad) {
+    if (!assumeOpen()) { st.open = true; render(); }
+    el.querySelector(`[data-cell="${CSS.escape(`${bad[0].period}|${bad[0].name}`)}"]`)?.focus();
+    flash(`숫자가 아닌 칸이 있어 저장하지 않았습니다 — ${bad[0].name} ${bad[0].period}`);
   }
 
   function assumeBox() {
@@ -110,29 +244,45 @@ export function forecastView(project, desc) {
     const cols = info.exogenous;
     const open = assumeOpen();
     const typed = (name) => info.periods.filter((p) => (st.grid[p]?.[name] ?? '') !== '').length;
+    const clashNote = h('div', { class: 'asm-note', 'data-note': 'clash', hidden: !st.clash.size },
+      st.clash.size ? `밖에서도 바뀐 칸 ${st.clash.size} — ${[...st.clash].slice(0, 4).map((k) => splitKey(k).reverse().join(' ')).join(' · ')}. 저장할 때 어느 값을 쓸지 묻습니다.` : '');
+    const freshNote = h('div', { class: 'asm-note info', 'data-note': 'fresh', hidden: !(st.dirty && st.refreshed) },
+      st.refreshed ? `고치는 동안 밖(엑셀 · Claude)에서 바뀐 칸 ${st.refreshed}개를 새로 읽었습니다 — 이 화면에서 친 칸은 그대로입니다. 저장하면 친 칸만 씁니다.` : '');
     const gapNote = h('div', { class: 'asm-note bad', hidden: true });
-    const paint = () => {             // 값 사이의 빈칸을 붉게 — 채우기 규칙은 마지막으로 적은 값 뒤만 채운다
+    const numNote = h('div', { class: 'asm-note bad', 'data-note': 'num', hidden: true });
+    const saveNote = h('div', { class: 'asm-note bad', 'data-note': 'save', hidden: !st.saveError }, st.saveError ? `저장하지 못했습니다 — ${st.saveError}` : '');
+    const paint = () => {             // 값 사이의 빈칸·숫자가 아닌 칸을 붉게 — 채우기 규칙은 마지막으로 적은 값 뒤만 채운다
       const found = gaps();
       const set = new Set(found.map((g) => `${g.period}|${g.name}`));
+      const bad = badCells();
+      const wrong = new Set(bad.map((g) => `${g.period}|${g.name}`));
       for (const cell of el.querySelectorAll('.asm-grid .cell')) {
-        const bad = set.has(cell.dataset.cell);
-        cell.classList.toggle('gap', bad);
-        cell.placeholder = bad ? '비었음' : '채움';
+        const gap = set.has(cell.dataset.cell);
+        cell.classList.toggle('gap', gap);
+        cell.classList.toggle('bad', wrong.has(cell.dataset.cell));
+        cell.setAttribute('aria-invalid', String(wrong.has(cell.dataset.cell)));
+        cell.placeholder = gap ? '비었음' : '채움';
       }
       gapNote.hidden = !found.length;
       if (found.length) gapNote.textContent = `값 사이의 빈칸은 채워지지 않습니다 — ${found.slice(0, 4).map((g) => `${g.name} ${g.period}`).join(' · ')}${found.length > 4 ? ` 외 ${found.length - 4}칸` : ''}. 값을 적거나, 그 뒤의 값을 지워 채우기에 맡기세요.`;
+      numNote.hidden = !bad.length;
+      if (bad.length) numNote.textContent = `숫자가 아닌 칸 — ${bad.slice(0, 4).map((g) => `${g.name} ${g.period} ‘${g.value}’`).join(' · ')}${bad.length > 4 ? ` 외 ${bad.length - 4}칸` : ''}. 고치기 전에는 저장하지 않습니다.`;
+      const b = el.querySelector('[data-act="save-assume"]');
+      if (b) { b.disabled = !st.dirty || bad.length > 0; b.classList.toggle('primary', st.dirty && !bad.length); b.title = bad.length ? '숫자가 아닌 칸을 먼저 고치세요' : '가정 표를 저장한다 — 바뀜 기록에 남는다'; }
     };
     const mark = () => {
       st.dirty = true;
-      const b = el.querySelector('[data-act="save-assume"]');
-      if (b) { b.disabled = false; b.classList.add('primary'); }
-      const n = el.querySelector('.asm-note:not(.bad)');
+      if (st.saveError) { st.saveError = null; saveNote.hidden = true; }     // 고쳤으니 지난 저장 오류는 지운다(다시 저장하면 다시 본다)
+      const n = el.querySelector('.asm-note[data-note="unsaved"]');
       if (n) n.hidden = false;
       paint();
     };
     const cellInput = (period, name) => {
-      const input = h('input', { class: 'cell', type: 'text', inputmode: 'decimal', value: st.grid[period]?.[name] ?? '', placeholder: '채움', spellcheck: 'false', 'data-cell': `${period}|${name}`, 'aria-label': `${name} ${period}` });
-      input.addEventListener('input', () => { (st.grid[period] ||= {})[name] = input.value.trim(); input.classList.toggle('typed', input.value.trim() !== ''); mark(); });
+      const key = cellKey(period, name);
+      const clash = st.clash.has(key);
+      const input = h('input', { class: `cell ${st.typed.has(key) ? 'edited' : ''} ${clash ? 'clash' : ''}`.trim(), type: 'text', inputmode: 'decimal', value: st.grid[period]?.[name] ?? '', placeholder: '채움', spellcheck: 'false', 'data-cell': key, 'aria-label': `${name} ${period}`,
+        title: clash ? `밖에서 ${st.base?.[period]?.[name] || '빈칸'}(으)로 바뀌었습니다 — 저장할 때 어느 값을 쓸지 묻습니다` : '' });
+      input.addEventListener('input', () => { touch(period, name); (st.grid[period] ||= {})[name] = input.value.trim(); input.classList.toggle('typed', input.value.trim() !== ''); input.classList.add('edited'); mark(); });
       input.addEventListener('keydown', (e) => {            // 위·아래·Enter 로 칸을 오간다(표 계산기처럼)
         const step = e.key === 'ArrowDown' || e.key === 'Enter' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
         if (!step || e.ctrlKey || e.metaKey) return;
@@ -148,6 +298,7 @@ export function forecastView(project, desc) {
         text.replace(/\r/g, '').replace(/\n+$/, '').split('\n').forEach((line, i) => line.split('\t').forEach((value, j) => {
           const p = info.periods[r0 + i], c = cols[c0 + j];
           if (!p || !c) return;
+          touch(p, c.name);
           (st.grid[p] ||= {})[c.name] = value.replace(/,/g, '').trim();
         }));
         mark();
@@ -163,7 +314,7 @@ export function forecastView(project, desc) {
         : h('span', { class: 'asm-sum' }, cols.map((c) => { const n = typed(c.name); return h('span', { class: `pc-flat ${n ? 'asm' : ''}`.trim(), title: n ? `${c.name} — 직접 적은 칸 ${n}` : `${c.name} — 모두 채움(${FILL[a.fill] || a.fill})` }, c.name, h('small', {}, n ? ` ${n}칸` : ' 채움')); })),
       h('span', { class: 'cap-tools' },
       open ? h('button', { class: 'link mono', type: 'button', title: '가정 파일을 연다', onclick: () => project.openTab({ type: 'file', path: a.file }) }, a.file) : null,
-      open ? h('button', { class: `btn small ${st.dirty ? 'primary' : ''}`.trim(), type: 'button', 'data-act': 'save-assume', disabled: !st.dirty, title: '가정 표를 저장한다 — 바뀜 기록에 남는다', onclick: () => saveGrid() }, '가정 저장')
+      open ? h('button', { class: `btn small ${st.dirty && !badCells().length ? 'primary' : ''}`.trim(), type: 'button', 'data-act': 'save-assume', disabled: !st.dirty || badCells().length > 0, title: '가정 표를 저장한다 — 바뀜 기록에 남는다', onclick: () => saveGrid() }, '가정 저장')
         : h('button', { class: 'btn small quiet', type: 'button', onclick: () => { st.open = true; save(); render(); } }, '고치기')));
     if (!open) return h('div', { class: 'asm-box shut' }, head);
     const hist = cols[0].last.map((x) => x.period);
@@ -173,8 +324,8 @@ export function forecastView(project, desc) {
         h('tbody', {},
           hist.slice(-2).map((p) => h('tr', { class: 'hist' }, h('th', {}, p), cols.map((c) => h('td', {}, fmt(c.last.find((x) => x.period === p)?.value, 3))))),
           info.periods.map((p, i) => h('tr', { class: i === 0 ? 'first' : '' }, h('th', {}, p), cols.map((c) => h('td', {}, cellInput(p, c.name)))))))),
-      gapNote,
-      h('div', { class: 'asm-note', hidden: !st.dirty }, '저장하지 않은 가정이 있습니다 — ‘풀기’를 누르면 먼저 저장하고 풉니다.'),
+      clashNote, gapNote, numNote, saveNote, freshNote,
+      h('div', { class: 'asm-note', 'data-note': 'unsaved', hidden: !st.dirty }, '저장하지 않은 가정이 있습니다 — ‘풀기’를 누르면 먼저 저장하고 풉니다.'),
       a.extra.length ? h('div', { class: 'muted' }, `파일에는 이 모형의 외생이 아닌 열도 있습니다(${a.extra.join(' · ')}) — 쓰지 않습니다.`) : null);
     const found = gaps();
     if (found.length) {
@@ -182,6 +333,13 @@ export function forecastView(project, desc) {
       for (const cell of box.querySelectorAll('.cell')) if (set.has(cell.dataset.cell)) { cell.classList.add('gap'); cell.placeholder = '비었음'; }
       gapNote.hidden = false;
       gapNote.textContent = `값 사이의 빈칸은 채워지지 않습니다 — ${found.slice(0, 4).map((g) => `${g.name} ${g.period}`).join(' · ')}${found.length > 4 ? ` 외 ${found.length - 4}칸` : ''}. 값을 적거나, 그 뒤의 값을 지워 채우기에 맡기세요.`;
+    }
+    const bad = badCells();
+    if (bad.length) {
+      const wrong = new Set(bad.map((g) => `${g.period}|${g.name}`));
+      for (const cell of box.querySelectorAll('.cell')) if (wrong.has(cell.dataset.cell)) { cell.classList.add('bad'); cell.setAttribute('aria-invalid', 'true'); }
+      numNote.hidden = false;
+      numNote.textContent = `숫자가 아닌 칸 — ${bad.slice(0, 4).map((g) => `${g.name} ${g.period} ‘${g.value}’`).join(' · ')}${bad.length > 4 ? ` 외 ${bad.length - 4}칸` : ''}. 고치기 전에는 저장하지 않습니다.`;
     }
     return box;
   }
@@ -230,6 +388,8 @@ export function forecastView(project, desc) {
       flash('가정 표에 값 사이의 빈칸이 있어 풀 수 없습니다 — 값을 적거나 뒤의 값을 지우세요');
       return;
     }
+    const bad = badCells();
+    if (bad.length) { showBad(bad); return; }
     if (st.dirty && !(await saveGrid({ quiet: true }))) return;
     let made = [];
     try {
@@ -398,7 +558,7 @@ export function forecastView(project, desc) {
     const body = h('div', { class: 'adopt define-form' }, h('p', {}, '지금 고른 시리즈와 모양을 이름으로 적어 둡니다(VIEWS/이름.toml) — 다음 결과에도 같은 표를 다시 봅니다.'),
       h('div', { class: 'diff' }, h('span', { class: 'dl add' }, `series = [${st.series.map((s) => `"${s}"`).join(', ')}]`), h('span', { class: 'dl add' }, `show = "${st.mode}"`)),
       h('label', { class: 'field-row' }, h('span', {}, '이름'), name), h('label', { class: 'field-row' }, h('span', {}, '제목'), title));
-    if (!(await confirmDialog({ title: '이 보기 저장', body, confirm: '저장', wide: true }))) return;
+    if (!(await confirmDialog({ title: '이 보기 저장', body, confirm: '저장', wide: true, valid: () => nameRule(name.value, { what: '보기 이름' }), enter: true }))) return;
     try {
       const res = await project.compute('view/define', { name: name.value.trim(), series: st.series, show: st.mode, title: title.value.trim() }, { quiet: true });
       flash(`${res.result.file} 를 저장했습니다`);
@@ -409,7 +569,20 @@ export function forecastView(project, desc) {
     }
   }
 
+  /** 다시 그린다 — 치던 칸(가리키던 곳·고른 글자)과 스크롤 자리는 지킨다(밖에서 파일이 바뀌어 다시 읽어도 치던 흐름이 끊기지 않게) */
   function render() {
+    const focus = document.activeElement;
+    const at = focus instanceof HTMLInputElement && el.contains(focus) && focus.dataset.cell ? [focus.dataset.cell, focus.selectionStart, focus.selectionEnd] : null;
+    const top = el.parentElement?.scrollTop;
+    draw();
+    if (at) {
+      const cell = el.querySelector(`[data-cell="${CSS.escape(at[0])}"]`);
+      if (cell) { cell.focus({ preventScroll: true }); try { cell.setSelectionRange(at[1], at[2]); } catch { /* 고를 수 없는 칸 */ } }
+    }
+    if (top != null && el.parentElement) el.parentElement.scrollTop = top;
+  }
+
+  function draw() {
     clear(el);
     const info = st.info;
     el.append(h('div', { class: 'view-head' },
@@ -431,11 +604,14 @@ export function forecastView(project, desc) {
   return {
     key: 'forecast', type: 'forecast', title: '전망', icon: 'forward', el,
     desc: () => ({ type: 'forecast', model: st.model, scenarios: [...st.picks], start: st.start, end: st.end, shown: st.shown, mode: st.mode, series: st.series, ...(st.open == null ? {} : { open: st.open }) }),
+    /** 탭을 닫기 전에 묻는 글 — 저장하지 않은 가정 칸이 있을 때(가정 표는 탭과 함께 기억하지 않는다) */
+    unsaved: () => (st.dirty && st.info?.assume ? `가정 표(${st.info.assume.file})에 저장하지 않은 칸이 있습니다 — 닫으면 그 칸들을 버립니다.` : null),
     show() { if (!loaded) load(); },
     open(next) {
       if (next.model && next.model !== st.model) { Object.assign(st, { model: next.model, shown: next.shown || null, view: null, series: null, open: null, col: null }); st.compare.clear(); if (loaded) load(); return; }
       if (Array.isArray(next.scenarios) && next.scenarios.length) st.picks = new Set(next.scenarios);      // 시나리오 폼의 '저장하고 풀기'
-      if (next.shown) { if (loaded) { if (next.scenarios) load().then(() => showRecord(next.shown)); else showRecord(next.shown); } else st.shown = next.shown; }
+      if (Array.isArray(next.compare)) st.pending = next.compare;
+      if (next.shown) { if (loaded) { if (next.scenarios) load().then(() => showRecord(next.shown)); else showRecord(next.shown).then(pairPending); } else st.shown = next.shown; }
     },
     event(e) {
       if ((e.type === 'record' && e.record?.kind === 'sim') || e.type === 'defs') { if (loaded && !project.busy) load(); else if (loaded) st.stale = true; }

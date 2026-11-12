@@ -1,7 +1,7 @@
 # 설치
 <!-- no-export -->
 
-Equion은 Python 3.12 이상에서 돕니다. 필수 의존성은 numpy·pandas·scipy·openpyxl뿐이고, 회귀·검정은 패키지 안에서
+Equion은 Python 3.12 이상에서 돕니다. 필수 의존성은 numpy·pandas·scipy·openpyxl·tomlkit뿐이고, 회귀·검정은 패키지 안에서
 직접 계산합니다(외부 통계 패키지 없음). 아직 PyPI에 올리지 않았으므로 저장소에서 설치합니다.
 
 ## 저장소에서 쓰기(권장 — 이 저장소의 개발 환경)
@@ -29,9 +29,10 @@ pip install "equion @ git+https://github.com/samiblog/equion"
 pip install "equion[all] @ git+https://github.com/samiblog/equion"
 ```
 
-받아 둔 저장소가 있으면 경로로도 됩니다(`pip install "/path/to/equion[all]"`).
+받아 둔 저장소가 있으면 경로로도 됩니다(`pip install "/path/to/equion[all]"`). 정해진 판을 쓰려면 태그를 붙입니다
+(`pip install "equion @ git+https://github.com/samiblog/equion@v0.9.1"`). 릴리스에 첨부한 휠 파일(`.whl`)도 `pip install 파일`로 됩니다.
 
-`[parquet]`은 0.6.0 이전에 저장한 워크파일을 읽을 때, `[plot]`은 plotly `Figure` 객체가 필요할 때입니다.
+`[parquet]`은 0.6.0까지의 판이 저장한 워크파일(parquet)을 읽을 때, `[plot]`은 plotly `Figure` 객체가 필요할 때입니다.
 그래프 html은 plotly 없이도 만들어집니다(그래프 그리는 스크립트를 패키지에 넣어 두었다). 그림 파일(png·svg)로 저장하려면
 plotly와 kaleido가 필요합니다.
 
@@ -51,7 +52,7 @@ print(eqn.datasets.names())        # 문서 예제가 쓰는 예제 자료
 ```
 <!-- out -->
 ```text
-0.9.0
+0.9.1
 ['klein_like', 'toy_a', 'toy_m', 'toy_q']
 ```
 

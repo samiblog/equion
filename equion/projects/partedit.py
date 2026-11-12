@@ -31,6 +31,7 @@ class PartChange:
     change: Optional[str] = None
     moved_from: Optional[str] = None
     text: str = ""
+    new_block: Optional[str] = None       # 이 식을 더하려고 새로 만든 블록(개별 식 블록 single — 모형에는 넣지 않음)
 
     def summary(self) -> str:
         """명령줄에 보이는 짧은 글."""
@@ -38,7 +39,10 @@ class PartChange:
             head = f"[block add] {self.part}" + (f" ← {self.moved_from}에서 옮김" if self.moved_from else "") + f"  {self.text}"
         else:
             head = f"[block remove] {self.part}"
-        L = [head] + [f"  파일   {f}" for f in self.files]
+        L = [head]
+        if self.new_block:
+            L.append(f"  새 블록  {self.new_block} — 모형 밖의 개별 식 블록을 만들었습니다(모형에는 넣지 않음 — 넣으려면 equion model define)")
+        L += [f"  파일   {f}" for f in self.files]
         if self.change:
             L.append(f"  바뀜 기록  {self.change}")
         if self.action == "add":
@@ -48,18 +52,22 @@ class PartChange:
     def to_dict(self) -> dict:
         """명령줄 --json과 같은 사전."""
         return {"action": self.action, "part": self.part, "files": self.files, "change": self.change, "moved_from": self.moved_from,
-                "text": self.text}
+                "text": self.text, "new_block": self.new_block}
+
+
+SINGLE = "single"                         # 모형 밖의 개별 식을 두는 표준 블록 — 없으면 block add가 만든다(Desk와 같게)
 
 
 def _rel(p, path: str) -> str:
     return os.path.relpath(path, p.root).replace(os.sep, "/")
 
 
-def add_text(p, block: str, text: str, desc: str = None) -> Tuple[str, str, str, str]:
+def add_text(p, block: str, text: str, desc: str = None, check_block: bool = True) -> Tuple[str, str, str, str]:
     """블록 파일 끝에 식 한 줄을 더한 **새 내용** — (새 내용, 부품 이름, 파일(프로젝트 기준), 적힐 줄). 파일은 쓰지 않는다.
-    없는 블록 · 여러 줄 · 문법 오류 · 그 블록에 같은 목표가 이미 있음은 ProjectError."""
+    없는 블록 · 여러 줄 · 문법 오류 · 그 블록에 같은 목표가 이미 있음은 ProjectError. check_block=False면 아직 없는 블록에도
+    식만 검사한다(돌려주는 파일은 빈 문자열 — 새로 만들 블록에 넣기 전에)."""
     spec = p.config.blocks.get(block)
-    if spec is None:
+    if spec is None and check_block:
         raise ProjectError(f"없는 블록 {block!r} (있는 블록: {', '.join(p.config.blocks) or '없음'}) — 먼저 equion block define {block}")
     body = str(text or "").strip()
     if "\n" in body or "\r" in body:
@@ -70,7 +78,7 @@ def add_text(p, block: str, text: str, desc: str = None) -> Tuple[str, str, str,
         desc = desc if desc is not None else note.strip()
     if not body:
         raise ProjectError("식이 비었습니다")
-    cur = read_text(spec.path) if os.path.isfile(spec.path) else ""
+    cur = read_text(spec.path) if spec is not None and os.path.isfile(spec.path) else ""
     defs = [ln.split("#", 1)[0].strip() for ln in cur.splitlines() if _DEF_RE.match(ln.split("#", 1)[0].strip())]
     expr = expand_macros(defs + [body])[-1] if defs else body
     try:
@@ -78,12 +86,33 @@ def add_text(p, block: str, text: str, desc: str = None) -> Tuple[str, str, str,
     except (DSLError, ValueError, KeyError) as e:
         raise ProjectError(f"식을 읽지 못했습니다: {e.args[0] if isinstance(e, KeyError) else e} — {body}") from None
     target = info["target"]
-    for q in p.parts(block):
+    for q in (p.parts(block) if spec is not None else []):
         if q.target.upper() == str(target).upper():
             raise ProjectError(f"블록 {block}에 이미 목표 {q.target}의 식이 있습니다({q.where}: {q.text}) — 한 블록에 목표 하나")
+    unknown = _unknown_series(p, info)
+    if unknown:
+        raise ProjectError(f"자료에 없는 시리즈: {', '.join(unknown)} — {body} (지금 자료 회차 {p.vintage or '자료 파일'}의 시리즈에서 고르거나, "
+                           f"새 시리즈는 먼저 equion data define · data build --use)")
     line = body + (f"   # {desc}" if desc else "")
     new = cur + ("" if cur.endswith("\n") or not cur else "\n") + line + "\n"
-    return new, f"{block}:{target}", spec.file.replace("\\", "/"), line
+    return new, f"{block}:{target}", spec.file.replace("\\", "/") if spec is not None else "", line
+
+
+def _unknown_series(p, info: dict) -> List[str]:
+    """식이 쓰는 이름 가운데 자료에 없는 것 — 추정식은 목표까지 모두 자료가 있어야 하고(추정한다), 항등식은 우변이 자료나 다른 식의
+    목표여야 한다(좌변의 목표는 새 시리즈여도 된다 — 항등식이 정한다)."""
+    cols = {str(c).upper() for c in p.workfile.data.columns}
+    targets = {q.target.upper() for q in p.parts()}
+    target = str(info["target"]).upper()
+    out = []
+    for v in sorted({str(x) for x in info.get("data_vars") or ()}):
+        u = v.upper()
+        if u in cols:
+            continue
+        if info["kind"] == "identity" and (u == target or u in targets):
+            continue
+        out.append(v)
+    return out
 
 
 def remove_text(p, part: str) -> Tuple[str, str, str]:

@@ -7,12 +7,13 @@
 **Equion**은 개별 회귀식부터 비선형 연립방정식 모델까지 **추정 → 연립 풀이 → 과거 재현(Historical Simulation) →
 전망·시나리오**를 수행하는 Python 패키지입니다. **방정식(회귀 체계)은 언제든 바뀌는 입력**이고, 엔진이
 그것을 견고하게 받아 같은 의미로 추정하고 풀도록 설계했습니다. 라이브러리(`import equion as eqn`)와
-명령줄(`equion run`)로 씁니다. Windows 데스크톱 앱 **Equion Desk**는 2차판 출시 후보(0.2.0rc2)입니다([`desk/`](desk/README.md) — 다른 PC 설치 점검이 남았습니다).
+명령줄(`equion run`)로 쓰고, 폴더 하나를 **프로젝트**(블록·모형·자료 회차·작업 기록·스크립트)로 두고 명령으로 일할 수 있습니다.
+Windows 데스크톱 앱 **Equion Desk**는 2차판 출시 후보(0.2.0rc3)입니다([`desk/`](desk/README.md) · 사용설명서 [`docs/desk/`](docs/desk/README.md) — 다른 PC 설치 점검이 남았습니다).
 
-- 버전: Equion **0.9.0** (2026-11-12)
-- 스택: Python 3.12+ · numpy · pandas · scipy · openpyxl (회귀·검정은 자체 구현, 그래프는 내장 plotly.js)
+- 버전: Equion **0.9.1** (2026-11-13)
+- 스택: Python 3.12+ · numpy · pandas · scipy · openpyxl · tomlkit (회귀·검정은 자체 구현, 그래프는 내장 plotly.js)
 - 라이선스: [MIT](LICENSE)
-- **문서: [docs/README.md](docs/README.md)** — 설치 · [30분 첫 모델](docs/start/first-model.md) · 튜토리얼 8편 · 레시피 · 해설 · 참조 ·
+- **문서: [docs/README.md](docs/README.md)** — 설치 · [30분 첫 모델](docs/start/first-model.md) · 튜토리얼 9편 · 레시피 · 해설 · 참조 ·
   사례 연구. 예제는 패키지에 든 예제 자료(`eqn.datasets`)로 바로 돌고, 문서의 출력은 실제 실행 결과입니다.
 
 ---
@@ -21,13 +22,13 @@
 
 - **간결한 시계열 방정식 문법**(EViews 사용자에게 익숙한 표기): `log(Y) c log(X(-1)) X^2 @pcy(Z) d(W,1,4)`, 시차범위 `X(-1 to -4)`,
   `@seas`·`@trend`·`@d`·`@step`·`@smpl`·`@def`. 괄호 안 공백도 자유롭게.
-- **추정법**: OLS · WLS · 2SLS(`@inst`) · GMM(Hansen J) · LIML · NLS(`Y = c(1) + c(2)*X^c(3)`) · 외부 계수 고정(`@coef`),
+- **추정법**: OLS · WLS · 2SLS(`@inst`) · GMM(Hansen J) · LIML · NLS(`Y = c(1) + c(2)*X^c(3)`) · 비선형 2SLS(`c(n)` 식 + `@inst`) · 외부 계수 고정(`@coef`),
   AR(p) 오차(`ar(1)`) · 다항 분포시차(`pdl(X, 8, 3)`) · 오차수정모형(`wf.ecm`). 강건 표준오차(White·HC0~3·HAC Newey-West).
-- **시스템·다변량**: SUR · 2SLS · 3SLS · FIML(식 사이 제약 — 같은 `c(n)` 공유 또는 `restrict`), VAR(시차 선택·Granger·
+- **시스템·다변량**: SUR · 2SLS · 3SLS · FIML(계수에 비선형인 식도 · 식 사이 제약 — 같은 `c(n)` 공유 또는 `restrict`), VAR(시차 선택·Granger·
   충격반응·분산분해) · VECM(Johansen 최우) — 추정 결과는 그대로 모델 식이 됩니다.
 - **진단·검정**: 계열상관 LM·Ljung-Box·White·Breusch-Pagan·ARCH·Jarque-Bera·RESET·Wald·Chow·CUSUM·누락/불필요 변수,
   단위근·공적분(ADF·KPSS·Engle-Granger·Johansen), 예측 평가(Theil U·Diebold-Mariano). 회귀와 검정은 모두 자체 구현(`equion.stats`) —
-  외부 회귀 패키지에 기대지 않습니다(필수 의존성: numpy·pandas·scipy·openpyxl — pyarrow·plotly는 선택 `equion[all]`).
+  외부 회귀 패키지에 기대지 않습니다(필수 의존성: numpy·pandas·scipy·openpyxl·tomlkit — pyarrow·plotly는 선택 `equion[all]`).
 - **추정식과 풀이식의 의미가 항상 같음**: 모든 시계열 연산을 하나의 중간표현(IR)으로 풀어
   추정·풀이·자코비안이 모두 같은 표현을 씁니다.
 - **견고한 연립 풀이**: 블록 분해 + 해석적 자코비안 Newton(실패 시 hybr·lm·Gauss-Seidel 재시도).
@@ -43,6 +44,13 @@
   pandas 객체로 바로 이어지고, 스크립트는 평범한 Python입니다.
 - **명령줄**: `equion run 스크립트.py --set 이름=값` — 보고서 폴더(`report.html`·재현 기록 `manifest.json`
   ·표·그래프), 자동화용 종료 코드, `check`(실행 없이 방정식·구조 검사)·`info`·`new`.
+- **프로젝트**: `equion.toml`에 블록(방정식 파일)과 모형을 적고(`assemble`로 조립 검사), 원자료에서 자료 회차를 만들어(`data build·diff·inbox`)
+  작업 명령으로 계산합니다 — `est`(후보·판단 기준) · `adopt`(채택) · `compare` · `hs`(과거 재현 — 바꿔 끼우기·전후 비교·그때 그대로 다시) ·
+  `sim`(가정·보정항·시나리오). 계산마다 기록(`work/`)이 남고, 정의 파일의 바뀜은 누가·무엇을 했는지와 함께 남아 되돌릴 수 있습니다.
+  분석(`an`) · 노트 · 보고서는 새 기록으로 바꿔 낍니다. 이정표(`milestone`)로 확정한 때를 남기고, 묶어 보내기(`bundle`)로 다른 PC에 옮깁니다.
+- **Equion 스크립트(`.eqs`)**: 한 줄에 `equion` 명령 하나 — 매개변수·`expect` 검사·실행 기록, `equion run --replay run:…`로 그때 그대로 다시 돌려
+  숫자를 견줍니다. Claude Code가 먼저 읽는 안내(`equion guide`)와 스킬 초안도 들어 있습니다.
+- **Equion Desk**: 같은 명령과 기록을 화면으로(Windows 11) — 사람과 Claude Code의 터미널이 옆에 있습니다. 사용설명서 [`docs/desk/`](docs/desk/README.md).
 
 ## 설치
 
@@ -147,17 +155,32 @@ equion check EQUATIONS/model.txt --data DATA/data.csv
   ·입력 파일 sha256·기간별 풀이 상태) · `run.log` · `tables/` · `graphs/`.
   주요 옵션: `--set`·`--params`·`--smpl`·`--format`·`--fail-on`·`--threads`·`-q`·`-i`·`--watch`.
 - `check`: 추정·풀이 없이 줄별 문법, 모델 구조(목표변수 중복·미지 변수·블록), 표본 구간의 결측 입력.
-- `info`: 데이터·워크파일·방정식 파일·보고서 폴더 요약. `new`: 바로 실행되는 예시 프로젝트.
+- `info`: 데이터·워크파일·방정식 파일·보고서 폴더 요약. `new`: 바로 실행되는 예시 프로젝트(`--template desk`면 블록·모형·자료 회차가 있는 프로젝트).
 - 종료 코드: 0 성공 · 1 스크립트 오류 · 2 풀이 실패(`--fail-on`) · 3 입력 오류 · 130 중단.
 
 스크립트는 평범한 Python이고 매개변수는 `p = eqn.params(g_shock=0.02)`로 받습니다. 자세한 내용은
 [튜토리얼 8](docs/tutorial/08-cli.md)과 [명령줄 참조](docs/reference/cli.md).
+
+프로젝트에서는 작업 명령이 계산마다 기록을 남깁니다.
+
+```bash
+equion new prj --template desk
+cd prj
+equion assemble main                   # 조립 검사(계산 없이)
+equion est demand:CN                   # 식 하나 추정 → est:…
+equion hs                              # 과거 재현 → hs:…
+equion sim base oil20                  # 전망·시나리오 → sim:…
+equion run FLOWS/monthly.eqs           # 월간 스크립트(.eqs) → run:…
+```
+
+흐름은 [튜토리얼 9](docs/tutorial/09-project.md)와 [가이드](docs/guide/README.md)(사람과 상황별 — 처음 한 시간 · 매달 하는 일 · 식 고르기 · 전망 · 보고서 · Claude와 함께 · 자동화).
 
 ## 문서
 
 | 문서 | 내용 |
 |------|------|
 | [`docs/README.md`](docs/README.md) | 사용자 문서 첫 페이지 — 시작하기 · 튜토리얼 · 레시피 · 해설 · 참조 · 사례 연구 · EViews 사용자 안내 |
+| [`docs/desk/`](docs/desk/README.md) | Equion Desk 사용설명서 — 예제 프로젝트로 따라 하는 9장(그림과 함께) |
 | [`docs/reference/api.md`](docs/reference/api.md) | 공개 함수·메서드 참조(docstring에서 자동 생성 — `python docs/make_api.py`) |
 | [`CHANGELOG.md`](CHANGELOG.md) | 판별 바뀐 점 |
 | [`README.en.md`](README.en.md) · [`docs/en/`](docs/en/README.md) | English overview · getting started |
@@ -173,10 +196,11 @@ uv run pytest
 - 수치 코어(`formula/parser.py`·`formula/ir.py`·`system/*`·`estimation/equation.py`·`stats/*`)를 바꾸면
   `tests/test_engine.py`의 번역 일관성 검사와 `tests/test_stats.py`의 기준값 비교가 반드시 통과해야 합니다.
 - 의존성은 `pyproject.toml`에 범위로 적고 `uv.lock`이 정확한 버전·해시를 잠급니다(`uv add` / `uv remove`). 하한·최신판·
-  Windows·macOS는 CI가 검사합니다(`.github/workflows/ci.yml`).
-- 공개 함수·메서드의 docstring을 고치면 `python docs/make_api.py`로 `docs/reference/api.md`를 다시 만듭니다(CI가 `--check`).
+  Python 3.12~3.14·선택 의존성 없이는 출시 전에 이 PC에서 돌려 봅니다 — CI는 2026-11-12부터 꺼 두었고, 작업 파일(`.github/workflows/ci.yml` —
+  Linux·Windows·macOS)은 다시 켤 때를 위해 그대로 둡니다.
+- 공개 함수·메서드의 docstring을 고치면 `python docs/make_api.py`로 `docs/reference/api.md`를 다시 만듭니다(`--check`로 검사).
 - 문서의 예제를 고치거나 출력이 바뀌는 코드를 고치면 `python docs/build_docs.py`로 출력·`examples/`를 다시 채웁니다
-  (CI가 `--check` — 예제 실행·출력·링크·API 설명·doctest).
+  (`--check` — 예제 실행·출력·링크·API 설명·doctest — 는 `uv run pytest`의 `tests/test_docs.py`도 돌린다).
 
 ## 라이선스·상표
 

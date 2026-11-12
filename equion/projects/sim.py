@@ -47,14 +47,18 @@ def _rel(p, path):
 # ---------------------------------------------------------------------------
 # 정의 파일 읽기
 # ---------------------------------------------------------------------------
-def load_assumptions(p, name: str, freq: str) -> dict:
-    """가정 세트 — {name, file, sha256, values(DataFrame, 인덱스 = 기간 라벨)}. 'base'인데 파일이 없으면 빈 세트."""
+def load_assumptions(p, name: str, freq: str, where: str = None) -> dict:
+    """가정 세트 — {name, file, sha256, values(DataFrame, 인덱스 = 기간 라벨)}.
+
+    파일이 없으면: 이름을 어디에도 적지 않아 기본 'base'를 쓴 것이면(where=None) 빈 세트, 이름을 적었으면(where — '[forecast] assume' ·
+    '시나리오 oil20의 base') 'base'든 다른 이름이든 오류(적은 이름의 파일이 없는데 말없이 가정 없이 풀지 않는다)."""
     from ..data.periods import format_period, parse_period
     path = os.path.join(p.root, ASSUME_DIR, f"{name}.csv")
     if not os.path.isfile(path):
-        if name == "base":
+        if name == "base" and not where:
             return {"name": name, "file": None, "sha256": None, "values": pd.DataFrame()}
-        raise ProjectError(f"가정 세트가 없습니다: {ASSUME_DIR}/{name}.csv")
+        raise ProjectError(f"가정 세트가 없습니다: {ASSUME_DIR}/{name}.csv" + (
+            f" ({where} = \"{name}\") — 파일을 만들거나 {where}를 지우세요(지우면 가정 없이 [forecast] fill 규칙으로 채웁니다)" if where else ""))
     raw = pd.read_csv(path, index_col=0, dtype=str, keep_default_na=False)
     rel = _rel(p, path)
     problems, idx = [], []
@@ -85,15 +89,17 @@ def load_assumptions(p, name: str, freq: str) -> dict:
     return {"name": name, "file": rel, "sha256": _sha(path), "values": vals}
 
 
-def load_addfactors(p, name: str, freq: str) -> dict:
-    """보정항 세트 — {name, file, sha256, default, eqs: {부품: {rule, half_life, n}}, values(판단 값 DataFrame), values_file}."""
+def load_addfactors(p, name: str, freq: str, where: str = None) -> dict:
+    """보정항 세트 — {name, file, sha256, default, eqs: {부품: {rule, half_life, n}}, values(판단 값 DataFrame), values_file}.
+    없는 파일은 가정 세트와 같은 규칙(기본 'base'만 빈 세트 — 이름을 적었으면 오류)."""
     path = os.path.join(p.root, AF_DIR, f"{name}.toml")
     out = {"name": name, "file": None, "sha256": None, "default": "zero", "eqs": {}, "values": pd.DataFrame(),
            "values_file": None}
     if not os.path.isfile(path):
-        if name == "base":
+        if name == "base" and not where:
             return out
-        raise ProjectError(f"보정항 세트가 없습니다: {AF_DIR}/{name}.toml")
+        raise ProjectError(f"보정항 세트가 없습니다: {AF_DIR}/{name}.toml" + (
+            f" ({where} = \"{name}\") — 파일을 만들거나 {where}를 지우세요(지우면 보정항 0)" if where else ""))
     rel = _rel(p, path)
     try:
         with open(path, "rb") as f:
@@ -168,15 +174,103 @@ def load_scenario(p, name: str) -> dict:
     problems = check_raw(raw, rel, freq=p.config.freq)
     if problems:
         raise ProjectError(problems)
-    for s in raw.get("shock") or []:
-        out["shocks"].append({"var": str(s["var"]), "from": str(s.get("from", "start")), "to": str(s.get("to", "end")),
-                              "kind": "pct" if "pct" in s else "level", "value": float(s.get("pct", s.get("value")))})
-    for a in raw.get("addfactor") or []:
-        out["addfactor"].append({"eq": str(a["eq"]), "from": str(a.get("from", "start")), "to": str(a.get("to", "end")),
-                                 "value": float(a["value"])})
+    try:
+        for s in raw.get("shock") or []:
+            out["shocks"].append({"var": str(s["var"]), "from": str(s.get("from", "start")), "to": str(s.get("to", "end")),
+                                  "kind": "pct" if "pct" in s else "level", "value": float(s.get("pct", s.get("value")))})
+        for a in raw.get("addfactor") or []:
+            out["addfactor"].append({"eq": str(a["eq"]), "from": str(a.get("from", "start")), "to": str(a.get("to", "end")),
+                                     "value": float(a["value"])})
+    except (TypeError, ValueError, KeyError) as e:
+        raise ProjectError(f"{rel}: 읽을 수 없는 값 — {e}") from None
     out.update(file=rel, sha256=_sha(path), desc=str(raw.get("desc", "")), base=raw.get("base"),
                addfactors=raw.get("addfactors"), model=raw.get("model"))
     return out
+
+
+# ---------------------------------------------------------------------------
+# 선행변수 — 모형 일관 기대(MCE)
+# ---------------------------------------------------------------------------
+MCE_CHOICES = ("fair-taylor", "stacked")
+
+
+def mce_choice(value, where: str = "mce"):
+    """mce 값 → 'fair-taylor' · 'stacked' · False(쓰지 않음) · None(정하지 않음). 참(true)은 'fair-taylor'."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if value is False or (isinstance(value, str) and value.strip().lower() in ("false", "no", "off", "none", "0")):
+        return False
+    if value is True or (isinstance(value, str) and value.strip().lower() in ("true", "yes", "on", "1")):
+        return "fair-taylor"
+    v = str(value).strip().lower()
+    if v in MCE_CHOICES:
+        return v
+    raise ProjectError(f"{where} = {value!r} — \"fair-taylor\" · \"stacked\" · false")
+
+
+def leads_of(m) -> dict:
+    """모형의 내생 선행변수 {목표: ['Y(+1)', …]}(외생 선행은 가정 경로라 빼고). 모형을 만들 수 없으면 {}."""
+    try:
+        system = m._build().system
+    except Exception:  # noqa: BLE001 — 구조 문제는 풀 때 그 까닭으로
+        return {}
+    endo = set(system.endogenous)
+    out = {}
+    for e in system.eqs:
+        hits = sorted({f"{n}(+{lag})" for n, lag in e.leaves if lag > 0 and n in endo})
+        if hits:
+            out[e.target] = hits
+    return out
+
+
+def lead_options(p, m, kind: str, given=None, mode: str = "dynamic"):
+    """선행변수가 있는 모형을 어떻게 풀지 → (solve의 선택지, 알아서 한 것).
+
+    전망(sim): 정하지 않으면(--mce · [forecast] mce 없음) Fair-Taylor 모형 일관 기대 — 전망 구간 뒤에는 실측이 없어 선행 값을 고정하면
+    풀 수 없다. 끝 뒤 선행 값은 끝 값 유지. 과거 재현(hs): 정하지 않으면 선행 값에 실측(완전 예견 — 흔한 과거 재현) — 모형 일관 기대로
+    보려면 --mce · [hs] mce. false는 쓰지 않음, 정적·fit 풀이는 MCE가 없다."""
+    sect = "forecast" if kind == "sim" else "hs"
+    cfg = (p.config.forecast if kind == "sim" else p.config.hs) or {}
+    if given is not None:
+        choice, src = mce_choice(given, "--mce"), "--mce"
+    else:
+        choice, src = mce_choice(cfg.get("mce"), f"[{sect}] mce"), f"[{sect}] mce"
+    leads = leads_of(m)
+    if not leads:
+        return {}, ([f"{src} = {choice}: 선행변수가 없어 쓰지 않음"] if choice else [])
+    shown = " · ".join(f"{t}: {', '.join(v)}" for t, v in list(leads.items())[:4]) + (" …" if len(leads) > 4 else "")
+    if mode != "dynamic":
+        return {}, [f"선행변수({shown}) — {mode} 풀이라 모형 일관 기대(MCE)를 쓰지 않음: 선행 값은 실측"]
+    if choice is None and kind != "sim":
+        return {}, [f"선행변수({shown}) — 과거 재현은 선행 값에 실측을 넣어 풂(완전 예견). 모형 일관 기대로 보려면 "
+                    "hs --mce fair-taylor · equion.toml [hs] mce = \"fair-taylor\""]
+    if choice is False:
+        return {}, [f"선행변수({shown}) — {src} = false: 선행 값을 고정 경로(실측)로" + (
+            " — 전망 구간 뒤에는 실측이 없어 그 식을 풀 수 없습니다" if kind == "sim" else "")]
+    auto = choice is None
+    choice = choice or "fair-taylor"
+    note = (f"선행변수({shown}) — 모형 일관 기대(MCE, {choice})로 풂"
+            + (f"(정하지 않아 알아서 고름 — [{sect}] mce = \"stacked\" · false나 --mce로 바꾼다)" if auto else f"({src})")
+            + "; 끝 뒤 선행 값은 끝 값 유지")
+    return {"mce": True, "mce_method": choice}, [note]
+
+
+class quiet_lead_warning:
+    """엔진의 선행변수 경고(파이썬 API의 처방 'mce=True')를 감춘다 — 프로젝트 층이 '알아서 한 것'에 명령줄의 처방으로 적는다."""
+
+    class _F:
+        def filter(self, record):
+            return "선행변수(X(1) 등)" not in str(record.getMessage())
+
+    def __enter__(self):
+        from ..log import workfile as wlog
+        self._f = self._F()
+        wlog.addFilter(self._f)
+        return self
+
+    def __exit__(self, *a):
+        from ..log import workfile as wlog
+        wlog.removeFilter(self._f)
 
 
 def _between(lab, s: str, e: str, freq: str) -> bool:
@@ -197,12 +291,13 @@ def _before(lab, s: str, freq: str) -> bool:
         return False
 
 
-def _when(token: str, s: str, e: str, freq: str) -> str:
-    """시나리오의 기간 — 라벨 또는 start · end · start+N · end-N(전망 구간 기준)."""
+def _when(token: str, s: str, e: str, freq: str, end: bool = False) -> str:
+    """시나리오의 기간 — 라벨 또는 start · end · start+N · end-N(전망 구간 기준). 기간의 끝(to)이면 end=True —
+    해만 적은 표기('2026')가 그 해의 마지막 기(D66)."""
     from ..data.periods import format_period, parse_period
     m = REL.match(str(token).strip())
     if not m:
-        return format_period(parse_period(str(token).strip(), freq), freq)
+        return format_period(parse_period(str(token).strip(), freq, end=end), freq)
     base = parse_period(s if m[1].lower() == "start" else e, freq)
     k = int(m[3] or 0) * (-1 if m[2] == "-" else 1)
     return format_period(base + k, freq)
@@ -301,6 +396,9 @@ def sim_text(m: dict) -> str:
               for v, (a, b) in row.items() if a is not None and b is not None and abs(b - a) >= 0.005]
         L.append(f"  비교   vs {vs['id']} — " + (" · ".join(ch[:6]) + (" …" if len(ch) > 6 else "") if ch else
                                                  ("연간 증가율 그대로" if vs["growth"] else "견줄 연도 없음")))
+    if m.get("unsolved"):
+        L.append("  ! 풀지 못한 값  " + " · ".join(f"{v} {u['n']}기({u['first']}~{u['last']})" for v, u in m["unsolved"].items())
+                 + " — 전망 값이 없어 빈칸(연간 표에서도 그 변수만 빈칸)")
     if m.get("implicit"):
         L.append("  알아서 한 것  " + " · ".join(m["implicit"]))
     L.append(f"  기록   {m['id']} ({m['path']}/)")
@@ -311,7 +409,9 @@ def _sim_md(m, levels, annual, diff) -> str:
     c = m["counts"]
     a, af = m["assume"], m["addfactors"]
     sections = [("연간 평균과 증가율", md.table(annual)),
-                ("풀이 상태", f"정상 {c['ok']} · 일부식 제외 {c['partial']} · 실패대체 {c['fallback']} · 실패 {c['failed']}"),
+                ("풀이 상태", f"정상 {c['ok']} · 일부식 제외 {c['partial']} · 실패대체 {c['fallback']} · 실패 {c['failed']}"
+                 + ("\n\n풀지 못한 값(빈칸): " + " · ".join(f"{v} {u['n']}기({u['first']}~{u['last']})"
+                                                        for v, u in m["unsolved"].items()) if m.get("unsolved") else "")),
                 ("가정", md.bullets(([f"{a['file']} — {', '.join(a['used'])} ({a['cells']}칸, 값의 종류 '가정')"] if a.get("used") else [])
                                     + [f"채우기 규칙 {a['fill']}: {k} {v}칸 ('채움')" for k, v in (a.get("filled") or {}).items()])),
                 ("보정항", md.bullets([f"{k}: {v['rule']}" + (f" — {v['value']:+.4g}" if v.get("value") is not None else "")
@@ -344,17 +444,23 @@ def _growth(df: pd.DataFrame, ppy: int) -> pd.DataFrame:
 
 
 def _annual(full: pd.DataFrame, ppy: int, years: List[str]) -> pd.DataFrame:
-    """연간 평균 수준과 증가율(그 해의 기간이 다 있는 해만)."""
+    """연간 평균 수준과 증가율 — 변수마다 그 해의 기간이 다 있는 해만(한 변수가 비어도 다른 변수의 연간 값은 남는다).
+    증가율은 바로 앞 해와(앞 해가 비면 빈칸)."""
     yrs = pd.Index([str(i)[:4] for i in full.index])
     rows = {}
     for y in sorted(set(yrs)):
         part = full[yrs == y]
-        if len(part) == ppy and part.notna().all().all():
-            rows[y] = part.mean()
+        if len(part) != ppy:
+            continue
+        ok = part.notna().all()
+        if ok.any():
+            rows[y] = part.mean().where(ok)
     ann = pd.DataFrame(rows).T
     if not len(ann):
         return ann
-    g = 100 * (ann / ann.shift(1) - 1)
+    prev = ann.reindex([str(int(y) - 1) if str(y).isdigit() else None for y in ann.index])
+    prev.index = ann.index
+    g = 100 * (ann / prev - 1)
     out = pd.concat([ann, g.add_suffix("_증가율")], axis=1)
     out.index.name = "연도"
     return out.loc[[y for y in out.index if y in years]]
@@ -381,8 +487,9 @@ def _vintage_wf(p, vid):
 
 
 def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vintage: str = None, vs: str = None,
-            as_name: str = None, mode: str = None, who: str = None, command: str = None) -> SimRecord:
-    """전망(기준선) 또는 시나리오를 풀고 기록을 남긴다."""
+            as_name: str = None, mode: str = None, who: str = None, command: str = None, mce=None) -> SimRecord:
+    """전망(기준선) 또는 시나리오를 풀고 기록을 남긴다. mce: 선행변수 풀이('fair-taylor' · 'stacked' · False — 기본 [forecast] mce,
+    없으면 선행변수가 있을 때 Fair-Taylor)."""
     from ..data.periods import PERIODS_PER_YEAR
     history_of(p).scan()
     store = store_of(p)
@@ -410,8 +517,15 @@ def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vinta
         implicit = [f"구간 {rng_spec} → {s}~{e}"] + list(p.notes[n0:])
         if vintage:
             implicit.insert(0, f"자료 회차 {vintage}로(지금 회차는 그대로)")
-        A = load_assumptions(p, assume, F)
-        AF = load_addfactors(p, afname, F)
+        a_where = (f"시나리오 {scenario}의 base" if sd.get("base") else "[forecast] assume" if fc.get("assume") else None)
+        af_where = (f"시나리오 {scenario}의 addfactors" if sd.get("addfactors") else
+                    "[forecast] addfactors" if fc.get("addfactors") else None)
+        A = load_assumptions(p, assume, F, where=a_where)
+        AF = load_addfactors(p, afname, F, where=af_where)
+        if A["file"] is None:
+            implicit.append(f"가정 세트 없음({ASSUME_DIR}/base.csv가 없음) — 외생은 실측과 채우기 규칙({fill})")
+        lead_opts, lead_notes = lead_options(p, m, "sim", mce, mode)
+        implicit += lead_notes
         quiet(wf.extend, e)
         exo = [v for v in m.exogenous if v in wf.data.columns and v not in set(wf._data.indicators)]
         endo = _key_order(p, rep.endogenous)
@@ -499,9 +613,11 @@ def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vinta
         for k_, v_ in filled.items():
             implicit.append(f"외생 {k_} {v_}칸을 채움({fill})")
         implicit += warn
+        from ..system.simulate import SimulationError
         try:
-            res0 = m.forecast(s, e, mode=mode, scenario="baseline")
-        except ValueError as ex:
+            with quiet_lead_warning():
+                res0 = m.forecast(s, e, mode=mode, scenario="baseline", **lead_opts)
+        except (ValueError, SimulationError) as ex:
             raise ProjectError(f"전망을 풀 수 없습니다: {ex}") from None
         res = res0
         diff = None
@@ -512,17 +628,36 @@ def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vinta
             for x in eq_parts:
                 if np.any(af_table[x.id] != 0):
                     sc1.add_factor(x.target, pd.Series(af_table[x.id], index=wf.data.index[i0:i1 + 1]))
+            ident = {x.target for x in rep.parts if x.kind == "identity"}
             for sh in sd["shocks"]:
-                a_, b_ = _when(sh["from"], s, e, F), _when(sh["to"], s, e, F)
+                a_, b_ = _clip(scenario, f"충격 {sh['var']}", _when(sh["from"], s, e, F), _when(sh["to"], s, e, F, end=True),
+                               s, e, F, implicit)
                 if sh["var"] not in exo and sh["var"] not in endo:
                     raise ProjectError(f"시나리오 {scenario}: {sh['var']}는 모형 {name_model}에 없는 변수입니다")
+                if sh["var"] in ident:
+                    raise ProjectError(f"시나리오 {scenario}: {sh['var']}는 모형 {name_model}에서 항등식이 정하는 내생변수라 충격을 줄 식이 "
+                                       "없습니다 — 그 항등식 오른쪽의 외생변수나 추정식에 주세요")
+                if sh["var"] in endo:
+                    implicit.append(f"충격 {sh['var']}: 내생변수라 그 식의 보정항(+{sh['value']:g}, 식의 단위"
+                                    + (" — %가 아님" if sh["kind"] == "pct" else "") + ")으로 들어감")
                 sc1.shock(sh["var"], sh["value"], a_, b_, kind=sh["kind"])
                 if sh["var"] in exo and sh["kind"] != "add_factor":
                     exo_shock.append((sh["var"], sh["kind"], sh["value"], *wf._bounds(a_, b_)))
             for ad in sd["addfactor"]:
                 pt = p.part(ad["eq"])
-                sc1.shock(pt.target, ad["value"], _when(ad["from"], s, e, F), _when(ad["to"], s, e, F), kind="add_factor")
-            res = quiet(m.solve, s, e, mode=mode, scenario=scenario)
+                if pt.kind == "identity":
+                    raise ProjectError(f"시나리오 {scenario}: 식 보정 {pt.id}는 항등식입니다 — 항등식에는 보정항을 붙이지 않습니다"
+                                       "(추정식의 보정이나 외생변수 충격으로)")
+                if pt.id not in {x.id for x in eq_parts}:
+                    raise ProjectError(f"시나리오 {scenario}: 식 보정 {pt.id}는 모형 {name_model}에 없는 식입니다")
+                a_, b_ = _clip(scenario, f"식 보정 {pt.id}", _when(ad["from"], s, e, F), _when(ad["to"], s, e, F, end=True), s, e, F,
+                               implicit)
+                sc1.shock(pt.target, ad["value"], a_, b_, kind="add_factor")
+            try:
+                with quiet_lead_warning():
+                    res = quiet(m.solve, s, e, mode=mode, scenario=scenario, **lead_opts)
+            except (ValueError, SimulationError) as ex:
+                raise ProjectError(f"시나리오 {scenario}를 풀 수 없습니다: {ex}") from None
             b = res0.values
             d = res.values[[c for c in b.columns]]
             lab_f = _labels(wf, b.index)
@@ -531,25 +666,33 @@ def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vinta
             vs_base = {v: float(100 * (d[v].iloc[-1] / b[v].iloc[-1] - 1)) for v in endo if v in b.columns}
         # 수준·값의 종류
         h0 = max(0, i0 - 2 * ppy)
-        full = pd.DataFrame(index=wf.data.index)
+        cols = {}                                        # 열을 모아 한 번에 만든다(변수가 많으면 한 열씩 더하는 표가 조각난다 — PerformanceWarning)
         sol = res.values
         for v in endo:
             col = wf.data[v].to_numpy(dtype=float).copy() if v in wf.data.columns else np.full(len(wf.data), np.nan)
             col[i0:i1 + 1] = sol[v].to_numpy(dtype=float)
-            full[v] = col
+            cols[v] = col
         for v in exo:
-            full[v] = wf.data[v].to_numpy(dtype=float)
+            cols[v] = wf.data[v].to_numpy(dtype=float).copy()
         for v, kind, value, ja, jb in exo_shock:        # Scenario.build와 같은 셈 — 기준선의 가정 경로가 아니라 시나리오가 푼 경로
-            col = full[v].to_numpy(dtype=float).copy()
+            col = cols[v]
             col[ja:jb + 1] = col[ja:jb + 1] + value if kind == "level" else col[ja:jb + 1] * (1 + value / 100.0)
-            full[v] = col
-        full.index = pd.Index(labels, name="period")
+        full = pd.DataFrame(cols, index=pd.Index(labels, name="period"), columns=list(dict.fromkeys([*endo, *exo])))
         levels = full.iloc[h0:i1 + 1]
-        fl = pd.DataFrame(index=levels.index)
+        fcols = {}
         for v in endo:
-            fl[v] = ["해" if i0 <= j <= i1 else ("실측" if np.isfinite(full[v].iloc[j]) else "결측") for j in range(h0, i1 + 1)]
+            vals = full[v].to_numpy(dtype=float)
+            fcols[v] = [("해" if np.isfinite(vals[j]) else "결측") if i0 <= j <= i1 else
+                        ("실측" if np.isfinite(vals[j]) else "결측") for j in range(h0, i1 + 1)]
+        unsolved = {}                                  # 전망 구간에서 풀지 못해 빈 값(수렴하지 않았는데 대신 쓸 실측이 없음 등)
+        for v in endo:
+            vals = full[v].to_numpy(dtype=float)
+            bad = [labels[j] for j in range(i0, i1 + 1) if not np.isfinite(vals[j])]
+            if bad:
+                unsolved[v] = {"n": len(bad), "first": bad[0], "last": bad[-1]}
         for v in exo:
-            fl[v] = flags[v][h0:i1 + 1]
+            fcols[v] = flags[v][h0:i1 + 1]
+        fl = pd.DataFrame(fcols, index=levels.index, columns=list(fcols))
         years = sorted({lab[:4] for lab in labels[i0:i1 + 1]})
         ann = _annual(full[endo].iloc[:i1 + 1], ppy, years)
         ann_meta = {y: {v: (None if not np.isfinite(ann.loc[y, f"{v}_증가율"]) else float(ann.loc[y, f"{v}_증가율"]))
@@ -575,14 +718,15 @@ def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vinta
         rel = f"work/sim/{name}"
         c = res.counts()
         meta = {"who": _who(who), "command": command or f"sim {scenario}", "project": p.name, "equion": _version(),
-                "target": name_model, "model": name_model, "scenario": scenario, "range": [s, e], "mode": mode,
+                "target": name_model, "model": name_model, "scenario": scenario, "range": [s, e],
+                "vintage_pin": vintage or None, "mode": mode, **({"mce": lead_opts["mce_method"]} if lead_opts else {}),
                 "counts": c, "endogenous": endo, "exogenous": exo, "annual": ann_meta,
                 "assume": {"name": assume, "file": A["file"], "used": used, "cells": cells, "fill": fill, "filled": filled},
                 "addfactors": {"name": afname, "file": AF["file"], "eqs": af_info, "judgment": judgment,
                                "values_file": AF.get("values_file")},
                 "scenario_def": ({k: sd[k] for k in ("desc", "shocks", "addfactor", "file")} if sd["file"] else None),
                 "vs_base": vs_base, "vs": vs_info, "implicit": implicit + _status_implicit(res), "data": data_spec(p),
-                "path": rel, "id": f"sim:{name}"}
+                "path": rel, "id": f"sim:{name}", **({"unsolved": unsolved} if unsolved else {})}
         files = {"assembly.json": asm, "levels.csv": levels, "flags.csv": fl, "growth.csv": growth, "annual.csv": ann,
                  "addfactors.csv": afdf}
         if diff is not None:
@@ -597,10 +741,29 @@ def run_sim(p, scenario: str = "base", model: str = None, rng: str = None, vinta
 
 
 def _sim_name(store, scenario, vintage) -> str:
+    # 저절로 정한 이름(AutoName) — 쓰는 사이 다른 전망이 같은 이름을 먼저 쓰면 store.write가 다음 이름으로 바꾼다
+    from ..work.store import AutoName
     base = f"{datetime.now():%Y-%m}_{scenario}"
-    if not store.exists("sim", base):
-        return base
+    used = store.used_names("sim")                   # 정리(work clean)로 지운 이름도 다시 쓰지 않는다
     k = 2
-    while store.exists("sim", f"{base}_{k}"):
+    name = base
+    while name in used:
+        name = f"{base}_{k}"
         k += 1
-    return f"{base}_{k}"
+    return AutoName(name, again=lambda: _sim_name(store, scenario, vintage))
+
+
+def _clip(scenario, what, a, b, s, e, F, implicit):
+    """시나리오 기간(충격·식 보정)을 전망 구간 안으로 — 거꾸로면·구간 밖이면 ProjectError, 일부만 밖이면 잘라 알린다."""
+    from ..data.periods import parse_period
+    pa, pb, ps, pe = (parse_period(x, F) for x in (a, b, s, e))
+    if pa > pb:
+        raise ProjectError(f"시나리오 {scenario}: {what}의 기간 {a}~{b} — 시작이 끝보다 뒤입니다")
+    if pb < ps or pa > pe:
+        raise ProjectError(f"시나리오 {scenario}: {what}의 기간 {a}~{b}이(가) 전망 구간 {s}~{e} 밖이라 효과가 없습니다 — "
+                           "기간을 start · end · start+N · end-N이나 구간 안의 라벨로")
+    if pa < ps or pb > pe:
+        a2, b2 = (s if pa < ps else a), (e if pb > pe else b)
+        implicit.append(f"{what}: 기간 {a}~{b} 가운데 전망 구간 밖은 뺌 → {a2}~{b2}")
+        return a2, b2
+    return a, b

@@ -39,6 +39,43 @@ CSP = ("default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self' 'u
        "font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 
+# 받을 수 없는 값을 알릴 때 — 키의 이름과 모양의 규칙(정규식의 글 → 사람의 말)
+KEY_LABEL = {"name": "이름", "model": "모형", "part": "부품", "record": "기록", "from": "틀", "transform": "변환", "vintage": "자료 회차",
+             "cov": "표준오차", "method": "추정법", "show": "보이기", "range": "구간", "vs": "견줄 기록", "smpl": "표본", "blocks": "블록",
+             "include": "끼울 모형", "exclude": "뺄 식", "scenarios": "시나리오", "columns": "열", "series": "시리즈", "rows": "줄",
+             "records": "기록", "shocks": "충격", "addfactor": "식 보정", "block": "블록", "report": "보고서", "analysis": "분석"}
+NAME_RULE = "영문·숫자로 시작하고 영문·숫자·_·- 만 씁니다(61자까지, 한글·빈칸은 안 됩니다)"
+PATTERN_RULE = {
+    r"[A-Za-z0-9][A-Za-z0-9_\-]{0,60}": NAME_RULE,
+    r"[^\s:]{1,60}:[^\s:]{1,60}": "블록:목표 꼴입니다(예: demand:CN)",
+    r"[^\s:/\\]{1,80}": "시리즈 이름입니다(빈칸·:·/ 없이 80자까지)",
+    r"[A-Za-z0-9+\-]{0,20}:[A-Za-z0-9+\-]{0,20}": "처음:끝 꼴입니다(예: 2026Q1:2027Q4)",
+}
+
+# 본문 없이 abort 한 오류(Flask 의 영어 기본 글) 대신 보일 글
+DEFAULT_ERROR = {400: "받을 수 없는 요청입니다 — 빠진 값이 있거나 값의 모양이 맞지 않습니다", 403: "허용되지 않은 요청입니다",
+                 404: "찾을 수 없습니다", 405: "이 주소로는 할 수 없는 요청입니다", 409: "지금은 할 수 없습니다 — 다른 일과 겹칩니다",
+                 413: "보낸 것이 너무 큽니다", 415: "JSON 본문만 받습니다", 422: "처리할 수 없는 값입니다", 501: "이 화면에서는 할 수 없습니다"}
+
+
+def bad_value(key: str, value: Any, pattern: Any = None, allowed: Any = None) -> str:
+    """받을 수 없는 값의 까닭 — 어느 칸의 무엇이 틀렸고 어떻게 적어야 하는지."""
+    label = KEY_LABEL.get(key, key)
+    shown = str(value)
+    shown = shown if len(shown) <= 40 else shown[:39] + "…"
+    if allowed is not None:
+        rule = "다음 가운데 하나입니다: " + " · ".join(sorted(str(x) for x in allowed))
+    elif pattern is not None:
+        src = pattern.pattern
+        rule = PATTERN_RULE.get(src)
+        if rule is None:
+            m = re.match(r"^\(\?:([a-z|]+)\):|^([a-z]+):", src)
+            rule = f"기록 이름 꼴입니다(예: {(m[1] or m[2]).split('|')[0]}:이름_0001)" if m else "모양이 맞지 않습니다"
+    else:
+        rule = "모양이 맞지 않습니다"
+    return t("{label} ‘{value}’ 은(는) 받을 수 없습니다 — {rule}", label=label, value=shown, rule=rule)
+
+
 def web_dir() -> Path:
     return Path(__file__).resolve().parent / "web"
 
@@ -230,7 +267,8 @@ def create_app(state: AppState) -> Flask:
     # ---- 프로젝트: 개요·계산 ---------------------------------------------------------------------
 
     def worker_error(exc: WorkerError) -> Any:
-        code = {"input": 422, "cancelled": 409, "gone": 503}.get(exc.kind, 500)
+        # conflict: 되돌리기가 뒤의 바뀜과 겹침 · 쓰려던 파일이 밖에서 바뀜, shorter: 새 자료가 지금 회차보다 짧음(사람이 확인할 일)
+        code = {"input": 422, "conflict": 409, "shorter": 409, "cancelled": 409, "gone": 503}.get(exc.kind, 500)
         return jsonify(error=str(exc), kind=exc.kind, detail=exc.detail), code
 
     @app.get("/api/p/<pid>/overview")
@@ -263,7 +301,7 @@ def create_app(state: AppState) -> Flask:
         if value is None:
             return None
         if (pattern is not None and not pattern.fullmatch(value)) or (allowed is not None and value not in allowed):
-            abort(400, description=t("받을 수 없는 값입니다: {key}", key=key))
+            abort(400, description=bad_value(key, value, pattern, allowed))
         return value
 
     @app.post("/api/p/<pid>/est")
@@ -377,9 +415,10 @@ def create_app(state: AppState) -> Flask:
 
     @app.post("/api/p/<pid>/data/build")
     def api_data_build(pid: str) -> Any:
-        """자료 만들기 — 새 회차(내용이 같으면 만들지 않는다). 지금 회차는 바뀌지 않는다."""
-        body()
-        return run(pid, "data_build", t("자료 만들기"))
+        """{allow_shorter?} — 자료 만들기: 새 회차(내용이 같으면 만들지 않는다). 지금 회차는 바뀌지 않는다.
+        새 자료가 지금 회차보다 짧으면 만들지 않고 409(kind shorter, detail 에 시리즈마다 구간) — allow_shorter 면 만든다(`--allow-shorter`)."""
+        allow = body().get("allow_shorter") is True
+        return run(pid, "data_build", t("자료 만들기"), allow_shorter=allow)
 
     @app.post("/api/p/<pid>/data/use")
     def api_data_use(pid: str) -> Any:
@@ -563,14 +602,18 @@ def create_app(state: AppState) -> Flask:
     PERIOD = re.compile(r"[A-Za-z0-9+\-]{1,20}")
     MODES = frozenset({"dynamic", "static", "fit"})
     TEXT_LIMIT = 2_000_000
+    HASH = re.compile(r"[0-9a-f]{64}")          # 파일 내용의 지문(sha256) — 화면이 읽은 것과 지금의 것을 견준다
 
     def names_arg(data: dict[str, Any], key: str, pattern: Any, limit: int = 200) -> list[str] | None:
         """이름들의 목록 — 없으면 None(그 키는 그대로), 빈 목록이면 지운다는 뜻."""
         value = data.get(key)
         if value is None:
             return None
-        if not isinstance(value, list) or len(value) > limit or any(not isinstance(x, str) or not pattern.fullmatch(x) for x in value):
-            abort(400, description=t("받을 수 없는 값입니다: {key}", key=key))
+        if not isinstance(value, list) or len(value) > limit:
+            abort(400, description=t("{label}: {limit}개까지의 목록이어야 합니다", label=KEY_LABEL.get(key, key), limit=limit))
+        for x in value:
+            if not isinstance(x, str) or not pattern.fullmatch(x):
+                abort(400, description=bad_value(key, x, pattern))
         return value
 
     def definition_path(pid: str, data: dict[str, Any]) -> str:
@@ -615,7 +658,7 @@ def create_app(state: AppState) -> Flask:
         data = body()
         name = pick(data, "name", NAME)
         if name is None:
-            abort(400)
+            abort(400, description=t("모형 이름을 적으세요 — {rule}", rule=NAME_RULE))
         desc = data.get("desc")
         if desc is not None and (not isinstance(desc, str) or len(desc) > 200):
             abort(400)
@@ -631,7 +674,7 @@ def create_app(state: AppState) -> Flask:
         data = body()
         name = pick(data, "name", NAME)
         if name is None:
-            abort(400)
+            abort(400, description=t("블록 이름을 적으세요 — {rule}", rule=NAME_RULE))
         desc = text_arg(data, "desc", 200)
         if data.get("dry") is True:
             return ask(pid, "block_define", name=name, desc=desc, dry=True)
@@ -653,13 +696,15 @@ def create_app(state: AppState) -> Flask:
 
     @app.post("/api/p/<pid>/text/write")
     def api_text_write(pid: str) -> Any:
-        """{path, text} — 정의 파일을 글로 고쳐 쓴다. 바뀜 기록이 지켜보는 정의 파일만(작업 프로세스가 가린다), 바뀜 기록에 'Desk'로 남는다."""
+        """{path, text, expect?} — 정의 파일을 글로 고쳐 쓴다. 바뀜 기록이 지켜보는 정의 파일만(작업 프로세스가 가린다), 바뀜 기록에 'Desk'로 남는다.
+        expect: 화면이 읽은 파일 내용의 지문(`GET file` 의 `hash`) — 지금 파일이 다르면 쓰지 않고 409(kind conflict, detail 에 지금의 지문)."""
         data = body()
         text = data.get("text")
         if not isinstance(text, str) or len(text) > TEXT_LIMIT:
             abort(400)
+        expect = pick(data, "expect", HASH)
         rel = definition_path(pid, data)
-        return run(pid, "write_text", t("고침 {path}", path=rel), path=rel, text=text)
+        return run(pid, "write_text", t("고침 {path}", path=rel), path=rel, text=text, expect=expect)
 
     @app.post("/api/p/<pid>/hs/run")
     def api_hs_run(pid: str) -> Any:
@@ -772,11 +817,13 @@ def create_app(state: AppState) -> Flask:
 
     @app.post("/api/p/<pid>/assume")
     def api_assume(pid: str) -> Any:
-        """{name, columns, rows: {기간: {변수: 글}}} — 가정 표를 쓴다(`ASSUMPTIONS/<이름>.csv`). 바뀜 기록에 'Desk'로 남는다."""
+        """{name, columns, rows: {기간: {변수: 글}}, bases?: {기간: {변수: 글}}, force?} — 가정 표를 쓴다(`ASSUMPTIONS/<이름>.csv`). 바뀜 기록에 'Desk'로 남는다.
+        rows 는 고친 칸만(화면은 사람이 친 칸만 보낸다) — 파일의 다른 칸은 지금 파일 그대로 둔다. bases 는 그 칸을 고치기 시작할 때 읽은 값:
+        그 사이 밖에서도 그 칸이 바뀌었으면 쓰지 않고 409(kind conflict, detail 에 칸마다 읽은 값·지금 값·친 값). force 면 친 값으로 덮는다."""
         data = body()
-        name, rows = pick(data, "name", NAME), data.get("rows")
+        name, rows, bases = pick(data, "name", NAME), data.get("rows"), data.get("bases")
         columns = names_arg(data, "columns", SERIES, 400)
-        if name is None or not columns or not isinstance(rows, dict) or len(rows) > 600:
+        if name is None or not columns or not isinstance(rows, dict) or len(rows) > 600 or not isinstance(bases, (dict, type(None))) or len(bases or {}) > 600:
             abort(400)
         for period, cells in rows.items():
             if not isinstance(period, str) or not PERIOD.fullmatch(period) or not isinstance(cells, dict) or len(cells) > 400:
@@ -784,7 +831,12 @@ def create_app(state: AppState) -> Flask:
             for col, value in cells.items():
                 if not isinstance(col, str) or not SERIES.fullmatch(col) or not isinstance(value, str) or not NUMBER.fullmatch(value):
                     abort(400, description=t("{period} {name}: 숫자가 아닙니다", period=str(period)[:20], name=str(col)[:40]))
-        return run(pid, "assume", t("가정 표 {name}", name=name), name=name, columns=columns, rows=rows)
+        for period, cells in (bases or {}).items():
+            if not isinstance(period, str) or not PERIOD.fullmatch(period) or not isinstance(cells, dict) or len(cells) > 400:
+                abort(400)
+            if not all(isinstance(col, str) and SERIES.fullmatch(col) and isinstance(value, str) and len(value) <= 100 for col, value in cells.items()):
+                abort(400)
+        return run(pid, "assume", t("가정 표 {name}", name=name), name=name, columns=columns, rows=rows, bases=bases, force=data.get("force") is True)
 
     @app.post("/api/p/<pid>/sim/run")
     def api_sim_run(pid: str) -> Any:
@@ -914,15 +966,16 @@ def create_app(state: AppState) -> Flask:
 
     @app.post("/api/p/<pid>/revert")
     def api_revert(pid: str) -> Any:
-        """{change, files?} — 되돌리기(`equion history revert`): 그 바뀜 앞의 내용으로 다시 쓴다. files 를 주면 그 파일만."""
+        """{change, files?, force?} — 되돌리기(`equion history revert`): 그 바뀜 하나만 물린다. files 를 주면 그 파일만,
+        force 면 뒤의 바뀜과 겹쳐도 그 파일을 그 바뀜 앞 내용으로 통째로(`--force`)."""
         data = body()
-        change, files = pick(data, "change", CHANGE), data.get("files")
-        if change is None:
+        change, files, force = pick(data, "change", CHANGE), data.get("files"), data.get("force", False)
+        if change is None or not isinstance(force, bool):
             abort(400)
         if files is not None and (not isinstance(files, list) or not 1 <= len(files) <= 60 or any(
                 not isinstance(f, str) or not 0 < len(f) <= 300 or "\\" in f or f.startswith("/") or ".." in f.split("/") for f in files)):
             abort(400)
-        return run(pid, "revert", t("되돌리기 {change}", change=change), change=change, files=files)
+        return run(pid, "revert", t("되돌리기 {change}", change=change), change=change, files=files, force=force)
 
     @app.post("/api/p/<pid>/mark")
     def api_mark(pid: str) -> Any:
@@ -1321,6 +1374,7 @@ def create_app(state: AppState) -> Flask:
     @app.errorhandler(400)
     @app.errorhandler(403)
     @app.errorhandler(404)
+    @app.errorhandler(405)
     @app.errorhandler(409)
     @app.errorhandler(413)
     @app.errorhandler(415)
@@ -1328,7 +1382,10 @@ def create_app(state: AppState) -> Flask:
     @app.errorhandler(501)
     def json_error(err: Any) -> Any:
         if request.path.startswith("/api/"):
-            return jsonify(error=getattr(err, "description", str(err))), err.code
+            said = getattr(err, "description", None)
+            if not said or said == getattr(type(err), "description", None):      # abort(400) 처럼 까닭 없이 — 영어 기본 글을 보이지 않는다
+                said = t(DEFAULT_ERROR.get(err.code, "받을 수 없는 요청입니다"))
+            return jsonify(error=said), err.code
         return err
 
     return app

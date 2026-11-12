@@ -48,7 +48,7 @@ print(wf.to_pandas(["Y_0", "CN_0", "I_0"], labels=True).loc["2020Q1":"2021Q4"].r
 
 # %% 7. 그래프와 저장
 g = wf.graph("g_y", "Y Y_0 Y_1", start="2010Q1", end="2021Q4", title="국민소득: 실측·기준선·시나리오")
-g.save("y.html")                          # 인터넷 없이 열리는 html(plotly 없이도 됨)
+g.save("y.html")                          # html(plotly 없이도 됨) — plotly.js는 인터넷에서 부른다. 인터넷 없이: g.output().save("y.html", include_js="inline")
 wf.save("toy")                            # toy.eqw/ — 자료·방정식 계수·모델·시나리오를 모두 저장
 wf2 = eqn.wfopen("toy.eqw")               # 다시 열면 재추정 없이 그대로
 print(wf2.obj("eq_i").coefs.round(3).to_dict())

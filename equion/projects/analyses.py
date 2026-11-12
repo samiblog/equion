@@ -25,6 +25,7 @@ from ..registry import Analysis, Opt, register
 from ..reporting import markdown as md
 from ..workfile.runtime import quiet
 from ..work.store import WHO_KO, Record, now_iso
+from ..work.lock import locked
 from .config import NAME_RE, ProjectError
 from .records import (_version, _who, data_label, data_spec, definition_hashes, history_of, pfmt, record_equation,
                       short, store_of)
@@ -147,19 +148,23 @@ def run_an(p, name: str, target: str, options: dict = None, smpl: str = None, as
            who: str = None, command: str = None) -> AnRecord:
     """분석 하나를 돌려 기록을 남긴다. note를 주면 그 노트 끝에 명령 블록과 결과 구역을 더한다."""
     a = reg.get(name)
-    if name == "split" and smpl:
-        raise ProjectError("요인 나누기는 표본(--smpl)을 쓰지 않습니다 — 두 기록의 전망 구간을 그대로 나눕니다")
+    if smpl and not a.smpl:
+        raise ProjectError(f"{a.label}는 표본(--smpl)을 쓰지 않습니다 — 기록의 구간을 그대로 씁니다")
     opts = a.defaults()
     defaults = dict(opts)
+    by_name = {o.name: o for o in a.options}
     for k, v in (options or {}).items():
         if k not in opts:
             raise ProjectError(f"{name}: 모르는 옵션 --{k} (옵션: {', '.join('--' + o for o in opts) or '없음'})")
         if v is not None:
+            why = by_name[k].check(v)
+            if why:
+                raise ProjectError(f"{a.label}: {why}")
             opts[k] = v
     history_of(p).scan()
     store = store_of(p)
-    rname = as_name or store.next_name("an", name)
-    store.check_new("an", rname)
+    if as_name:
+        store.check_new("an", as_name)                # 준 이름은 계산 전에 알린다 — 이름은 다 계산한 뒤 잠금 안에서 정한다
     from ..workfile.output import verbose
     wf = p.workfile
     old, old_v = wf._smpl, verbose()
@@ -178,19 +183,20 @@ def run_an(p, name: str, target: str, options: dict = None, smpl: str = None, as
         wf._smpl = old
         verbose(old_v)
     cmd = command or _command(name, target, opts, defaults, smpl)
-    meta = {"who": _who(who), "command": cmd, "project": p.name, "equion": _version(), "analysis": name,
-            "label": a.label, "target": target, "target_label": out.target, "options": opts, "smpl": smpl,
-            "sample": list(out.sample) if out.sample else None, "lines": out.lines, "implicit": out.implicit,
-            "result": out.payload, "makes": out.makes, "data": data_spec(p), "inputs": out.inputs,
-            "tables": [t for t, _ in out.tables], "charts": [c[0] for c in out.charts],
-            "path": f"work/an/{rname}", "id": f"an:{rname}"}
     files = {}
     for k, (_, df) in enumerate(out.tables, 1):
         files[f"table_{k}.csv"] = df
     for k, chart in enumerate(out.charts, 1):
         files[f"chart_{k}.csv"] = chart[1]
-    rec = store.write("an", rname, meta, files, _an_md(meta, out.tables, out.charts),
-                      log={"metric": out.lines[0][:80] if out.lines else ""})
+    with store.naming("an", as_name, name) as rname:   # 같은 분석을 여럿이 한꺼번에 돌려도 이름이 겹치지 않게
+        meta = {"who": _who(who), "command": cmd, "project": p.name, "equion": _version(), "analysis": name,
+                "label": a.label, "target": target, "target_label": out.target, "options": opts, "smpl": smpl,
+                "sample": list(out.sample) if out.sample else None, "lines": out.lines, "implicit": out.implicit,
+                "result": out.payload, "makes": out.makes, "data": data_spec(p), "inputs": out.inputs,
+                "tables": [t for t, _ in out.tables], "charts": [c[0] for c in out.charts],
+                "path": f"work/an/{rname}", "id": f"an:{rname}"}
+        rec = store.write("an", rname, meta, files, _an_md(meta, out.tables, out.charts),
+                          log={"metric": out.lines[0][:80] if out.lines else ""})
     r = AnRecord(rec)
     if note:
         from .notes import append_block
@@ -356,7 +362,8 @@ def _diag(p, target, lags=2, chow=None, cusum=True):
             raise ProjectError(f"{pt.id}는 항등식입니다 — 진단은 추정식만")
         expr, label = pt.expr, f"{pt.id} ({pt.text})"
     obj = EquationObject(wf, "diag")
-    obj._adopt(obj._make(expr, method="tsls" if "@inst" in expr else None), expr, loud=False)
+    from ..formula.parser import has_instruments
+    obj._adopt(obj._make(expr, method="tsls" if has_instruments(expr) else None), expr, loud=False)
     implicit.append("지금 자료로 추정해 진단(채택 계수가 아니라)")
     tabs, charts, lines = [], [], []
     d = obj.diagnostics(lags).data
@@ -874,19 +881,19 @@ register(Analysis("summary", "요약", "자료 살펴보기", ("series", "group"
                   "equion an summary core", _summary))
 register(Analysis("unitroot", "단위근", "단위근·공적분", ("series", "group", "expr"),
                   [Opt("trend", "choice", "c", ("n", "c", "ct"), "결정항 — n 없음 · c 상수 · ct 상수+추세"),
-                   Opt("lags", "int", None, help="ADF 시차 수(없으면 정보기준으로)"),
+                   Opt("lags", "int", None, help="ADF 시차 수(없으면 정보기준으로)", min=0),
                    Opt("ic", "choice", "bic", ("bic", "aic"), "시차를 고르는 정보기준"),
-                   Opt("maxlag", "int", None, help="고를 때의 최대 시차")], None,
+                   Opt("maxlag", "int", None, help="고를 때의 최대 시차", min=0)], None,
                   "시리즈 × ADF·KPSS·판단 표", "ADF(귀무: 단위근)와 KPSS(귀무: 정상)를 함께 — 둘이 다르면 '엇갈림'",
                   "equion an unitroot core --trend ct", _unitroot))
 register(Analysis("coint", "공적분", "단위근·공적분", ("group", "expr"),
                   [Opt("method", "choice", "johansen", ("johansen", "engle"), "Johansen 순위 또는 Engle-Granger"),
                    Opt("trend", "choice", "c", ("n", "c", "ct"), "Engle-Granger의 결정항"),
-                   Opt("lags", "int", 1, help="차분 시차 수"),
-                   Opt("det", "int", 0, help="Johansen 결정항 −1 없음 · 0 상수 · 1 상수+추세")], None,
+                   Opt("lags", "int", 1, help="차분 시차 수", min=0),
+                   Opt("det", "int", 0, help="Johansen 결정항 −1 없음 · 0 상수 · 1 상수+추세", min=-1, max=1)], None,
                   "순위 검정 표", "묶음 또는 'Y X1 X2'(첫 시리즈가 Engle-Granger의 y)", "equion an coint core --lags 2", _coint, count="many"))
 register(Analysis("diag", "식 진단", "식", ("part", "est"),
-                  [Opt("lags", "int", 2, help="계열상관 LM 시차"),
+                  [Opt("lags", "int", 2, help="계열상관 LM 시차", min=1),
                    Opt("chow", "str", None, help="Chow 검정 시점(쉼표로 여럿 — 2008Q3,2015Q1)", metavar="기간"),
                    Opt("cusum", "bool", True, help="CUSUM 그림(OLS)")], None,
                   "진단 검정 표·Chow·CUSUM 차트", "부품(블록 파일의 그 줄) 또는 est: 기록 — 지금 자료로 추정해 진단",
@@ -899,7 +906,7 @@ register(Analysis("split", "요인 나누기", "예측", ("records",),
                   [Opt("vars", "str", None, help="볼 변수(쉼표로 — 없으면 핵심 변수 넷)", metavar="변수들")], None,
                   "변수·연도마다 앞·뒤·바뀜과 자료·가정·식의 몫 표, 단계마다 다시 푼 값, 막대 차트",
                   "두 전망 기록(sim:)의 연간 성장률 바뀜을 자료 → 가정 → 식 차례로 하나씩 바꿔 다시 풀어 나눈다",
-                  "equion an split \"sim:2026-10_base sim:2026-11_base\"", _split, count="two"))
+                  "equion an split \"sim:2026-10_base sim:2026-11_base\"", _split, count="two", smpl=False))
 register(Analysis("stability", "동태 안정성", "모형", ("model",),
                   [Opt("period", "str", None, help="선형화 시점(기본: 자료 끝)", metavar="기간")], None,
                   "고윳값 표·판정", "선형화 동반행렬의 고윳값 — 안정·단위근·불안정", "equion an stability main", _stability))
@@ -921,17 +928,17 @@ register(Analysis("genr", "파생", "만드는 분석", ("assign",), [], "derive
                   "equion an genr \"RR2 = R - 100*dlog(P,4)\"", _genr))
 register(Analysis("ecm", "오차수정모형", "부품을 내는 분석", ("expr",),
                   [Opt("method", "choice", "two-step", ("two-step", "nls"), "Engle-Granger 두 단계 또는 NLS 한 번에"),
-                   Opt("lags", "int", 0, help="단기식에 넣을 차분 시차 수")], "candidate",
+                   Opt("lags", "int", 0, help="단기식에 넣을 차분 시차 수", min=0)], "candidate",
                   "장기식·조정 속도·반감기·단기식", "'Y X1 X2'(보통 로그 수준) — an keep이 단기식을 식 후보로",
                   "equion an ecm \"log(CN) log(Y)\"", _ecm, count="many"))
 register(Analysis("var", "VAR", "부품을 내는 분석", ("group", "expr"),
-                  [Opt("lags", "int", 1, help="시차 수"), Opt("trend", "choice", "c", ("n", "c", "ct"), "결정항"),
-                   Opt("maxlags", "int", 8, help="시차 고르기 표의 최대 시차"),
-                   Opt("irf", "int", 10, help="충격반응 기간")], "candidate",
+                  [Opt("lags", "int", 1, help="시차 수", min=1), Opt("trend", "choice", "c", ("n", "c", "ct"), "결정항"),
+                   Opt("maxlags", "int", 8, help="시차 고르기 표의 최대 시차", min=1),
+                   Opt("irf", "int", 10, help="충격반응 기간", min=1)], "candidate",
                   "계수·시차 고르기·Granger·안정성 표, 충격반응 차트", "an keep이 식마다 식 후보로",
                   "equion an var \"dlog(Y) R\" --lags 2", _var, count="many"))
 register(Analysis("vecm", "VECM", "부품을 내는 분석", ("group", "expr"),
-                  [Opt("lags_diff", "int", 1, help="차분 시차 수"), Opt("rank", "int", 1, help="공적분 순위"),
+                  [Opt("lags_diff", "int", 1, help="차분 시차 수", min=0), Opt("rank", "int", 1, help="공적분 순위", min=1),
                    Opt("det", "choice", "ci", ("n", "ci", "co", "li", "lo"), "결정항")], "candidate",
                   "α·β·Γ 표", "an keep이 식마다 식 후보로", "equion an vecm \"RL R\" --rank 1", _vecm, count="many"))
 register(Analysis("system", "시스템 추정", "부품을 내는 분석", ("block",),
@@ -945,11 +952,11 @@ register(Analysis("stats", "기술 통계", "기초 통계", ("series", "group",
                   "시리즈마다 관측치·평균·표준편차·사분위·왜도·첨도·Jarque-Bera 표", "결측은 시리즈마다 뺀다 — 묶음이면 시리즈마다 한 줄",
                   "equion an stats core", _stats, count="any"))
 register(Analysis("hist", "히스토그램", "기초 통계", ("series", "expr"),
-                  [Opt("bins", "int", None, help="구간 수(없으면 스터지스)")], None,
+                  [Opt("bins", "int", None, help="구간 수(없으면 스터지스)", min=1)], None,
                   "구간별 도수·비율·정규 기대도수 표, 막대 차트", "시리즈 하나 — 같은 평균·표준편차의 정규분포와 견준다",
                   "equion an hist \"dlog(Y)\"", _hist, count="one"))
 register(Analysis("acf", "자기상관", "기초 통계", ("series", "expr"),
-                  [Opt("lags", "int", None, help="시차 수(없으면 주기에 맞춰 — 분기 12 · 월 24 · 연 10)")], None,
+                  [Opt("lags", "int", None, help="시차 수(없으면 주기에 맞춰 — 분기 12 · 월 24 · 연 10)", min=1)], None,
                   "시차별 자기상관·편자기상관·Q·p값 표, 막대 차트(95% 한계)", "시리즈 하나 — 차분·증가율로도 본다(dlog(Y))",
                   "equion an acf \"dlog(Y)\" --lags 12", _acf, count="one"))
 register(Analysis("corr", "상관", "기초 통계", ("group", "expr"),
@@ -957,15 +964,15 @@ register(Analysis("corr", "상관", "기초 통계", ("group", "expr"),
                   "상관 행렬·p값·공분산·쌍마다 표, 색 격자(둘이면 산점도)", "묶음 또는 'Y CN P' — 공통 표본에서",
                   "equion an corr core", _corr, count="many"))
 register(Analysis("xcorr", "교차상관", "기초 통계", ("expr",),
-                  [Opt("lags", "int", None, help="시차 ±L(없으면 주기에 맞춰)")], None,
+                  [Opt("lags", "int", None, help="시차 ±L(없으면 주기에 맞춰)", min=0)], None,
                   "시차별 교차상관 표, 막대 차트(95% 한계)", "'X Y' 둘 — k > 0이면 Y의 과거와 X의 지금",
                   "equion an xcorr \"dlog(CN) dlog(Y)\"", _xcorr, count="two"))
 register(Analysis("granger", "Granger 인과", "인과·동학", ("group", "expr"),
-                  [Opt("lags", "int", None, help="시차 수(없으면 분기 4 · 월 12 · 연 2)")], None,
+                  [Opt("lags", "int", None, help="시차 수(없으면 분기 4 · 월 12 · 연 2)", min=1)], None,
                   "원인 → 결과마다 F·p값 표, p값 행렬", "묶음 또는 'Y CN P' — 쌍마다 두 시리즈의 공통 표본, 상수 + 각자의 시차",
                   "equion an granger \"dlog(Y) dlog(CN)\" --lags 4", _granger, count="many"))
 register(Analysis("fevd", "분산분해", "인과·동학", ("group", "expr"),
-                  [Opt("lags", "int", 1, help="VAR 시차 수"), Opt("periods", "int", 10, help="기간"),
+                  [Opt("lags", "int", 1, help="VAR 시차 수", min=1), Opt("periods", "int", 10, help="기간", min=1),
                    Opt("trend", "choice", "c", ("n", "c", "ct"), "결정항")], None,
                   "반응 변수마다 기간별 분산분해(%) 표·차트", "VAR의 예측오차 분산분해 — 촐레스키(변수 순서대로)",
                   "equion an fevd \"dlog(Y) R\" --lags 2", _fevd, count="many"))
@@ -976,7 +983,7 @@ register(Analysis("convert", "주기 변환", "자료 살펴보기", ("series", 
                   "equion an convert core --to A --how sum", _convert, count="any"))
 register(Analysis("stochastic", "확률적 모의", "모형", ("model",),
                   [Opt("var", "str", None, help="볼 변수(없으면 내생 앞의 넷)", metavar="변수"),
-                   Opt("reps", "int", 100, help="풀이 횟수"), Opt("range", "str", None, help="구간(기본 [hs] range)", metavar="S:E"),
+                   Opt("reps", "int", 100, help="풀이 횟수", min=1), Opt("range", "str", None, help="구간(기본 [hs] range)", metavar="S:E"),
                    Opt("seed", "int", 1, help="씨앗(같은 결과를 다시)")], None,
                   "변수마다 평균·표준편차·5·50·95% 표, 평균과 90% 띠 차트", "추정 잔차를 기간마다 다시 뽑아(식 사이 상관 보존) 여러 번 푼다",
                   "equion an stochastic main --var Y --reps 200", _stochastic))
@@ -1012,6 +1019,7 @@ class KeepResult:
         return {"record": self.record, "kind": self.kind, "what": self.what, "records": self.records, "change": self.change}
 
 
+@locked
 def keep(p, rid: str, as_name: str = None, replace: bool = False, who: str = None, command: str = None) -> KeepResult:
     """분석 기록을 남긴다 — 만드는 분석은 정의(series.toml·derived.txt, made_by = 기록)로, 부품을 내는 분석은 식 후보(est:)로."""
     import tomlkit

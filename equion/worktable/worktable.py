@@ -121,7 +121,7 @@ class WorkTable:
         self._sample = None
         if start is not None or end is not None:
             self._sample = (parse_period(start, self._freq),
-                            parse_period(end, self._freq))
+                            parse_period(end, self._freq, end=True))
 
         _log.info(f"[WT] 새 Work Table 생성: '{name}' (freq={self._freq} "
               f"= {_FREQ_LABEL[self._freq]})")
@@ -149,7 +149,7 @@ class WorkTable:
         """
         if start is None and end is None:
             return self._sample
-        new = (parse_period(start, self._freq), parse_period(end, self._freq))
+        new = (parse_period(start, self._freq), parse_period(end, self._freq, end=True))
         if new[0] is not None and new[1] is not None and new[0] > new[1]:
             raise ValueError(f"표본 시작이 끝보다 뒤입니다: {start} > {end}")
         self._sample = new
@@ -272,10 +272,10 @@ class WorkTable:
         return self.model
 
     # ----- 표본 → 정수 인덱스 ------------------------------------------
-    def index_of(self, period) -> int:
-        """'2000Q1' 등 시점 표기를 데이터 위치 인덱스로 변환한다."""
+    def index_of(self, period, end: bool = False) -> int:
+        """'2000Q1' 등 시점 표기를 데이터 위치 인덱스로 변환한다. 구간의 끝이면 end=True(해만 적은 표기 → 그 해의 마지막 기)."""
         self._require_data()
-        return locate(self.data.data.index, period, self._freq)
+        return locate(self.data.data.index, period, self._freq, end=end)
 
     def _sample_bounds(self, start=None, end=None):
         """(start, end) 인자 → 정수 인덱스. 미지정 시 sample, 그것도 없으면 전체."""
@@ -290,7 +290,7 @@ class WorkTable:
             s = 0
         # 끝
         if end is not None:
-            e = self.index_of(end)
+            e = self.index_of(end, end=True)
         elif self._sample and self._sample[1] is not None:
             e = self._period_to_index(self._sample[1], side="end")
         else:
@@ -397,7 +397,7 @@ class WorkTable:
         from ..scenario import Scenario, missing_exogenous
         self._require_model()
         last = to_period(self.data.data.index[-1], self._freq)
-        if parse_period(end, self._freq) > last or exog_fill:
+        if parse_period(end, self._freq, end=True) > last or exog_fill:
             self.extend(end, exog_fill=exog_fill)
         sc = scenario or Scenario("forecast")
         if check:
@@ -592,7 +592,7 @@ class WorkTable:
         smp = manifest.get("sample") or {}
         if smp.get("start") or smp.get("end"):
             wt._sample = (parse_period(smp.get("start"), wt._freq),
-                          parse_period(smp.get("end"), wt._freq))
+                          parse_period(smp.get("end"), wt._freq, end=True))
 
         # 데이터
         df = read_frame(out, "data")

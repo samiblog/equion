@@ -113,6 +113,22 @@ def _main(tmp, t0):
     check("A7 꼭 지킬 것 — 근거 기록·결과 불변·제안만·거른 후보·알아서 한 것", all(r in g for r in (
         "근거 기록의 이름", "결과는 고치지 않는다", "제안만", "거른 후보도 기록", "알아서 한 것")))
 
+    lead = g.split("## 3. 명령")[0]
+    check("A8 지금 동작과 맞다 — p.hs는 record=True일 때만 기록 · desk show의 모형은 model:이름 · 없는 메시지를 인용하지 않는다",
+          'record=True' in lead and "기록이 같다" not in g and "`model:main`" in lead and "견줄 지난 기록 없음" not in g)
+    check("A9 정의를 고치는 명령이 규칙에 — block add·remove · data define · scenario define · note add · model/block/group define, "
+          "되돌리는 milestone restore·history revert는 먼저 묻는다",
+          all(f"`{x}" in lead for x in ("block add", "block remove", "data define", "scenario define", "note add", "model define",
+                                        "milestone restore", "history revert")) and "사람에게 먼저 묻는다" in lead
+          and "바깥" in lead and "명령이 없는 고침(블록 파일에 새 식" not in lead)
+    mp = g.split("## 2. 프로젝트 지도")[1].split("## 3.")[0]
+    check("A10 프로젝트 지도 — VIEWS/·work/milestones/·exports/ · SCENARIOS/는 scenario define도 · 블록 파일은 block add도",
+          all(x in mp for x in ("`VIEWS/*.toml`", "`work/milestones/`", "`exports/`", "`scenario define`", "`block add`", "`model define`")))
+    check("A11 알아서 한 것은 work show로 전부 · 스크립트 단계의 '누가'(스크립트 · run:) · 손으로 고친 구역(3 · 스크립트는 !) · 상대 경로 규칙",
+          "`equion work show sim:…`" in g and "'누가'는 `스크립트`" in g and "그 단계가 `!`" in g and "지금 폴더에서 먼저" in g)
+    check("A12 스킬도 — block add · scenario define · 되돌리기는 묻는다 · work show",
+          all(x in sk for x in ("block add", "scenario define", "milestone restore", "history revert", "work show")))
+
     print("\n== B. 명령 예 ==")
     lines = bash_lines(g) + bash_lines(sk)
     bad = [(ln, why) for ln in lines for why in [parses(ln)] if why]
@@ -185,6 +201,9 @@ def _main(tmp, t0):
           and "DATA/raw/inbox/" in cm)
     inline = re.findall(r"`(equion [^`]+)`", cm)
     check("E2 CLAUDE.md의 명령도 읽힌다", inline and all(parses(x) is None for x in inline), str(inline))
+    rd = open(os.path.join(q.root, "README.md"), encoding="utf-8").read()
+    check("E3 README의 Python 예 — 기록을 남기려면 p.hs(…, record=True) · CLAUDE.md는 정의를 고치는 명령과 되돌리기는 묻기를",
+          'p.hs("main", record=True)' in rd and "block add" in cm and "history revert" in cm)
 
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")

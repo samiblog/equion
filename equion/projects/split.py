@@ -55,7 +55,7 @@ def _solve(p, eqs, data, assume, tag: str):
     shocked = {}                                      # 시나리오가 외생 경로에 준 충격의 기간(가정이다 — 실측 칸이어도)
     for sh in sd.get("shocks") or []:
         if sh.get("var") in exo and sh.get("kind") != "add_factor":
-            shocked.setdefault(sh["var"], []).append((_when(sh["from"], sa, ea, F), _when(sh["to"], sa, ea, F)))
+            shocked.setdefault(sh["var"], []).append((_when(sh["from"], sa, ea, F), _when(sh["to"], sa, ea, F, end=True)))
     held = []
     for v in exo:
         vals = wf._data.data[v].to_numpy(dtype=float).copy()
@@ -90,7 +90,7 @@ def _solve(p, eqs, data, assume, tag: str):
         path = np.array([float(col.loc[lab]) if lab in col.index else last for lab in rng])
         for ad in sd.get("addfactor") or []:            # 시나리오의 식 보정 — 기록의 보정항 경로에는 들지 않는다
             if str(ad.get("eq", "")).lower() == x["id"].lower():
-                a_, b_ = _when(ad["from"], sa, ea, F), _when(ad["to"], sa, ea, F)
+                a_, b_ = _when(ad["from"], sa, ea, F), _when(ad["to"], sa, ea, F, end=True)
                 for k, lab in enumerate(rng):
                     if _between(lab, a_, b_, F):
                         path[k] += float(ad["value"])
@@ -99,7 +99,7 @@ def _solve(p, eqs, data, assume, tag: str):
     endo_set = set(m.endogenous)
     for sh in sd.get("shocks") or []:                  # 내생변수의 충격 · 보정항 꼴 충격 — 풀 때 다시 준다(엔진은 보정항으로 푼다)
         if sh.get("var") in endo_set or (sh.get("kind") == "add_factor" and sh.get("var") not in exo):
-            a_, b_ = _when(sh["from"], sa, ea, F), _when(sh["to"], sa, ea, F)
+            a_, b_ = _when(sh["from"], sa, ea, F), _when(sh["to"], sa, ea, F, end=True)
             lo = s if _before(a_, s, F) else a_                     # 풀 구간과 겹치는 데만
             hi = b_ if _before(b_, e, F) else e
             if not _before(hi, lo, F):

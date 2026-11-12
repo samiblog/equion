@@ -60,10 +60,24 @@ def proposal_drop(project: Any, name: str, why: str | None = None) -> dict:
     return _slim(project.drop_proposal(name, why=why or "", who="desk"))
 
 
-def revert(project: Any, change: str, files: list[str] | None = None) -> dict:
-    """되돌리기(`equion history revert`) — 그 바뀜 앞의 내용으로 다시 쓴다(이것도 바뀜 기록에 남는다). files를 주면 그 파일만."""
-    words = ["history", "revert", change, *[x for f in (files or []) for x in ("--file", f)]]
-    done = project.history.revert(change, "desk", command(*words), files=files or None)
+class RevertBlocked(ValueError):
+    """되돌리기가 뒤의 바뀜과 겹침 — 작업 프로세스가 kind 'conflict'(409)로 알린다(ValueError라 그 경로로 잡힌다)."""
+
+    kind = "conflict"
+
+
+def revert(project: Any, change: str, files: list[str] | None = None, force: bool = False) -> dict:
+    """되돌리기(`equion history revert`) — 그 바뀜 하나만 물린다(뒤의 바뀜은 그대로, 이것도 바뀜 기록에 남는다). files를 주면 그 파일만.
+
+    뒤의 바뀜이 같은 줄을 고쳤으면 패키지가 겹침(RevertConflict)으로 멈춘다 — 화면이 알아보게 kind 'conflict'로 알리고,
+    사람이 고르면 force로 그 파일을 그 바뀜 앞 내용으로 통째로 쓴다(`--force`)."""
+    from equion.work.history import RevertConflict
+
+    words = ["history", "revert", change, *[x for f in (files or []) for x in ("--file", f)], *(["--force"] if force else [])]
+    try:
+        done = project.history.revert(change, "desk", command(*words), files=files or None, force=force)
+    except RevertConflict as exc:
+        raise RevertBlocked(str(exc)) from None
     return {"change": done.id if done is not None else None, "reverts": change, "files": list(done.files) if done is not None else [], "command": command(*words)}
 
 

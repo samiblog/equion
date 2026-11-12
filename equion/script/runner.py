@@ -405,6 +405,8 @@ def replay(p, rid: str, who: str = None, command: str = None, echo=None, verbosi
     m = rec.meta
     if m.get("replay_of"):
         raise ScriptError(f"{rid}는 재연 기록입니다 — 원래 기록 {m['replay_of']}을 다시 하세요")
+    if m.get("status") == "cancelled":
+        raise ScriptError(f"{rid}는 끝나지 못한 실행(취소·중단)이라 그때 그대로 다시 할 수 없습니다 — 스크립트를 새로 돌리세요")
     if m.get("origin") != "eqs" or not m.get("script"):
         raise ScriptError(f"{rid}는 Python에서 연 실행이라 스크립트가 없습니다 — 그 Python 스크립트를 다시 돌리세요")
     box = _sandbox(p, rec)
@@ -499,9 +501,10 @@ class ReplayResult:
 def _write_replay(p, rec, steps, same, notes, who, command, echo, verbosity) -> ReplayResult:
     from ..reporting import markdown as md
     from ..work.store import WHO_KO
+    from .record import next_run_name
     from .session import _stem, versions
     store = WorkStore(p.root)
-    name = store.next_name("run", _stem(rec.meta.get("script")))
+    name = next_run_name(store, _stem(rec.meta.get("script")))       # 도는 실행이 잡아 둔 이름은 건너뛴다
     meta = {"who": who or detect_who("terminal"), "command": command or f"equion run --replay {rec.id}", "project": p.name,
             "equion": versions()["equion"], "versions": versions(), "target": rec.meta.get("script"),
             "script": rec.meta.get("script"), "replay_of": rec.id, "params": rec.meta.get("params"),

@@ -70,7 +70,7 @@ Equion — 방정식 추정·연립 모델 풀이: 스크립트 실행·검사·
 | 0 | 성공 |
 | 1 | 스크립트 오류(예외·문법 오류) · `sys.exit(문자열)` |
 | 2 | 풀이 실패 조건(`--fail-on`)에 걸림 — 사유는 화면과 manifest의 `fail_reasons` · Equion 스크립트의 `expect --stop`에 걸림 · `--replay`에 다른 단계 |
-| 3 | 입력 오류: 파일 없음·방정식 문법·모델 구조·merge 실패·잘못된 명령줄 인자 |
+| 3 | 입력 오류: 파일 없음·방정식 문법·식이 쓴 변수가 자료에 없음·모델 구조·merge 실패·`--set` 값이 매개변수의 형이 아님·잘못된 명령줄 인자 · 프로젝트: 없는 부품·기록·회차, 틀이 맞지 않는 원자료, 쓰기 전 검사에 걸린 정의, 사람이 정할 일(손으로 고친 구역을 건너뛴 `note run`·`report update`, 뒤의 바뀜과 겹친 `history revert`) |
 | 130 | Ctrl+C로 중단 |
 
 스크립트의 `sys.exit(n)`(정수)은 그대로 n입니다. 이 약속은 자동화가 기대므로 바꾸지 않습니다(DECISIONS D15).
@@ -157,7 +157,7 @@ helptext("check", "--help")
   --json            결과를 JSON으로
   --strict          경고도 실패(종료 코드 3)로 본다
   --set 이름=값        (.eqs) 매개변수도 검사
-  --project, -p 폴더  (.eqs) 프로젝트 폴더(기본: 스크립트에서 위로)
+  --project, -p 폴더  프로젝트 폴더(기본: 스크립트·지금 폴더에서 위로) — 상대 경로는 지금 폴더에서 없으면 이 폴더에서
 ```
 
 방정식 파일(.txt)은 문법·구조(목표변수 중복·정해지지 않는 변수)·블록, `--data`를 주면 변수 존재와 결측 입력까지, 스크립트(.py)는
@@ -283,7 +283,7 @@ helptext("data", "add", "--help")
 사용법: equion data add [-h] [--project 폴더] [--json] [--source 출처] [--as 이름] [--note 메모] file
 
 인자:
-  file              넣을 파일(csv·xlsx·xls)
+  file              넣을 파일(csv·xlsx — 엑셀 97-2003 .xls는 .xlsx로 저장해서)
 
 옵션:
   -h, --help        도움말을 보이고 끝낸다
@@ -302,8 +302,89 @@ helptext("data", "add", "--help")
 | `use 회차` | 지금 회차를 바꾼다(`equion.toml [data] vintage`, 주석은 그대로) | 없는 회차면 3 |
 | `diff [A B]` | 두 회차의 차이 — 새·없어진 시리즈, 시리즈마다 새 기간과 개정(처음·끝 기간, 최대 차이%). 기본은 지금 회차 → 가장 새 회차 | 0 |
 | `impact [A B]` | 바뀐 시리즈를 쓰는 식과 모형 — 다시 계산하지는 않는다 | 0 |
+| `inbox` | 받은 상자(`DATA/raw/inbox/`)의 파일마다 짝지을 출처와 틀 검사 — 미리보기(아무것도 넣지 않는다). 넣기는 `build --inbox ask·auto` | 짝이 없거나 틀이 맞지 않는 파일이 있으면 3 |
+| `preview 파일 [--sheet] [--header-row] [--time-col] … [--column 열 --convert·--seas]` | 원자료를 미리 본다 — 읽은 그대로의 앞쪽 줄과 그 틀로 읽어 본 결과(쓰지 않는다). `.xls`는 `xlrd`가 있을 때만 | 읽지 못하는 파일 3 |
+| `define 출처 [--file 파일] [--series 이름=열]… [--set 이름.키=값]… [틀 선택지] [--replace]` | 자료 정의 쓰기 — `series.toml`의 `[source.출처]`(불러오기 틀)와 시리즈를 더하거나 고친다(주석은 그대로). 다른 열로 바꾸는 것은 `--replace`일 때만 | 틀·열이 맞지 않으면 3 |
 
+있는 파일을 가리키는 상대 경로(`add`·`preview`·`define --file`)는 지금 폴더에서 먼저, 없으면 프로젝트 폴더에서 찾습니다.
 자료 파일 하나(`[data] file`)를 쓰는 프로젝트에서는 3입니다. 흐름은 [R49](../howto/data.md#r49-원자료에서-자료-회차로--넣기만들기차이바꾸기).
+
+## 정의 쓰기 — model · block · group · view · scenario
+
+정의(`equion.toml`의 `[model.*]`·`[block]`·`[group]`, 블록 파일, `VIEWS/`, `SCENARIOS/`)를 명령으로 더하거나 고칩니다. 쓰기 전에 검사하고(틀리면
+아무것도 쓰지 않고 3), 주석과 차례는 그대로 두며, 고친 것은 바뀜 기록에 남습니다(누가·명령 — 되돌리기는 `history revert`). 손으로 고쳐도 되지만
+명령으로 쓰면 검사와 기록이 함께 됩니다(편집기로 고친 것은 다음 명령 때 '바깥' 바뀜으로 남는다).
+
+```python
+helptext("model", "define", "--help")
+helptext("block", "add", "--help")
+helptext("scenario", "define", "--help")
+```
+<!-- out -->
+```text
+사용법: equion model define [-h] [--blocks 블록들] [--include 모형들] [--exclude 식들] [--desc 글] [--project 폴더]
+                         [--json]
+                         name
+
+인자:
+  name              모형 이름(없으면 새로 만든다)
+
+옵션:
+  -h, --help        도움말을 보이고 끝낸다
+  --blocks 블록들      블록 이름들(쉼표로 — 빈 글이면 지운다)
+  --include 모형들     끼울 모형들(쉼표로)
+  --exclude 식들      뺄 식들(블록:목표, 쉼표로 — 그 목표는 외생이 된다)
+  --desc 글          설명
+  --project, -p 폴더  프로젝트 폴더(기본: 지금 폴더)
+  --json            결과를 JSON으로
+사용법: equion block add [-h] [--desc 글] [--from 블록:목표] [--project 폴더] [--json] name 식
+
+인자:
+  name              블록 이름
+  식                 식 한 줄(예: "M2 c Y RL" — # 뒤는 설명)
+
+옵션:
+  -h, --help        도움말을 보이고 끝낸다
+  --desc 글          설명
+  --from 블록:목표      이 식을 옮긴다(원래 줄과 채택표의 줄을 뺀다)
+  --project, -p 폴더  프로젝트 폴더(기본: 지금 폴더)
+  --json            결과를 JSON으로
+사용법: equion scenario define [-h] [--desc 글] [--base 가정] [--addfactors 보정항] [--model 모형]
+                            [--shock 변수=크기[%][@처음[:끝]]] [--addfactor 블록:목표=값[@처음[:끝]]] [--clear]
+                            [--project 폴더] [--json]
+                            이름
+
+인자:
+  이름                    시나리오 이름(없으면 새로)
+
+옵션:
+  -h, --help            도움말을 보이고 끝낸다
+  --desc 글              설명(빈 글이면 지움)
+  --base 가정             가정 세트(ASSUMPTIONS/이름.csv)
+  --addfactors 보정항      보정항(ADDFACTORS/이름.toml)
+  --model 모형            풀 모형
+  --shock 변수=크기[%][@처음[:끝]]
+                        외생 충격 — POIL=+20%(끝까지) · R=+0.5@start:start+3 · WY=-2%@2026Q1:2026Q4 (여럿이면 거듭)
+  --addfactor 블록:목표=값[@처음[:끝]]
+                        식 보정 — demand:CN=-0.2@start:start+3 (여럿이면 거듭)
+  --clear               충격과 식 보정을 모두 지우고 준 것만 둔다
+  --project, -p 폴더      프로젝트 폴더(기본: 지금 폴더)
+  --json                결과를 JSON으로
+```
+
+| 명령 | 하는 일 | 종료 코드 |
+|---|---|---|
+| `model define 이름 [--blocks a,b] [--include 모형] [--exclude 블록:목표] [--desc 글]` | 모형을 더하거나 고친다 — 준 것만 바꾼다(빈 글은 지운다). 그 모형에 없는 식의 `--exclude`는 쓰기 전에 거절 | 모르는 블록·모형·식 3 |
+| `block define 이름 [--file 파일] [--desc 글]` | 블록을 `[block]`에 더한다 — 파일이 없으면 빈 블록 파일(기본 `EQUATIONS/<이름>.txt`)도 만든다 | 3 |
+| `block add 블록 "식" [--desc 글] [--from 블록:목표]` | 블록 파일에 식 한 줄. 문법 · 한 블록에 같은 목표 둘 · 자료에 없는 시리즈를 쓰기 전에 본다. `--from`이면 그 식을 옮긴다(원래 줄과 채택표의 줄을 뺀다 — 개별 식을 모형의 블록으로) | 3 |
+| `block remove 블록:목표` | 블록 파일에서 그 식의 줄을 뺀다 — 채택표의 그 줄도 | 없는 부품 3 |
+| `group list` · `group define 이름 --series A,B [--transform dlog] [--desc 글]` · `group remove 이름` | 묶음(이름 붙인 시리즈 묶음 — 분석의 대상). 자료에 없는 시리즈는 거절. 지워도 시리즈·기록은 그대로 | 3 |
+| `view list` · `view define 이름 [--series Y,CN] [--show level·qoq·yoy·annual·diff] [--title 글] [--range S:E]` | 보기(`VIEWS/<이름>.toml` — 어느 시리즈를 어떤 모양으로 볼지, 계산의 입력이 아니다). 풀 수 없는 구간은 거절 | 3 |
+| `scenario list` · `scenario show 이름` | 시나리오 목록(읽지 못하는 파일은 그 파일만 '읽지 못함') · 충격과 식 보정 | 없는 시나리오 3 |
+| `scenario define 이름 [--base 가정] [--addfactors 보정항] [--model 모형] [--shock …]… [--addfactor …]… [--clear] [--desc 글]` | 시나리오 파일(`SCENARIOS/<이름>.toml`)을 쓴다. 충격 `변수=크기[%][@처음[:끝]]`(예 `POIL=+20%` · `R=+0.5@start:start+3`), 식 보정 `블록:목표=값[@처음[:끝]]`. `--shock`·`--addfactor`를 주면 그 목록을 통째로 바꾼다. 전망 구간 밖·거꾸로인 기간, 항등식에 준 식 보정, 항등식이 푸는 변수에 준 충격은 거절. 기간 일부가 구간 밖이거나 추정식의 내생변수에 준 충격(그 식의 보정항으로 — %가 아니라 그 수만큼)은 `!`로 알린다 | 3 |
+| `scenario remove 이름` | 시나리오 파일을 지운다(바뀜 기록에 남는다 — 푼 기록은 그대로) | 없는 시나리오 3 |
+
+풀기는 `equion sim 시나리오`. 흐름은 [R61](../howto/forecast.md#r61-시나리오를-명령으로-쓰기--충격-표) · 식 한 줄 더하기는 [가이드 4](../guide/04-equations.md).
 
 ## 작업 명령 — est · adopt · compare · hs · sim
 
@@ -339,7 +420,7 @@ helptext("sim", "--help")
   --adopt {never,if_pass,all}
                         --adopted의 채택 정책(기본 never — 기록만, if_pass — 판단 기준을 통과한 식만)
 사용법: equion hs [-h] [--project 폴더] [--json] [--range S:E] [--mode {dynamic,static,fit}] [--swap 부품=값]
-               [--vs hs:이름] [--as 이름] [--replay hs:이름]
+               [--vs hs:이름] [--as 이름] [--replay hs:이름] [--mce {fair-taylor,stacked,no}]
                [모형|블록]
 
 인자:
@@ -356,8 +437,10 @@ helptext("sim", "--help")
   --vs hs:이름            견줄 HS 기록 — 변수별 RMSPE 전후
   --as 이름               기록 이름(기본 hs_0001 …)
   --replay hs:이름        그 기록의 조립 명세로 그대로 다시(지금 파일과 무관)
+  --mce {fair-taylor,stacked,no}
+                        선행변수 풀이 — 모형 일관 기대(기본 [hs] mce, 없으면 선행 값에 실측)
 사용법: equion sim [-h] [--project 폴더] [--json] [--model 모형] [--range S:E] [--vintage 회차] [--vs sim:이름]
-                [--as 이름] [--mode {dynamic,static}]
+                [--as 이름] [--mode {dynamic,static}] [--mce {fair-taylor,stacked,no}]
                 [시나리오 ...]
 
 인자:
@@ -374,6 +457,8 @@ helptext("sim", "--help")
   --as 이름               기록 이름(시나리오가 하나일 때, 기본 연-월_시나리오)
   --mode {dynamic,static}
                         풀이 방식(기본 [forecast] mode, 없으면 dynamic)
+  --mce {fair-taylor,stacked,no}
+                        선행변수 풀이 — 모형 일관 기대(기본 [forecast] mce, 없으면 선행변수가 있을 때 fair-taylor)
 ```
 
 | 명령 | 하는 일 |
@@ -441,7 +526,7 @@ helptext("history", "--help")
   동작
     list      바뀜 목록(새것이 아래)
     show      바뀜 하나 — 파일과 차이
-    revert    그 바뀜 앞의 내용으로 되돌린다(이것도 바뀜 기록에 남는다)
+    revert    그 바뀜 하나만 되돌린다 — 뒤에 같은 파일이 또 바뀌었으면 그 바뀜의 차이만 물린다(겹치면 멈춤, 이것도 바뀜 기록에 남는다)
 
 옵션:
   -h, --help  도움말을 보이고 끝낸다
@@ -450,6 +535,10 @@ helptext("history", "--help")
 `propose new`는 파일을 바꾸지 않고 바꿀 내용·까닭·미리 계산한 기록을 `work/proposals/<이름>/`에 남기고, `propose apply`가 바꿉니다(만든 뒤 그 파일이
 바뀌었으면 낡음 — `--force`). `propose drop`은 버리되 기록은 남깁니다. `work clean`은 고정·채택·다른 기록이나 제안이 가리키는 기록을 빼고 지울
 목록만 보이고, `--yes`일 때 지웁니다. `history`는 정의 파일의 바뀜(누가·명령·전후·차이 — 명령 밖의 고침은 '바깥')을 보이고 되돌립니다.
+
+`history revert h…`는 **그 바뀜 하나만** 물립니다 — 그 바뀜의 차이만 지금 내용에서 거꾸로 적용하고 뒤의 바뀜은 그대로 둡니다. 뒤의 바뀜이 같은 줄
+(TOML이면 같은 키)을 고쳤으면 아무것도 쓰지 않고 겹친 파일과 뒤의 바뀜을 알리며 **종료 코드 3**입니다. `--force`면 그 파일을 그 바뀜 앞 내용으로
+통째로 씁니다(뒤의 바뀜도 그 파일에서 함께 물린다 — 메모에 남는다). `--file 경로`는 그 바뀜이 고친 파일 가운데 그것만.
 
 ## 분석·노트·보고서 — an · note · report
 
@@ -463,7 +552,31 @@ helptext("report", "add", "--help")
 ```
 <!-- out -->
 ```text
-
+[an list] 분석 23
+  summary      요약       시리즈 · 묶음 · 식(log(Y) 등)       만드는 것 —
+  unitroot     단위근      시리즈 · 묶음 · 식(log(Y) 등)       만드는 것 —
+  coint        공적분      묶음 · 식(log(Y) 등)             만드는 것 —
+  diag         식 진단     부품(블록:목표) · 추정 기록            만드는 것 —
+  fcsteval     예측 평가    기록 여럿                        만드는 것 —
+  split        요인 나누기   기록 여럿                        만드는 것 —
+  stability    동태 안정성   모형                           만드는 것 —
+  multipliers  충격 승수    모형                           만드는 것 —
+  seas         계절조정     시리즈                          만드는 것 시리즈 정의(series.toml)
+  genr         파생       이름 = 식                       만드는 것 파생식(derived.txt)
+  ecm          오차수정모형   식(log(Y) 등)                  만드는 것 식 후보(est:)
+  var          VAR      묶음 · 식(log(Y) 등)             만드는 것 식 후보(est:)
+  vecm         VECM     묶음 · 식(log(Y) 등)             만드는 것 식 후보(est:)
+  system       시스템 추정   블록                           만드는 것 식 후보(est:)
+  stats        기술 통계    시리즈 · 묶음 · 식(log(Y) 등)       만드는 것 —
+  hist         히스토그램    시리즈 · 식(log(Y) 등)            만드는 것 —
+  acf          자기상관     시리즈 · 식(log(Y) 등)            만드는 것 —
+  corr         상관       묶음 · 식(log(Y) 등)             만드는 것 —
+  xcorr        교차상관     식(log(Y) 등)                  만드는 것 —
+  granger      Granger 인과 묶음 · 식(log(Y) 등)             만드는 것 —
+  fevd         분산분해     묶음 · 식(log(Y) 등)             만드는 것 —
+  convert      주기 변환    시리즈 · 묶음 · 식(log(Y) 등)       만드는 것 —
+  stochastic   확률적 모의   모형                           만드는 것 —
+  옵션·예: equion an <분석> --help
 사용법: equion an unitroot [-h] [--project 폴더] [--json] [--trend {n,c,ct}] [--lags LAGS] [--ic {bic,aic}]
                         [--maxlag MAXLAG] [--smpl S:E] [--as 이름] [--note 노트]
                         대상
@@ -526,11 +639,14 @@ helptext("report", "add", "--help")
 |---|---|---|
 | `an <분석> <대상> [옵션] [--smpl S:E] [--as 이름] [--note 노트]` | 분석 하나 → 짧은 글 + 기록. `--note`면 그 노트 끝에 명령 블록과 결과 구역 | 대상·옵션 문제 3 |
 | `an keep an:이름 [--as 이름] [--replace]` | 계절조정 → `series.toml`의 새 시리즈(`made_by`), 파생 → `derived.txt` 한 줄, ECM·VAR·VECM·시스템 → 식 후보(`est:` — 계수 그대로) | 보는 분석이면 3 |
-| `note run 노트 [--block n] [--stale] [--force]` | 블록을 실행해 결과 구역을 채운다(블록마다 새 기록). 손으로 고친 구역은 `--force`일 때만 덮는다 | 블록에 오류·허용 안 된 명령이 있으면 1 |
-| `note check 노트…` | 실행하지 않고 — 실행 안 함·없는 기록·낡음·손으로 고침·허용 안 된 명령 | 허용 안 된 명령이 있으면 3 |
+| `note run 노트 [--block n] [--stale] [--force]` | 블록을 실행해 결과 구역을 채운다(블록마다 새 기록). 손으로 고친 구역은 덮지 않고 건너뛴다(`--force`일 때만 덮는다 — 다른 블록은 돈다) | 블록의 명령이 실패하면 1 · 허용 안 된 줄이 있거나 손으로 고친 구역을 건너뛰었으면 3 |
+| `note check 노트…` | 실행하지 않고 — 실행 안 함·없는 기록·낡음(기록 없는 블록도 — 실행 때의 자료 회차·정의 파일과 지금을 견준다)·손으로 고침·허용 안 된 명령 | 허용 안 된 명령이 있으면 3 |
+| `note add 노트 [--line 명령]… [--record 기록] [--title 글]` | 노트 끝에 명령 블록을 더한다 — `--line`은 블록의 명령 줄(여럿이면 거듭), `--record`면 그 기록의 명령과 카드를 결과 구역으로. 노트가 없으면 새로(`--title`) | 노트가 부를 수 없는 명령 3 |
 | `report new 이름 [--title] [--from 보고서]` | 새 보고서(틀) — `--from`이면 복사하고 구역마다 바꿔 낄 기록을 제안 | 0 |
 | `report add 보고서 기록[#표] [--rows] [--show level·qoq·yoy·diff] [--annual] [--digits] [--chart] [--under 제목]` | 보고서로 보내기 — 결과만(명령 블록 없이) | 없는 행·기록 3 |
-| `report check 보고서` · `report update 보고서 [--region n] [--to 기록] [--dry-run] [--force]` | 구역마다 더 새 기록·낡음·손으로 고침 · 같은 모양으로 다시 만들어 차이를 보이고 적용(손으로 고친 구역은 고친 곳을 보이고 `--force`일 때만) | 0 |
+| `report check 보고서` · `report update 보고서 [--region n] [--to 기록] [--dry-run] [--force]` | 구역마다 더 새 기록·낡음·손으로 고침 · 같은 모양으로 다시 만들어 차이를 보이고 적용(손으로 고친 구역은 고친 곳을 보이고 `--force`일 때만). '더 새 기록'은 같은 계산을 새 자료로 다시 한 것만 — 바꿔 끼운 과거 재현·다른 회차에 묶은 전망·다른 식이나 표본의 후보는 고르지 않는다 | `update`가 손으로 고친 구역을 건너뛰었으면 3(`--dry-run`은 0) |
+
+스크립트(`.eqs`) 안에서는 손으로 고친 구역을 건너뛴 단계(`note run`·`report update`·`report add --key`)가 멈추지 않고 `!`(까닭과 함께)로 남고 실행은 이어 갑니다.
 
 ## 스크립트 — run x.eqs · run --replay · check x.eqs · script
 
@@ -590,11 +706,88 @@ helptext("script", "export", "--help")
   --json            결과를 JSON으로
 ```
 
+## 이정표·묶음 — milestone · bundle
+
+중요한 때(전망 확정 등)의 정의 파일 사본 · 자료 회차 · 고정한 기록을 이름으로 묶어 두고(`work/milestones/<이름>/`), 지금과 견주고, 정의를 그때로
+되돌립니다. 다른 PC로 옮길 때는 묶어 보내기(zip 하나). 형식은 [파일 형식 — 이정표와 묶음](formats.md#이정표workmilestones와-묶음equion-bundle).
+
+```python
+helptext("milestone", "--help")
+helptext("bundle", "make", "--help")
+helptext("bundle", "open", "--help")
+```
+<!-- out -->
+```text
+사용법: equion milestone [-h] 동작 ...
+
+인자:
+  동작
+    list      이정표 목록
+    make      이정표를 만든다(work/milestones/이름/ — 정의 파일은 바꾸지 않는다)
+    show      이정표와 지금 — 바뀐 정의 파일과 차이, 자료 회차
+    restore   정의를 이정표 때로 되돌린다(바뀜 기록에 남는다 — 그것도 되돌릴 수 있다)
+
+옵션:
+  -h, --help  도움말을 보이고 끝낸다
+사용법: equion bundle make [-h] [--out 파일] [--raw] [--records {keep,all,none}] [--project 폴더] [--json]
+
+옵션:
+  -h, --help            도움말을 보이고 끝낸다
+  --out 파일              zip 경로(기본 exports/<프로젝트>_<날짜>.zip — 상대 경로는 프로젝트 폴더 기준)
+  --raw                 원자료(DATA/raw/)도 넣는다
+  --records {keep,all,none}
+                        기록 — keep: 채택·고정·가리키는 것(기본) · all · none
+  --project, -p 폴더      프로젝트 폴더(기본: 지금 폴더)
+  --json                결과를 JSON으로
+사용법: equion bundle open [-h] [--json] 묶음 폴더
+
+인자:
+  묶음          묶음 파일(.zip)
+  폴더          풀 폴더(없거나 비어 있어야 한다)
+
+옵션:
+  -h, --help  도움말을 보이고 끝낸다
+  --json      결과를 JSON으로
+```
+
+| 명령 | 하는 일 | 종료 코드 |
+|---|---|---|
+| `milestone make 이름 [--note 글]` | 이정표를 만든다 — 정의 파일은 바꾸지 않는다 | 이름이 있으면 3 |
+| `milestone list` · `milestone show 이름 [--diff]` | 이정표 목록 · 그때와 지금 — 바뀐 정의 파일과 차이, 자료 회차 | 없는 이정표 3 |
+| `milestone restore 이름 [--file 경로]…` | 정의를 이정표 때로 되돌린다(바뀜 기록에 남는다 — 그것도 되돌릴 수 있다). `--file`이면 그 파일만 | 없는 이정표 3 |
+| `bundle make [--out 파일] [--raw] [--records keep·all·none]` | 정의 · 노트 · 보고서 · 지금 자료 회차 · 남길 기록(과 그 기록이 쓰는 회차) · 이정표를 zip 하나로. 원자료(`DATA/raw/`)는 `--raw`일 때만, 바뀜 기록·Desk 화면 상태는 넣지 않는다. 기본 `exports/<프로젝트>_<날짜>.zip`(상대 경로는 프로젝트 폴더 기준) | 0 |
+| `bundle open 묶음.zip 폴더` | 묶음을 빈 폴더에 풀어 프로젝트로 — 폴더 밖을 가리키는 경로가 든 묶음은 거절 | 폴더가 비어 있지 않으면 3 |
+
+흐름은 [R65](../howto/model.md#r65-이정표와-묶어-보내기--확정한-때를-남기고-다른-pc로-옮기기).
+
+## Equion Desk에 알리기 — desk
+
+```python
+helptext("desk", "show", "--help")
+```
+<!-- out -->
+```text
+사용법: equion desk show [-h] [--project 폴더] [--json] 이름
+
+인자:
+  이름                기록(est:… · hs:… · sim:… · an:… · run:…) · 제안(prop:…) · 자료 회차(data:…) · 부품(블록:목표) ·
+                    모형(model:이름) · 파일 경로 · home·data·analysis·forecast·reports·records·changes·proposals
+
+옵션:
+  -h, --help        도움말을 보이고 끝낸다
+  --project, -p 폴더  프로젝트 폴더(기본: 지금 폴더)
+  --json            결과를 JSON으로
+```
+
+`equion desk show 이름`은 이름(기록 · 제안 · 자료 회차 · 부품 · 모형 · 파일 · 화면 이름)을 확인하고 `work/desk/requests.jsonl`에 한 줄을 덧붙입니다 — 그 프로젝트를
+열어 둔 Equion Desk가 그 화면을 엽니다. 화면 이동만 하고 계산하거나 바꾸지 않습니다(앱이 떠 있지 않으면 아무 일도 없다). 없는 이름은 3.
+Claude Code가 "결과를 화면에 띄워 줘"를 받았을 때 쓰는 명령입니다([Equion Desk 사용설명서 9장](../desk/09-claude.md)).
+
 ## Claude용 안내 — guide
 
 Equion 프로젝트에서 일하는 Claude가 먼저 읽는 **모형 작업 안내**(규칙·프로젝트 지도·명령·분석·판단 기준·기록 읽기·보고 꼴)와 Claude Code **스킬
 초안**이 패키지에 들어 있습니다(`equion/help/`). 안내의 명령·분석·허용 목록 표는 등록부와 명령줄에서 만들어 코드와 늘 같습니다
-(`python docs/make_api.py --check`가 CI에서 본다). 예제 프로젝트의 `CLAUDE.md`가 Claude Code에게 먼저 `equion guide`를 읽게 합니다.
+(`python docs/make_api.py --check`가 검사한다). 예제 프로젝트의 `CLAUDE.md`가 Claude Code에게 먼저 `equion guide`를 읽게 합니다.
 
 | 명령 | 하는 일 |
 |---|---|
@@ -634,6 +827,8 @@ Equion 프로젝트에서 일하는 Claude가 먼저 읽는 안내(규칙·프�
 | `EQUION_WHO` | 작업 기록·바뀜 기록의 '누가'(`desk`·`script` …) — 없으면 Claude Code 안(`CLAUDECODE`)은 `claude`, 명령줄은 `terminal`. 스크립트의 단계는 `script` |
 | `EQUION_RUN` | 스크립트 실행 안에서 만든 기록·바뀜 기록에 그 실행 이름(`run:…`)을 적는다(스크립트가 정한다) |
 | `EQUION_NO_ASK` | `1`이면 묻지 않는다(`data build --inbox ask`가 `auto`처럼 — 재연이 쓴다). `CI`가 있어도 묻지 않는다 |
-| `PYTHONIOENCODING` | 화면 출력 인코딩. 한글을 못 쓰는 출력(영문 Windows 파이프)에서도 Equion은 멈추지 않고 `\uXXXX`로 바꿔 쓴다 |
+| `EQUION_NO_PYTHON` | 있으면 Python을 돌리지 않는다 — 스크립트의 `py` 단계와 노트의 Python 블록을 건너뛰고 터미널에서 돌리라고 알린다(Equion Desk의 작업 프로세스가 쓴다 — D62) |
+| `EQUION_ALLOW_PICKLE` | `1`이면 레거시 pickle 파일을 연다(열 때 코드가 실행될 수 있다 — 믿을 수 있는 파일만). 함수의 `allow_pickle=True`·`equion convert … --allow-pickle`과 같다 |
+| `PYTHONIOENCODING` | 화면 출력 인코딩. 정하지 않았으면 Windows에서 콘솔이 아닌 곳(파이프·파일)으로 나가는 출력은 UTF-8, 콘솔은 그대로. 정한 인코딩에 없는 글자(영문 Windows의 cp1252 등)는 멈추지 않고 `\uXXXX`로 바꿔 쓴다 |
 
 관련: [파일 형식 — 보고서 폴더·manifest](formats.md) · [명령줄 레시피](../howto/cli.md)

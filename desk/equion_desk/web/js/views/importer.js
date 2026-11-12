@@ -219,10 +219,12 @@ export function importView(project, desc) {
       input.addEventListener('input', () => setFrame(key, input.value === '' ? '' : Math.max(1, parseInt(input.value, 10) || 1)));
       return input;
     };
-    const pick = (key, options, title) => {
+    const pick = (key, options, title) => {       // options: [값, 보일 글, 같은 뜻의 다른 값들(서버가 돌려주는 기본값 'rows' 같은)]
       const select = h('select', { class: 'mini-select', 'data-frame': key, title }, options.map(([value, label]) => h('option', { value }, label)));
-      const now = String(f[key] ?? '');
-      if (now && !options.some(([value]) => String(value) === now)) select.append(h('option', { value: now }, now));       // 손으로 적은 값(열 이름·번호)도 그대로 보인다
+      let now = String(f[key] ?? '');
+      const same = options.find(([value, , also]) => String(value) === now || (also || []).includes(now));
+      if (same) now = String(same[0]);
+      else if (now) select.append(h('option', { value: now }, now));       // 손으로 적은 값(열 이름·번호)도 그대로 보인다
       select.value = now;
       select.addEventListener('change', () => setFrame(key, /^\d+$/.test(select.value) && key === 'sheet' ? Number(select.value) : select.value));
       return select;
@@ -236,7 +238,7 @@ export function importView(project, desc) {
     const colPick = (key, title, none) => pick(key, [['', none], ...Array.from({ length: width }, (_, k) => [letter(k), `${letter(k)}${v?.grid.some((r) => r[k]) ? ` · ${(v.grid.find((r) => r[k]) || [])[k] || ''}`.slice(0, 22) : ''}`])], title);
     return h('div', { class: 'eq-opts an-opts frame-row' }, h('span', { class: 'lead' }, '② 틀'),
       v?.sheets?.length ? h('label', { class: 'opt' }, h('span', {}, '시트'), pick('sheet', [['', v.sheets[0]], ...v.sheets.slice(1).map((s) => [s, s])], '엑셀의 시트')) : null,
-      h('label', { class: 'opt' }, h('span', {}, '시점'), pick('time_axis', [['', '행으로 내려감'], ['columns', '열로 감']], '시점이 아래로 내려가는 표(보통) · 오른쪽으로 가는 표(줄마다 시리즈 하나인 통계표)')),
+      h('label', { class: 'opt' }, h('span', {}, '시점'), pick('time_axis', [['', '행으로 내려감', ['rows']], ['columns', '열로 감']], '시점이 아래로 내려가는 표(보통) · 오른쪽으로 가는 표(줄마다 시리즈 하나인 통계표)')),
       cols ? [
         h('label', { class: 'opt' }, h('span', {}, '시점 줄'), num('time_row', '시점(2003Q4 · 2018 1/4 …)이 적힌 줄 — 표의 줄 번호를 눌러도 됩니다', '1')),
         h('label', { class: 'opt' }, h('span', {}, '이름 열'), colPick('name_col', '시리즈 이름이 있는 열', '첫 열(A)')),

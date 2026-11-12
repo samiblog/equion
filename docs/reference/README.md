@@ -36,4 +36,4 @@
 - 예제의 `eqn`·`np`·`pd`는 미리 들어 있다. 예제 자료(`eqn.datasets`)를 쓰고, 결과는 반올림해 플랫폼마다 같게 한다.
 - numpy 값의 비교는 `bool(...)`·`float(...)`로 감싼다(`np.True_`가 찍히지 않게). 돌리면 안 되는 줄은 `# doctest: +SKIP`.
 - 공개 함수(속성·보기 메서드 제외)는 예제가 있어야 하고, 모든 공개 항목은 설명이 있어야 한다 — 검사가 확인한다.
-- docstring을 고치면 `python docs/make_api.py`로 API 참조를 다시 만든다(CI가 `--check`).
+- docstring을 고치면 `python docs/make_api.py`로 API 참조를 다시 만든다(`--check`로 검사 — 출시 전에).

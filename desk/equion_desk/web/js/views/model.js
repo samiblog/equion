@@ -9,7 +9,7 @@
 
 import { drawLines } from '../chart.js';
 import { claudeButton } from '../claude.js';
-import { confirmDialog } from '../dialog.js';
+import { confirmDialog, nameRule } from '../dialog.js';
 import { clear, cmdText, copyText, flash, h, icon, kindPill, put, when, whoLabel } from '../util.js';
 import { diffBlock } from './lists.js';
 
@@ -152,7 +152,7 @@ export function modelView(project, desc) {
     const picked = { blocks: new Set(spec.blocks), include: new Set(spec.include), exclude: new Set(spec.exclude) };
     const chips = (key, items, cls = '') => h('div', { class: 'chip-set' }, items.length ? items.map((item) => {
       const b = h('button', { class: `pc ${cls}`.trim(), type: 'button', 'aria-pressed': String(picked[key].has(item)), 'data-pick': `${key}:${item}` }, item);
-      b.addEventListener('click', () => { if (picked[key].has(item)) picked[key].delete(item); else picked[key].add(item); b.setAttribute('aria-pressed', String(picked[key].has(item))); });
+      b.addEventListener('click', () => { if (picked[key].has(item)) picked[key].delete(item); else picked[key].add(item); b.setAttribute('aria-pressed', String(picked[key].has(item))); b.dispatchEvent(new Event('dialog-check', { bubbles: true })); });
       return b;
     }) : h('span', { class: 'muted' }, '없습니다'));
     const parts = o.blocks.flatMap((b) => b.parts.filter((p) => p.kind !== 'identity').map((p) => p.id));
@@ -163,7 +163,13 @@ export function modelView(project, desc) {
       h('div', { class: 'field-row top' }, h('span', { title: '다른 모형을 통째로 끼운다 — 그 모형이 바뀌면 함께 바뀐다' }, '끼울 모형'), chips('include', o.models.map((m) => m.name).filter((m) => m !== spec.name))),
       h('div', { class: 'field-row top' }, h('span', { title: '뺀 식의 목표는 외생(실측)이 된다' }, '뺄 식'), chips('exclude', parts)),
       h('p', { class: 'muted' }, '누르면 다음 상자에서 equion.toml 에 적힐 줄을 보입니다 — 거기서 저장합니다.'));
-    if (!(await confirmDialog({ title: isNew ? '새 모형' : `모형 ${spec.name} 고치기`, body: form, confirm: '바뀔 내용 보기', wide: true }))) return;
+    // 새 모형은 이름과 블록(또는 끼울 모형)이 있어야 다음으로 — 빈 채로 누르면 무엇을 적을지 단추 옆에 보인다
+    const valid = () => {
+      const r = isNew ? nameRule(name.value, { what: '모형 이름' }) : true;
+      if (r !== true) return r;
+      return picked.blocks.size || picked.include.size ? true : '블록이나 끼울 모형을 하나 이상 고르세요';
+    };
+    if (!(await confirmDialog({ title: isNew ? '새 모형' : `모형 ${spec.name} 고치기`, body: form, confirm: '바뀔 내용 보기', wide: true, valid, enter: true }))) return;
     const body = { name: name.value.trim(), desc: text.value.trim(), blocks: [...picked.blocks], include: [...picked.include], exclude: [...picked.exclude] };
     await writeDefinition('model/define', body, isNew ? '새 모형' : '모형 고치기', (res) => {
       if (isNew) project.openTab({ type: 'model', model: res.name });
@@ -176,7 +182,7 @@ export function modelView(project, desc) {
     const text = h('input', { class: 'mini-input wide plain', type: 'text', placeholder: '한 줄 설명 — 예: 노동', 'aria-label': '설명' });
     const form = h('div', { class: 'adopt define-form' }, h('p', {}, '블록은 방정식 파일 하나입니다. 빈 파일(EQUATIONS/이름.txt)을 만들고 equion.toml 의 [block] 에 적습니다 — 식은 그 파일에 한 줄에 하나씩 적고, 모형에는 ‘모형 고치기’로 넣습니다.'),
       h('label', { class: 'field-row' }, h('span', {}, '이름'), name), h('label', { class: 'field-row' }, h('span', {}, '설명'), text));
-    if (!(await confirmDialog({ title: '새 블록', body: form, confirm: '바뀔 내용 보기', wide: true }))) return;
+    if (!(await confirmDialog({ title: '새 블록', body: form, confirm: '바뀔 내용 보기', wide: true, valid: () => nameRule(name.value, { what: '블록 이름' }), enter: true }))) return;
     await writeDefinition('block/define', { name: name.value.trim(), desc: text.value.trim() }, '새 블록', (res) => {
       if (res.files?.[0]) project.openTab({ type: 'file', path: res.files[0], edit: true });
     });

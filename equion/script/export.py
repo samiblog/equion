@@ -9,6 +9,7 @@ from datetime import date
 from typing import List
 
 from .. import registry as reg
+from ..work.lock import locked
 from ..work.store import KIND_KO, WorkStore
 from .language import Script, ScriptError, parse
 
@@ -78,6 +79,7 @@ def draft(p, records: List[str] = None, last: int = None, title: str = None) -> 
     return "\n".join(L) + "\n"
 
 
+@locked
 def new_script(p, name: str, records: List[str] = None, last: int = None, title: str = None, force: bool = False,
                who: str = None, command: str = None) -> str:
     """FLOWS/<이름>.eqs를 만든다(바뀜 기록에 남는다) → 프로젝트 기준 경로."""

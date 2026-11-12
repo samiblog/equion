@@ -15,7 +15,7 @@ Simulation(HS)·전망·시나리오를 수행한다. **방정식(회귀 체계)
 - **이름(D16)**: 패키지·import·명령 `equion`(별칭 `import equion as eqn`), 데스크톱 앱 **Equion Desk**
   (설치 파일 `EquionDesk-<버전>-setup.exe`, Windows 전용 — D29). 0.5.0에서 `macromodel` → `equion`으로 바꿨다 —
   옛 `.mmw` 워크파일·`macromodel-run` 보고서·레거시 pickle(`macromodel.*` 경로)·`MACROMODEL_PARAMS`는 계속 읽는다.
-- Equion **0.9.0** (2026-11-12, 공개 버전 하나 — 엔진 형식 표시 `ENGINE_VERSION`은 내부 값). 결정 D1~D65(`docs/DECISIONS.md`),
+- Equion **0.9.1** (2026-11-13, 공개 버전 하나 — 엔진 형식 표시 `ENGINE_VERSION`은 내부 값). 결정 D1~D67(`docs/DECISIONS.md`),
   진행 `docs/ROADMAP.md`, 바뀐 점 `CHANGELOG.md`. 사용자 문서 첫 페이지 `docs/README.md`(D27), 문서 검사 `docs/build_docs.py`.
 - **세 단계(D1)**: ① 라이브러리 — 워크파일 API `import equion as eqn` (완료) ② CLI `equion run` (완료)
   ③ 데스크톱 앱 Equion Desk(lectern 스타일, **Windows 전용**(D29) — 패키지는 3 OS 그대로) — **개발 계획 확정(D31)**:
@@ -48,25 +48,26 @@ uv run python docs/make_api.py                # docs/reference/api.md·Claude용
 uv run equion guide                           # Claude용 모형 작업 안내(equion/help/guide.md) · guide skill [--install user|project]
 uv run python docs/build_docs.py              # 문서 예제 실행 → 출력 채우기 · examples/ 내보내기 (--check: 바꾸지 않고 검사, --only 경로)
 
-uv run python tests/test_engine.py            # 엔진 회귀 104/104 (일관성·DSL·보안·구조·HS·시나리오·기간 모듈·입력 한도/퍼징·안정성·기여도 분해·희소·stacked MCE…)
-uv run python tests/test_workfile.py          # 워크파일 API 96/96 (로그·npz 저장·선택 의존성·메타데이터·페이지·주기 변환·Denton/Chow-Lin·STL 포함)
-uv run python tests/test_cli.py               # 명령줄 72/72 (보안·Windows 인코딩·명령 한 줄 실행기 포함)
+uv run python tests/test_engine.py            # 엔진 회귀 119/119 (일관성·DSL·보안·구조·HS·시나리오·기간 모듈·입력 한도/퍼징·안정성·기여도 분해·희소·stacked MCE…)
+uv run python tests/test_workfile.py          # 워크파일 API 109/109 (로그·npz 저장·선택 의존성·메타데이터·페이지·주기 변환·Denton/Chow-Lin·STL 포함)
+uv run python tests/test_cli.py               # 명령줄 91/91 (보안·Windows 인코딩·명령 한 줄 실행기 포함)
 uv run python tests/test_scenarios.py         # 상황별 시나리오 92/92 (합성 자료 — 경계·오용·연/월·명령줄·예제 자료·기간 표기·플랫폼 무관)
-uv run python tests/test_stats.py             # 자체 통계 186/186 (OLS·WLS·GMM·LIML·PDL·AR 오차·ECM·예측 평가·시스템(SUR·3SLS·FIML)·비선형(NL-2SLS·비선형 시스템·FIML)·VAR·VECM·강건 공분산·진단·단위근·기초 통계)
+uv run python tests/test_stats.py             # 자체 통계 189/189 (OLS·WLS·GMM·LIML·PDL·AR 오차·ECM·예측 평가·시스템(SUR·3SLS·FIML)·비선형(NL-2SLS·비선형 시스템·FIML)·VAR·VECM·강건 공분산·진단·단위근·기초 통계)
 uv run python tests/test_ast_formula.py       # 66/66 (레거시 formula 유틸)
 uv run python tests/test_100_equations.py     # 100/100
 uv run python tests/test_error_equations.py   # 에러 검증 시각화
-uv run python tests/test_journeys.py          # 사용자 관점 시나리오 44/44 (docs/TEST_SCENARIOS.md — 한 해 운영·협업·실패와 회복·적대적 입력·이식성·명령줄·규모·2차판 J8)
-uv run python tests/test_guide.py             # Claude용 안내·스킬 21/21 (자동 표가 코드와 같음·예시 명령이 모두 읽힘·방정식 예·guide 명령·예제 CLAUDE.md)
-uv run python tests/test_script.py            # 스크립트·재연 72/72 (문법·값 바꿔 넣기·허용 목록·받은 원자료·실행 기록·expect·Python 단계·미리보기·검사·재연·초안·Python으로·명령줄·완료 기준)
-uv run python tests/test_analysis.py          # 분석·노트·보고서 129/129 (등록부·보는 분석 = 엔진·남기기(정의·후보)·노트(블록 더하기)·보고서·명령줄·분석 시나리오 A1~A5·기초 통계 분석·요인 나누기)
-uv run python tests/test_work.py              # 작업 명령·기록 182/182 (저장소·바뀜 기록·md·est·기준·adopt·compare·HS 기록·replay·sim·est --adopted·propose·export·명령줄·장면 2·4·5)
-uv run python tests/test_project.py           # 프로젝트 250/250 (equion.toml·부품·조립 검사·블록 HS·항등식 검사·자료 정의·회차·상대 기간·assemble/ident/data 명령·원자료 미리보기·정의 쓰기·모형과 블록 정의·보기·Desk에 알리기·묶음과 식 한 줄·시나리오 쓰기·시점이 열로 가는 표·이정표·묶어 보내기)
+uv run python tests/test_journeys.py          # 사용자 관점 시나리오 65/65 (docs/TEST_SCENARIOS.md — 한 해 운영·협업·실패와 회복·적대적 입력·이식성·명령줄·규모·2차판 J8·여러 달 운영·끊김과 동시 실행·낯선 받은 파일·풀리지 않는 모형 J9~J12)
+uv run python tests/test_guide.py             # Claude용 안내·스킬 27/27 (자동 표가 코드와 같음·예시 명령이 모두 읽힘·방정식 예·guide 명령·예제 CLAUDE.md)
+uv run python tests/test_script.py            # 스크립트·재연 87/87 (문법·값 바꿔 넣기·허용 목록·받은 원자료·실행 기록·expect·Python 단계·미리보기·검사·재연·초안·Python으로·명령줄·완료 기준)
+uv run python tests/test_analysis.py          # 분석·노트·보고서 139/139 (등록부·보는 분석 = 엔진·남기기(정의·후보)·노트(블록 더하기)·보고서·명령줄·분석 시나리오 A1~A5·기초 통계 분석·요인 나누기)
+uv run python tests/test_work.py              # 작업 명령·기록 228/228 (저장소·바뀜 기록·md·est·기준·adopt·compare·HS 기록·replay·sim·est --adopted·propose·export·명령줄·장면 2·4·5)
+uv run python tests/test_project.py           # 프로젝트 286/286 (equion.toml·부품·조립 검사·블록 HS·항등식 검사·자료 정의·회차·상대 기간·assemble/ident/data 명령·원자료 미리보기·정의 쓰기·모형과 블록 정의·보기·Desk에 알리기·묶음과 식 한 줄·시나리오 쓰기·시점이 열로 가는 표·이정표·묶어 보내기)
 uv run python tests/test_docs.py              # 문서 검사(build_docs --check: 예제·출력·링크·API 설명과 예제·doctest)
 
 uv run pytest                                 # 위 묶음을 한 번에(파일마다 test_suite())
 uv run --package equion-desk pytest desk      # 앱 Equion Desk(desk/ — 별도 패키지 equion-desk, D28·D40·D41) 시험. 앱 의존성까지 설치: uv sync --all-packages
 uv run --package equion-desk --group ui python desk/tests/ui_check.py   # 앱 화면 점검(playwright — PC의 Edge를 몬다, --shots 폴더: 화면 그림)
+uv run --package equion-desk --group ui python desk/tests/guide_shots.py   # 사용설명서(docs/desk/) 그림 다시 찍기 — 설명서대로 따라 하며 찍는다
 
 # 의존성 추가/제거: uv add <pkg> / uv remove <pkg>  (pyproject.toml·uv.lock 자동 갱신)
 # CI(.github/workflows/ci.yml): locked(3 OS × py3.12~3.14)·minimal(선택 의존성 없이)·lowest·latest·desk(앱 시험)·desk-ui(화면 점검)·desk-installer(설치본 빌드·기동 시험)·audit
@@ -118,9 +119,9 @@ uv run --package equion-desk --group ui python desk/tests/ui_check.py   # 앱 �
 | 위치 | 내용 |
 |------|------|
 | `tests/` | `test_engine.py` · `test_workfile.py` · `test_cli.py` · `test_stats.py` · `test_scenarios.py`(상황별 시나리오) · `test_project.py`(프로젝트) · `test_work.py`(작업 명령·기록) · `test_analysis.py`(분석·노트·보고서) · `test_script.py`(스크립트·재연) · `test_guide.py`(Claude용 안내) · `test_journeys.py`(사용자 관점 시나리오 — `docs/TEST_SCENARIOS.md`) · `test_ast_formula.py` · `test_100_equations.py` · `test_error_equations.py` · `test_docs.py`. 모두 예제 자료·합성 자료로 돈다. 기준값 `fixtures/{stats,estimation,data}_reference.json` — 만드는 `fixtures/make_*_reference.py`는 statsmodels·linearmodels·mpmath가 있는 **별도 환경**에서만(`PYTHONPATH=.`). `uv run pytest`가 파일마다 `test_suite()`를 부른다 |
-| `docs/` | **사용자 문서(D27, Markdown 원본)**: `README.md`(첫 페이지) · `start/`(설치·첫 모델·치트시트) · `guide/`(가이드 1~9 — 사람과 상황별, `console` 블록을 실제로 실행) · `tutorial/`(1~9) · `howto/`(레시피) · `explain/`(방정식 문법 `equations.md`·추정·풀이·시나리오·동태·검증·엔진 API) · `reference/`(`api.md` **자동 생성** — `make_api.py` · 명령줄·함수·출력·오류·파일 형식·예제 자료) · `cases/`(Klein형) · `eviews.md` · `en/`. 도구 `build_docs.py`·`make_api.py`. 프로젝트 문서 `DECISIONS.md`(D-번호) · `ROADMAP.md` · 사용자 관점 시험 시나리오 `TEST_SCENARIOS.md` · Desk 개발 계획 `DESK_DEVPLAN.md`(시험판 점검표 `DESK_D0_CHECK.md`)와 기획 자료 `DESK*.md`. `USER_GUIDE.md`·`EQUATION_GUIDE.md`·`API.md`는 새 위치 안내만 |
+| `docs/` | **사용자 문서(D27, Markdown 원본)**: `README.md`(첫 페이지) · `start/`(설치·첫 모델·치트시트) · `desk/`(**Equion Desk 사용설명서** — 예제 프로젝트로 따라 하는 9장과 그림 `img/`, D66 · 실행하는 블록이 없어 링크만 검사) · `guide/`(가이드 1~9 — 사람과 상황별, `console` 블록을 실제로 실행) · `tutorial/`(1~9) · `howto/`(레시피) · `explain/`(방정식 문법 `equations.md`·추정·풀이·시나리오·동태·검증·엔진 API) · `reference/`(`api.md` **자동 생성** — `make_api.py` · 명령줄·함수·출력·오류·파일 형식·예제 자료) · `cases/`(Klein형) · `eviews.md` · `en/`. 도구 `build_docs.py`·`make_api.py`. 프로젝트 문서 `DECISIONS.md`(D-번호) · `ROADMAP.md` · 사용자 관점 시험 시나리오 `TEST_SCENARIOS.md` · Desk 개발 계획 `DESK_DEVPLAN.md`(시험판 점검표 `DESK_D0_CHECK.md`)와 기획 자료 `DESK*.md`. `USER_GUIDE.md`·`EQUATION_GUIDE.md`·`API.md`는 새 위치 안내만 |
 | `examples/` | `start/`·`tutorial/` 스크립트와 `notebooks/` — **문서에서 자동 생성**(`build_docs.py`), 손으로 고치지 않는다 |
-| `desk/` | **Equion Desk**(별도 패키지 `equion-desk` — uv workspace, 의존은 `equion-desk → equion` 한쪽만, D28·D40): `equion_desk/`(`__main__` 창·`server` 로컬 서버·`projects` 프로젝트 탭과 파일 읽기·`worker` 작업 프로세스·`dataops` 자료와 분석·`modelops` 모형과 흐름·`simops` 전망과 보고서·`reviewops` 제안·되돌리기·고정·`sideops` 변수·분석 목록·묶음·식 더하기·명령 한 줄·`formops` 후보 묶음·시나리오 폼·노트·두 기록(여섯 다 작업 프로세스 안)·`watch` 알림 줄과 감시·`records` 기록 읽기·`config` 설정과 지난 화면·`instance` 창은 하나·`jobs` 작업 개체·`terminal`·`conpty`·`runtime` 격리 환경 · `web/` 화면 — `css/tokens.css` 색과 치수(다른 스타일시트에 색을 직접 적지 않는다 — 터미널의 색 `--term-*`도 여기: 창의 바탕을 따르고 설정으로 늘 어둡게, D48), `js/main.js`·`project.js`·`side.js`(왼쪽 열 — 작업대 줄·탭 다섯·변수 목록과 여럿 고르기, D53)·`varmenu.js`(변수 메뉴 — 등록부의 count로)·`command.js`(명령 창, D54)·`terminal.js`(터미널 여러 개 — 긴 폴링 하나)·`partops.js`(개별 식·모형에 넣기)·`noteops.js`(노트에 담기)·`views/`(`variable` 변수 창·그룹 창 · `batch` 후보 묶음 · `scenario` 시나리오 폼 · `note` 노트 화면 · `ancompare` 두 기록 · `bench` 식 작업대·`candidates` 후보 목록·`result` 결과와 겹쳐 보기·`data` 자료 작업대·`importer` 불러오기·`analysis` 분석 탭·`model` 모형 작업대·`flow` 흐름·`forecast` 전망 작업대·`reports` 보고서·`send` 보고서로 보내기와 엑셀로·`proposals` 제안·`help` 도움말(`web/help/ko.md`)·`card`·`file`(정의 파일 고치기)·`home`·`lists`)·`claude.js`(Claude ▾ — 맡기기·제안 받기)·`md.js`·`chart.js`·`dialog.js`) · `build/`(런타임 묶기·설치 파일·`icon.py` 아이콘·`smoke.py` 설치본 기동 시험) · `tests/`(`test_desk` 경계 · `test_app` 서버·작업 프로세스·터미널·탭·읽기·감시·식 작업대·자료와 분석 · `ui_check.py` 화면 점검 · `bench_s1.py` 시간 재기). 띄우기 `uv run --package equion-desk equion-desk 폴더`(`--browser` 개발용) · 고지 `THIRD-PARTY-NOTICES.md`. `requires-python`은 패키지와 같게(잠금 파일을 함께 쓴다). **앱 프로세스는 `equion`을 불러오지 않는다**(계산은 작업 프로세스, 기록·파일은 그대로 읽는다 — D41), 설정은 사용자 폴더에(시험은 `EQUION_DESK_CONFIG_DIR`). 화면을 고치면 `ui_check.py`를 돌린다 |
+| `desk/` | **Equion Desk**(별도 패키지 `equion-desk` — uv workspace, 의존은 `equion-desk → equion` 한쪽만, D28·D40): `equion_desk/`(`__main__` 창·`server` 로컬 서버·`projects` 프로젝트 탭과 파일 읽기·`worker` 작업 프로세스·`dataops` 자료와 분석·`modelops` 모형과 흐름·`simops` 전망과 보고서·`reviewops` 제안·되돌리기·고정·`sideops` 변수·분석 목록·묶음·식 더하기·명령 한 줄·`formops` 후보 묶음·시나리오 폼·노트·두 기록(여섯 다 작업 프로세스 안)·`watch` 알림 줄과 감시·`records` 기록 읽기·`config` 설정과 지난 화면·`instance` 창은 하나·`jobs` 작업 개체·`terminal`·`conpty`·`runtime` 격리 환경 · `web/` 화면 — `css/tokens.css` 색과 치수(다른 스타일시트에 색을 직접 적지 않는다 — 터미널의 색 `--term-*`도 여기: 창의 바탕을 따르고 설정으로 늘 어둡게, D48), `js/main.js`·`project.js`·`side.js`(왼쪽 열 — 작업대 줄·탭 다섯·변수 목록과 여럿 고르기, D53)·`varmenu.js`(변수 메뉴 — 등록부의 count로)·`command.js`(명령 창, D54)·`terminal.js`(터미널 여러 개 — 긴 폴링 하나)·`partops.js`(개별 식·모형에 넣기)·`noteops.js`(노트에 담기)·`views/`(`variable` 변수 창·그룹 창 · `batch` 후보 묶음 · `scenario` 시나리오 폼 · `note` 노트 화면 · `ancompare` 두 기록 · `bench` 식 작업대·`candidates` 후보 목록·`result` 결과와 겹쳐 보기·`data` 자료 작업대·`importer` 불러오기·`analysis` 분석 탭·`model` 모형 작업대·`flow` 흐름·`forecast` 전망 작업대·`reports` 보고서·`send` 보고서로 보내기와 엑셀로·`proposals` 제안·`help` 도움말(`web/help/ko.md`)·`card`·`file`(정의 파일 고치기)·`home`·`lists`)·`claude.js`(Claude ▾ — 맡기기·제안 받기)·`md.js`·`chart.js`·`dialog.js`) · `build/`(런타임 묶기·설치 파일·`icon.py` 아이콘·`smoke.py` 설치본 기동 시험) · `tests/`(`test_desk` 경계 · `test_app` 서버·작업 프로세스·터미널·탭·읽기·감시·식 작업대·자료와 분석 · `ui_check.py` 화면 점검 · `guide_shots.py` 사용설명서 그림 — `docs/desk/img/`, 설명서의 순서와 PowerShell 줄을 그대로 실행 · `bench_s1.py` 시간 재기). 띄우기 `uv run --package equion-desk equion-desk 폴더`(`--browser` 개발용) · 고지 `THIRD-PARTY-NOTICES.md`. `requires-python`은 패키지와 같게(잠금 파일을 함께 쓴다). **앱 프로세스는 `equion`을 불러오지 않는다**(계산은 작업 프로세스, 기록·파일은 그대로 읽는다 — D41), 설정은 사용자 폴더에(시험은 `EQUION_DESK_CONFIG_DIR`). 화면을 고치면 `ui_check.py`를 돌리고, 사용설명서(`docs/desk/`)에 보이는 화면이면 `guide_shots.py`로 그림을 다시 찍는다 |
 | `.github/` | `workflows/ci.yml`(locked 3 OS × py3.12~3.14 · minimal · lowest · latest · desk · desk-ui · desk-installer · audit) · `release.yml`(태그 → 휠·설치 시험, PyPI는 `PYPI_PUBLISH` 변수로만) · `dependabot.yml` |
 | `out/` · `WT/` | CLI 보고서 `out/<실행ID>/` · 워크파일 `.eqw/`·Work Table `.wt/` 번들(자동 생성·git 제외) |
 | 루트 파일 | `README.md`(저장소 소개) · `README.en.md`(English) · `LICENSE`(MIT) · `THIRD-PARTY-NOTICES.md`(포함한 외부 자료 고지 — 수치표·plotly.js) · `CHANGELOG.md` · `CLAUDE.md` · `VERSION` · `pyproject.toml` · `uv.lock` · `.python-version` · `.gitignore` · `.gitattributes`(줄바꿈 LF) |
@@ -177,7 +178,7 @@ uv run --package equion-desk --group ui python desk/tests/ui_check.py   # 앱 �
 
 - **실제 자료를 이 저장소에 넣지 않는다**(D30). 시험·문서·docstring 예제는 `eqn.datasets` 또는 코드로 만든 합성 자료만 쓴다.
 - 수치 코어(`formula/parser.py`·`formula/ir.py`·`system/*`·`estimation/equation.py`·`stats/*`)를 바꾸면
-  `tests/test_engine.py`(104)·`tests/test_stats.py`(180) + 레거시 시험 2종(`test_ast_formula`·`test_100_equations`)과
+  `tests/test_engine.py`(119)·`tests/test_stats.py`(189) + 레거시 시험 2종(`test_ast_formula`·`test_100_equations`)과
   `tests/test_docs.py`(문서 출력)를 다시 돌린다. OLS 계산 순서는 0.5.0까지의 외부 패키지 경로와 같다 — 바꾸지 말 것
   (하위 사용자의 기준선이 바이트 그대로여야 한다). 회귀 비교는 **허용오차**로.
 - 엔진은 방정식 내용을 바꾸지 않는다.
@@ -194,7 +195,7 @@ uv run --package equion-desk --group ui python desk/tests/ui_check.py   # 앱 �
   외부 DB 연동(ECOS·KOSIS 받기)은 하지 않는다(D63 — 원자료는 사람이 받아 넣는다). Windows 10·WebView2 없는 PC는 대상이 아니다(D63).
 - **공개 전 확인(D30)**: 이름 상표(D16 — KIPRIS·USPTO). 공개 뒤 `macro_model`은 이 저장소의 태그를 가져다 쓰고 패키지 코드를 지운다.
 - **Desk 2차판 화면(2026-11-12, D50~D54 — `docs/DESK_V2.md`)**: 대상에서 출발 — 세 열 1/3 · 왼쪽 작업대 줄과 탭 다섯(변수·분석·모형·파일·기록) · 변수 여럿 고르기·우클릭 메뉴 ·
-  묶음 · 변수 창·그룹 창 · 분석 탭(개별 식 = 모형 밖 블록의 식, 새 것은 블록 `single`) · 터미널 다섯 · 명령 창. Desk는 `0.2.0rc2`(2차판 출시 후보 — D62·D65, 사전 릴리스 `desk-v0.2.0rc2`).
+  묶음 · 변수 창·그룹 창 · 분석 탭(개별 식 = 모형 밖 블록의 식, 새 것은 블록 `single`) · 터미널 다섯 · 명령 창. Desk는 `0.2.0rc3`(2차판 출시 후보 — D62·D65~D67, 사전 릴리스 `desk-v0.2.0rc3`). 사용설명서 `docs/desk/`(D66).
   이어서 혼자 하는 폼과 노트(D55~D58): 후보 묶음 · 시나리오 폼(`equion scenario`) · 노트 화면(`equion note add`) · 같은 분석의 두 기록.
   자료 쪽 셋(D59~D61): 요인 나누기(`equion an split`) · 시점이 열로 가는 표·여러 줄 머리 · 이정표(`equion milestone`)·묶어 보내기(`equion bundle`). 남은 2차판: Lectern 수정 · 영문 화면.
 - P3 데스크톱 앱(lectern 스택, Windows 전용 pywebview(WebView2), 설치 폴더 안 Python 런타임 하나 — D39, 명령 창은 앱 안의 터미널 —

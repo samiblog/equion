@@ -21,7 +21,8 @@ print(eqn.datasets.describe("klein_like").splitlines()[3:7])
 ```
 
 시스템은 식을 `append`로 넣고 추정법을 고릅니다. 식은 추정식 꼴(계수 번호는 차례로 `c(1)`부터)이나 `c(n)` 꼴로 씁니다.
-`@inst …`만 있는 줄은 모든 식의 도구변수입니다.
+`@inst …`만 있는 줄은 모든 식의 도구변수입니다. `c(n)` 꼴은 계수에 비선형인 식(`Y^c(3)` 같은)이어도 됩니다 — SUR·2SLS·3SLS·FIML 모두
+비선형 길로 풉니다([레시피 R66](../howto/system-var.md#r66-비선형-시스템--계수-공유와-도구변수)).
 
 ```python
 kl = kw.system("klein")

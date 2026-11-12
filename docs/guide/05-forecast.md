@@ -79,20 +79,38 @@ $ equion sim base --as b0
   기록   sim:b0 (work/sim/b0/)
 ```
 
-## 2. 시나리오 파일 만들기
+## 2. 시나리오 만들기
 
-시나리오는 가정 세트에 충격을 얹습니다. 정부지출을 전망 구간 내내 5% 늘리는 시나리오를 씁니다(기간은 라벨 또는 `start`·`end`·`start+N`).
+시나리오는 가정 세트에 충격을 얹습니다. 정부지출을 전망 구간 내내 5% 늘리는 시나리오를 `scenario define`으로 씁니다 — 충격은
+`변수=크기[%][@처음[:끝]]`(기간은 라벨 또는 `start`·`end`·`start+N`, 없으면 처음부터 끝까지). 명령으로 쓰면 쓰기 전에 검사하고(전망 구간 밖의
+기간 · 항등식에 준 식 보정은 거절) 바뀜 기록에 남습니다.
+
+```console
+$ equion scenario define g_up --desc "정부지출 5% 확대" --base base --shock G=+5%
+```
+<!-- out -->
+```text
+$ equion scenario define g_up --desc "정부지출 5% 확대" --base base --shock G=+5%
+[scenario define] SCENARIOS/g_up.toml — 새 시나리오
+  충격 1 · 식 보정 0
+  바뀜 기록  h0002
+  다음   equion sim g_up
+```
+
+쓴 파일은 사람이 읽고 고칠 수 있는 TOML입니다(편집기로 고쳐도 됩니다 — 다음 명령 때 '바깥' 바뀜으로 남는다).
 
 ```python
-Path("SCENARIOS/g_up.toml").write_text('''\
+print(Path("SCENARIOS/g_up.toml").read_text(encoding="utf-8"))
+```
+<!-- out -->
+```text
 desc = "정부지출 5% 확대"
-base = "base"                     # 이 가정 세트 위에
+base = "base"
 
 [[shock]]
 var = "G"
 from = "start"
 pct = 5
-''', encoding="utf-8")
 ```
 
 ```console
@@ -142,9 +160,27 @@ $ equion sim base --as b1 --vs sim:b0
 
 $ equion work list --kind sim
 [work list] fc: 기록 3 (최근 30)
-  sim:b0             2026-11-09T14:04 터미널    main base 2020Q1~2021Q4 · 2020 Y 0.89% · 2020 CN 0.87%
-  sim:g5             2026-11-09T14:04 터미널    main g_up 2020Q1~2021Q4 · 2020 Y 3.26% · 2020 CN 3.01%
-  sim:b1             2026-11-09T14:04 터미널    main base 2020Q1~2021Q4 · 2020 Y 1.36% · 2020 CN 1.30%
+  sim:b0             2026-11-13T05:16 터미널    main base 2020Q1~2021Q4 · 2020 Y 0.89% · 2020 CN 0.87%
+  sim:g5             2026-11-13T05:16 터미널    main g_up 2020Q1~2021Q4 · 2020 Y 3.26% · 2020 CN 3.01%
+  sim:b1             2026-11-13T05:16 터미널    main base 2020Q1~2021Q4 · 2020 Y 1.36% · 2020 CN 1.30%
+```
+
+성장률이 왜 바뀌었는지는 **요인 나누기**로 봅니다. 두 전망 기록 사이에서 자료 → 가정 → 식을 차례로 하나씩 바꿔 다시 풀어, 연간 성장률의
+바뀜을 셋의 몫으로 나눕니다(여기서는 가정만 바꿨으므로 몫이 모두 '가정'에 갑니다).
+
+```console
+$ equion an split "sim:b0 sim:b1" --vars Y,CN
+```
+<!-- out -->
+```text
+$ equion an split "sim:b0 sim:b1" --vars Y,CN
+[an:split_0001] 요인 나누기 · sim:b1 ← sim:b0 · 2020Q1~2021Q4 · 자료 data:d2026-11a
+  Y 2020 성장률 0.89% → 1.36% (+0.47%p)  자료 +0.00 · 가정 +0.47 · 식 +0.00
+  Y 2021 성장률 1.74% → 2.01% (+0.27%p)  자료 +0.00 · 가정 +0.27 · 식 +0.00
+  CN 2020 성장률 0.87% → 1.30% (+0.43%p)  자료 +0.00 · 가정 +0.43 · 식 +0.00
+  CN 2021 성장률 1.65% → 1.93% (+0.28%p)  자료 +0.00 · 가정 +0.28 · 식 +0.00
+  알아서 한 것  차례: 자료 → 가정 → 식(하나씩 바꿔 다시 풀어 나눔 — 차례가 바뀌면 몫이 달라질 수 있다) · 앞 sim:b0 · 뒤 sim:b1(만든 때 순) · 자료 data:d2026-11a → data:d2026-11a · 구간 2020Q1~2021Q4 → 2020Q1~2021Q4 · 가정은 기록에 적힌 외생 경로(가정·채움·시나리오 충격)와 보정항 경로 — 보정항 규칙 값의 변화도 '가정'의 몫에 든다 · 식은 기록의 조립 명세(식 글자·계수) — 지금 파일과 무관
+  기록   an:split_0001 (work/an/split_0001/summary.md)
 ```
 
 ## 4. 구간과 모형 바꾸기
@@ -156,12 +192,15 @@ $ equion work list --kind sim
 | 옛 회차로 | `equion sim base --vintage d2026-10a` |
 | 여러 시나리오를 한 번에 | `equion sim base oil20 g_up` |
 | 표로 꺼내기 | `equion export sim:b1 sim:g5 --xlsx exports/전망.xlsx` · 보고서로는 [6. 분석·노트·보고서](06-reports.md) |
+| 시나리오 보기·고치기·지우기 | `equion scenario list` · `scenario show g_up` · `scenario define g_up --shock G=+3%@start:start+3`(준 목록을 통째로 바꾼다) · `scenario remove g_up` |
+| 식 보정을 얹기 | `equion scenario define g_up --addfactor demand:CN=-0.2@start:start+3`(추정식에만 — 항등식은 거절) |
+| 확정한 전망을 남기기 | `equion milestone make fc_2026_11 --note "11월 전망 확정"` — 정의·자료 회차·고정한 기록([R65](../howto/model.md#r65-이정표와-묶어-보내기--확정한-때를-남기고-다른-pc로-옮기기)) |
 
 ## 확인할 것
 
 - [ ] 가정이 없는 외생이 채우기 규칙으로 채워지고 '채움'으로 적힌다
-- [ ] 시나리오 파일의 충격이 '기준선 대비'에 보인다
-- [ ] 가정 세트를 고친 뒤 `--vs`가 연간 증가율의 전후를 보인다
+- [ ] `scenario define`으로 쓴 충격이 '기준선 대비'에 보이고, 전망 구간 밖의 기간은 거절된다
+- [ ] 가정 세트를 고친 뒤 `--vs`가 연간 증가율의 전후를, `an split`이 자료·가정·식의 몫을 보인다
 - [ ] 가정 세트에 모형에 없는 변수를 적으면 쓰지 않고 알린다
 
 다음: [6. 분석·노트·보고서](06-reports.md)

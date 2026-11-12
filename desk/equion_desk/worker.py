@@ -31,9 +31,10 @@ CALL_WAIT = 600.0     # 요청 하나를 기다리는 시간(초)
 
 
 class WorkerError(RuntimeError):
-    """작업 프로세스가 알린 오류. `kind`는 `input`(프로젝트·입력 오류 — 고칠 것은 사용자 쪽)·`internal`·`gone`(프로세스가 끝남)·`cancelled`."""
+    """작업 프로세스가 알린 오류. `kind`는 `input`(프로젝트·입력 오류 — 고칠 것은 사용자 쪽)·`internal`·`gone`(프로세스가 끝남)·`cancelled`·
+    `conflict`(쓰려던 파일이 밖에서 바뀜)·`shorter`(새 자료가 지금 회차보다 짧음) — 둘의 `detail`은 무엇이 그런지의 JSON 값. 그 밖의 `detail`은 글(내부 오류의 추적)."""
 
-    def __init__(self, message: str, kind: str = "internal", detail: str = "") -> None:
+    def __init__(self, message: str, kind: str = "internal", detail: Any = "") -> None:
         super().__init__(message)
         self.kind = kind
         self.detail = detail
@@ -45,16 +46,17 @@ class _Project:
     """작업 프로세스가 쥔 프로젝트. 정의 파일이 바뀌었으면 다음 요청 전에 다시 연다 — 화면이 옛 식으로 계산하지 않게."""
 
     def __init__(self, root: str) -> None:
+        from .watch import DefinitionState
+
         self.root = root
+        self._state = DefinitionState(root)      # 내용의 지문 — 시각만 바뀐 파일(동기화 프로그램)로는 다시 열지 않는다
         self._stamp: Any = None
         self._project: Any = None
 
     def get(self) -> Any:
         import equion as eqn
 
-        from .watch import definitions
-
-        stamp = definitions(self.root)
+        stamp = self._state.scan()
         if self._project is None or stamp != self._stamp:
             self._project = eqn.project(self.root)
             self._stamp = stamp
@@ -242,8 +244,8 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
     def series(name: str) -> dict:
         return dataops.series(holder.get(), name)
 
-    def data_build() -> dict:
-        return dataops.build(holder.get())
+    def data_build(allow_shorter: bool = False) -> dict:
+        return dataops.build(holder.get(), allow_shorter)
 
     def data_use(vintage: str) -> dict:
         return dataops.use(holder.get(), vintage)
@@ -284,8 +286,8 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
     def check_text(path: str, text: str) -> dict:
         return modelops.check_text(holder.get(), path, text)
 
-    def write_text(path: str, text: str) -> dict:
-        return modelops.write_text(holder.get(), path, text)
+    def write_text(path: str, text: str, expect: str | None = None) -> dict:
+        return modelops.write_text(holder.get(), path, text, expect)
 
     def hs_replay(record: str) -> dict:
         return modelops.hs_replay(holder.get(), record)
@@ -324,8 +326,8 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
     def forecast(model: str | None = None) -> dict:
         return simops.forecast(holder.get(), model)
 
-    def assume(name: str, columns: list, rows: dict) -> dict:
-        return simops.assume_write(holder.get(), name, columns, rows)
+    def assume(name: str, columns: list, rows: dict, bases: dict | None = None, force: bool = False) -> dict:
+        return simops.assume_write(holder.get(), name, columns, rows, bases, force)
 
     def sim_run(scenarios: list | None = None, model: str | None = None, range_: str | None = None, vintage: str | None = None,
                 vs: str | None = None) -> dict:
@@ -369,8 +371,8 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
     def proposal_drop(name: str, why: str | None = None) -> dict:
         return reviewops.proposal_drop(holder.get(), name, why)
 
-    def revert(change: str, files: list | None = None) -> dict:
-        return reviewops.revert(holder.get(), change, files)
+    def revert(change: str, files: list | None = None, force: bool = False) -> dict:
+        return reviewops.revert(holder.get(), change, files, force)
 
     def mark(record: str, pinned: bool | None = None, memo: str | None = None) -> dict:
         return reviewops.mark(holder.get(), record, pinned, memo)
@@ -535,7 +537,7 @@ def serve(root: str) -> int:
             kind = getattr(exc, "kind", "input")
             text = str(exc.args[0]) if isinstance(exc, KeyError) and exc.args else str(exc)   # KeyError의 글은 따옴표가 붙는다
             send({"id": rid, "ok": False, "error": text, "kind": kind, "seconds": time.perf_counter() - began,
-                  "said": said.getvalue()})
+                  "said": said.getvalue(), **({"detail": exc.detail} if kind in ("conflict", "shorter") and getattr(exc, "detail", None) else {})})   # 겹침·짧은 자료: 무엇이
         except Exception as exc:  # 예상 못 한 오류 — 프로세스는 살려 두고 무슨 일인지 알린다
             import traceback
 

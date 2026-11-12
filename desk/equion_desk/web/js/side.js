@@ -9,7 +9,7 @@
 // 탭 하나는 출발하는 대상 한 종류다. 변수 탭에서는 여러 개를 골라(Ctrl·Shift) 우클릭하거나 '할 수 있는 일 ▾'로 시작한다 — 고른 순서를 지킨다
 // (ECM 은 첫 변수가 목표, VAR 은 순서가 결과에 닿는다). 모형 탭과 파일 탭의 목록은 project.js 가 그린다(1차판의 부품·파일 나무).
 
-import { confirmDialog } from './dialog.js';
+import { confirmDialog, nameRule } from './dialog.js';
 import { clear, cmdText, debounce, flash, h, icon, KINDS, kindPill, natural, short, when, WHO, whoLabel } from './util.js';
 import { openVarMenu, targetText } from './varmenu.js';
 import { diffBlock } from './views/lists.js';
@@ -243,6 +243,17 @@ export class Side {
   visibleNames() { return [...this.varList.querySelectorAll('.var-row[data-var]')].map((n) => n.dataset.var); }
 
   drawVarList() {
+    // 다시 그리면 줄이 새로 만들어진다 — 가리키던 줄(마우스로 누른 줄도)을 다시 가리켜 ↑·↓·Shift·Space 가 이어지게
+    const was = this.varList.contains(document.activeElement) ? document.activeElement.closest('.var-row') : null;
+    const back = was ? { v: was.dataset.var, g: was.dataset.group, w: was.dataset.where } : null;
+    this.fillVarList();
+    if (back) {
+      const sel = back.v ? `.var-row[data-var="${CSS.escape(back.v)}"]${back.w ? `[data-where="${CSS.escape(back.w)}"]` : ''}` : `.var-row[data-group="${CSS.escape(back.g || '')}"]`;
+      (this.varList.querySelector(sel) || (back.v ? this.varList.querySelector(`.var-row[data-var="${CSS.escape(back.v)}"]`) : null))?.focus({ preventScroll: true });
+    }
+  }
+
+  fillVarList() {
     const box = clear(this.varList);
     if (this.varsError && !this.vars) { box.append(h('div', { class: 'side-note error' }, `변수를 읽지 못했습니다.\n\n${this.varsError}`)); return; }
     if (!this.vars) { box.append(h('div', { class: 'side-note' }, '변수를 읽는 중…')); return; }
@@ -447,27 +458,38 @@ export class Side {
     const desc = h('input', { class: 'mini-input wide plain', type: 'text', placeholder: '설명(선택)', 'aria-label': '설명' });
     const diffWrap = h('div', {});
     const note = (text, cls = '') => clear(diffWrap).append(h('div', { class: 'diff' }, h('span', { class: `dl ${cls}`.trim() }, text)));
+    const label = h('span', {}, '저장');
+    const same = h('div', { class: 'banner warn', hidden: true });
+    let failed = null;             // 미리보기가 돌려준 까닭 — 저장해도 같은 까닭으로 실패한다
     note('이름을 적으면 바뀔 줄이 보입니다');
+    const existing = () => (this.vars?.groups || []).find((g) => g.name.toLowerCase() === name.value.trim().toLowerCase());
     const draw = debounce(async () => {
       const n = name.value.trim();
-      if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(n)) { note(n ? '이름은 영문으로 시작 — 영문·숫자·_' : '이름을 적으면 바뀔 줄이 보입니다'); return; }
+      failed = null;
+      const had = existing();
+      same.hidden = !had;
+      label.textContent = had ? '바꿔 저장' : '저장';
+      if (had) clear(same).append(icon('alert'), h('div', {}, '묶음 ', h('b', { class: 'mono' }, had.name), ` 이 이미 있습니다(${had.series.join(' · ')}) — 저장하면 그 묶음을 고른 변수로 바꿉니다.`));
+      if (nameRule(n, { what: '묶음 이름' }) !== true) { note(n ? '이름이 맞으면 바뀔 줄이 보입니다' : '이름을 적으면 바뀔 줄이 보입니다'); return; }
       try {
         const res = await this.p.post('group/define', { name: n, series: names, desc: desc.value.trim(), dry: true });
+        if (name.value.trim() !== n) return;
         clear(diffWrap).append(diffBlock(res.diff));
-      } catch (err) { note(err.message, 'del'); }
+      } catch (err) { failed = err.message; note(err.message, 'del'); }
+      diffWrap.dispatchEvent(new Event('dialog-check', { bubbles: true }));
     }, 250);
-    name.addEventListener('input', draw);
-    desc.addEventListener('input', draw);
+    name.addEventListener('input', () => { failed = null; draw(); });       // 상자가 단추를 다시 보기 전에 지난 까닭을 지운다
+    desc.addEventListener('input', () => { failed = null; draw(); });
     const body = h('div', { class: 'adopt define-form' },
       h('p', {}, '고른 변수를 이 차례대로 ', h('b', {}, '묶음'), '으로 남깁니다(', h('code', {}, 'equion.toml'), ' 의 [group]). 분석의 대상으로 이름 하나만 적으면 됩니다.'),
       h('div', { class: 'diff' }, h('span', { class: 'dl' }, names.join(' · '))),
-      h('label', { class: 'field-row' }, h('span', {}, '이름'), name), h('label', { class: 'field-row' }, h('span', {}, '설명'), desc),
+      h('label', { class: 'field-row' }, h('span', {}, '이름'), name), h('label', { class: 'field-row' }, h('span', {}, '설명'), desc), same,
       h('h4', {}, '바뀌는 파일 ', h('span', { class: 'mono' }, 'equion.toml')), diffWrap,
       h('p', { class: 'muted' }, '바뀜 기록에 남고, 거기서 되돌릴 수 있습니다.'));
-    setTimeout(() => name.focus(), 30);
-    if (!(await confirmDialog({ title: '묶음으로 저장', body, confirm: '저장', wide: true }))) return;
+    const valid = () => { const r = nameRule(name.value, { what: '묶음 이름' }); return r !== true ? r : failed || true; };
+    if (!(await confirmDialog({ title: '묶음으로 저장', body, confirm: label, wide: true, valid, enter: true }))) return;
     const n = name.value.trim();
-    if (!n) return;
+    if (nameRule(n) !== true) return;
     try {
       await this.p.compute('group/define', { name: n, series: names, desc: desc.value.trim() }, { quiet: true });
       await this.loadVars();

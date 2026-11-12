@@ -114,6 +114,15 @@ button.trace-in:hover { border-color: var(--accent-line); background: var(--acce
 .edit-note { margin-bottom: 8px; }
 .edit-note:empty { display: none; }
 .edit-note .eq-status { padding: 0 2px 2px; }
+.edit-note .banner { margin-bottom: 8px; }
+.banner-acts { display: flex; flex-wrap: wrap; gap: 6px; flex: none; align-self: center; }
+/* 지금 파일 → 쓰던 글의 차이(밖에서 바뀐 파일을 덮기 전에) */
+.edit-diff { margin: 0 0 10px; }
+.edit-diff .diff { max-height: 280px; }
+.edit-diff-key { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin: 0 0 5px; font-size: var(--fs-xs); }
+.edit-diff-key .del { color: var(--bad); font-family: var(--font-mono); }
+.edit-diff-key .add { color: var(--ok); font-family: var(--font-mono); }
+.dialog-body .edit-diff { margin: 10px 0; }
 .edit-problems { display: grid; gap: 3px; padding: 9px 12px; border-radius: var(--radius-s); background: var(--bad-soft); color: var(--bad); font-size: var(--fs-s); }
 .edit-problems .problem { display: flex; gap: 9px; align-items: baseline; padding: 1px 0; border: 0; background: none; color: inherit; text-align: left; }
 .edit-problems .problem:hover span:last-child { text-decoration: underline; text-underline-offset: 2px; }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-test_journeys.py — 사용자의 관점에서 본 시나리오(docs/TEST_SCENARIOS.md의 J1~J7).
+test_journeys.py — 사용자의 관점에서 본 시나리오(docs/TEST_SCENARIOS.md의 J1~J12).
 
 실행: uv run python tests/test_journeys.py   (종료코드 = 실패 수)
 
@@ -13,20 +13,27 @@ test_journeys.py — 사용자의 관점에서 본 시나리오(docs/TEST_SCENAR
   J6. 명령줄 사용성: 모든 --help·--json·cp949 출력·하위 폴더·오류의 다음 할 일
   J7. 규모: 기록 1,000개
   J8. 2차판 — 달을 넘는 요인 나누기·이정표·다른 PC로 보내기·시점이 열로 가는 표의 개정·나쁜 묶음
+  J9. 여러 달 운영 — 지난 값 개정·새 열·지난 파일을 다시 받음·보고서의 회차·이름 겹침·재연·이정표 되돌리기와 그 되돌림
+  J10. 끊김과 동시 실행 — 월간 스크립트를 세 곳에서 강제 종료·채택 셋·추정 넷을 같은 순간에(프로세스마다)
+  J11. 낯선 받은 파일 — 단위 줄 빠짐·열 이름 바뀜·줄바꿈만 바뀐 정의 파일의 되돌리기·최근 8기만 든 파일
+  J12. 풀리지 않는 모형 — 해가 없는 동시 블록·서로 종속인 항등식·선행변수·해만 적은 구간
 자료는 예제 자료를 코드로 바꾼 합성 표만 쓴다(D30).
 """
 
 import contextlib
 import glob
+import hashlib
 import io
 import json
 import math
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 import zipfile
@@ -140,6 +147,10 @@ def _main(tmp, t0):
     j6(tmp)
     j7(tmp)
     j8(tmp)
+    j9(tmp)
+    j10(tmp)
+    j11(tmp)
+    j12(tmp)
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:
@@ -673,12 +684,427 @@ def j8(tmp):
           f"{[c, c2, c3, c4, c5]} {wf['MFG'].dropna().tolist()} {wf['SVC'].dropna().tolist()} {text[:300]}")
 
 
+# ---------------------------------------------------------------------------
+def _fingerprint(d, skip=("work", "exports")):
+    """프로젝트 파일의 지문 {상대 경로: md5} — work/·exports/ 밖(정의·원자료·보고서·노트·equion.toml의 회차까지)."""
+    out = {}
+    for f in glob.glob(os.path.join(d, "**", "*"), recursive=True):
+        rel = os.path.relpath(f, d).replace(os.sep, "/")
+        if os.path.isfile(f) and rel.split("/")[0] not in skip:
+            with open(f, "rb") as fh:
+                out[rel] = hashlib.md5(fh.read()).hexdigest()
+    return out
+
+
+def _j9_file(d, k):
+    """J9의 k번째 달 원자료(합성) — toy_q에 k분기를 더한다. 둘째 달부터 2019년 소비를 0.4% 고치고(지난 값 개정),
+    셋째 달부터 새 열 EXPO가 붙어 온다. 받은 상자에 `toy_q_<새 분기>.csv`로 놓는다."""
+    df = pd.read_csv(os.path.join(d, "DATA", "raw", "toy_q.csv"), index_col=0)
+    last = df.loc["2019Q4"]
+    for j in range(1, k + 1):
+        df.loc[quarter(j)] = last * (1.004 ** j) * (1 + 0.002 * math.sin(j))
+    if k >= 2:
+        df.loc["2019Q1":"2019Q4", "CN"] *= 1.004
+    if k >= 3:
+        df["EXPO"] = (df["Y"] * 0.3).round(4)
+    name = f"toy_q_{quarter(k)}.csv"
+    df.to_csv(os.path.join(d, "DATA", "raw", "inbox", name))
+    return name
+
+
+def _run_id(out):
+    """`equion run`의 끝 줄 '기록  run:…' → 실행 기록 이름."""
+    m = re.search(r"기록\s+(run:\S+)", out)
+    return m[1] if m else None
+
+
+def _step_text(d, rid, n):
+    """실행 기록의 단계 출력(work/run/<이름>/steps/NN.txt) — 없으면 ''."""
+    f = os.path.join(d, "work", "run", (rid or "run:-").split(":", 1)[1], "steps", f"{n:02d}.txt")
+    return read(f) if os.path.isfile(f) else ""
+
+
+def j9(tmp):
+    print("\n== J9. 여러 달 운영 — 개정 · 새 열 · 지난 파일 · 이정표 ==")
+    p, d = new_project(tmp, "months")
+    inbox = os.path.join(d, "DATA", "raw", "inbox")
+    codes, runs, vints, errs = [], [], [p.vintage], []
+
+    def month(k):
+        _j9_file(d, k)
+        code, out, err = run(["run", "FLOWS/monthly.eqs", "-q"], d)
+        codes.append(code)
+        runs.append(_run_id(out))
+        if code:
+            errs.append(f"{k}달: {(out + err).strip()[-200:]}")
+
+    month(1)
+    vints.append(quiet(Project.open, d).vintage)
+    month(2)
+    vints.append(quiet(Project.open, d).vintage)
+    cm, _, _ = run(["milestone", "make", "m2", "--note", "둘째 달 확정"], d)
+    c, o, _ = run(["data", "diff", vints[1], "--json"], d)
+    cn = {x.get("시리즈"): x for x in (json.loads(o).get("changes", []) if c == 0 else [])}.get("CN", {})
+    check("J9.1 두 달 — 받은 파일마다 새 회차 · 지난 값 개정(2019년 소비 넷)이 회차 차이에 '개정'으로 · 둘째 달에 이정표",
+          codes == [0, 0] and len(set(vints)) == 3 and cn.get("개정") == 4 and cn.get("새 값") == 1 and cm == 0,
+          f"{codes} {vints} 개정 {cn.get('개정')} 새 값 {cn.get('새 값')} {'; '.join(errs)}")
+
+    month(1)                                                   # 셋째 달: 첫 달 파일을 다시 받았다(지금 회차보다 한 분기 짧다)
+    q = quiet(Project.open, d)
+    st1 = ((q.work.get(runs[-1]).meta.get("steps") if runs[-1] else None) or [{}])[0]
+    hs_end = (q.work.records("hs")[-1].meta.get("range") or [None, None])[1]
+    check("J9.2 지난 파일을 다시 받은 달 — 자료 단계가 '!'(기간이 짧음)이고 회차는 그대로(옛 회차로 돌아가지 않음) · 파일은 받은 상자에 · 나머지 단계는 지금 회차로(0)",
+          codes[-1] == 0 and st1.get("status") == "flag" and q.vintage == vints[-1] and os.listdir(inbox) == ["toy_q_2020Q1.csv"]
+          and hs_end == quarter(2) and "기간이 짧습니다" in _step_text(d, runs[-1], 1),
+          f"{codes[-1]} {st1.get('status')} 회차 {q.vintage}/{vints[-1]} 상자 {os.listdir(inbox)} hs 끝 {hs_end}")
+    os.remove(os.path.join(inbox, "toy_q_2020Q1.csv"))       # 사람이 잘못 둔 파일을 치우고 바른 파일을 둔다
+
+    month(3)                                                   # 새 열 EXPO가 붙어 온다
+    vints.append(quiet(Project.open, d).vintage)
+    hint = "equion data define na --series EXPO=EXPO" in _step_text(d, runs[-1], 1)
+    c1, o1, e1 = run(["data", "define", "na", "--series", "EXPO=EXPO"], d)
+    c2, o2, e2 = run(["data", "build", "--use"], d)
+    q = quiet(Project.open, d)
+    vints.append(q.vintage)
+    check("J9.3 새 열이 붙어 온 달 — 자료 단계가 'data define na --series EXPO=EXPO'를 권하고, 그대로 정의하면 새 회차에 EXPO",
+          codes[-1] == 0 and hint and c1 == 0 and c2 == 0 and "EXPO" in q.workfile.series(),
+          f"{codes[-1]} 권함 {hint} {(o1 + e1 + o2 + e2)[-200:] if c1 or c2 else ''}")
+    month(4)
+    vints.append(quiet(Project.open, d).vintage)
+
+    q = quiet(Project.open, d)
+    bad, reps = [], sorted(glob.glob(os.path.join(d, "reports", "forecast_*.md")))
+    for f in reps:
+        vin, rel = os.path.basename(f)[len("forecast_"):-3], os.path.relpath(f, d)
+        c, o, e = run(["report", "update", rel], d)         # 몇 달 뒤 옛 보고서를 고쳐도 뒤 회차의 기록이 끼지 않는다
+        if c != 0:
+            bad.append(f"report update {rel} → {c} {(o + e)[-100:]}")
+        regions = re.findall(r"<!-- equion:report (\S+) #\d+ · \S+ · data:(\S+)", read(f))
+        if len(regions) != 2:
+            bad.append(f"{rel} 구역 {len(regions)}")
+        for rid, dv in regions:
+            try:
+                rv = (q.work.get(rid).meta.get("data") or {}).get("id")
+            except Exception:  # noqa: BLE001
+                rv = "(없는 기록)"
+            if dv != vin or rv != vin:
+                bad.append(f"{rel}: {rid} 표시 {dv} · 기록 {rv}")
+        c, o, e = run(["report", "check", rel], d)
+        if c != 0:
+            bad.append(f"report check {rel} → {c}")
+    have = {os.path.basename(f)[len("forecast_"):-3] for f in reps}
+    want = {vints[1], vints[2], vints[3], vints[5]}           # 실행이 돈 회차마다 하나(정의만 바꾼 회차에는 실행이 없다)
+    check("J9.4 보고서마다 구역이 제 회차의 기록을 가리킨다(구역 표시와 기록의 자료 회차) — 넷째 달 뒤에 옛 보고서를 report update해도 · report check 0",
+          not bad and have == want, f"{bad[:4]} 보고서 {sorted(have)}")
+
+    ids = [x["id"] for x in q.work.log()]
+    sims = [r.id for r in q.work.records("sim")]
+    dl = [v["id"] for v in q.data_list()]
+    check("J9.5 이름이 겹치지 않는다 — 실행 다섯(지난 파일의 달 포함) · 회차 여섯(처음 + 넷 + 정의) · 기록 · 전망 열(달마다 기준선·유가)",
+          codes == [0] * 5 and None not in runs and len(set(runs)) == 5 and len(set(vints)) == 6 and sorted(dl) == sorted(vints)
+          and len(ids) == len(set(ids)) and len(sims) == len(set(sims)) == 10,
+          f"{runs} 회차 {vints} 기록 {len(ids)}/{len(set(ids))} 전망 {len(sims)} {'; '.join(errs)}")
+
+    c, o, e = run(["run", "--replay", runs[0] or "run:x", "-q"], d)
+    check("J9.6 첫 달의 실행을 넷째 달 뒤에 재연 — 모두 같음", c == 0 and "모두 같음" in o, (o + e)[-200:] if c else "")
+
+    before, vb = _fingerprint(d), q.vintage
+    c, o, e = run(["milestone", "restore", "m2", "--json"], d)
+    res = json.loads(o) if c == 0 else {}
+    q = quiet(Project.open, d)
+    same_defs = q.milestone_diff("m2").defs_same
+    pre = _fingerprint(d)
+    cb, ob, eb = run(["data", "build"], d)                     # 이정표 때 정의 = 둘째 달 원자료 → 지금 회차보다 짧다
+    untouched = pre == _fingerprint(d)
+    cr, orr, er = run(["history", "revert", res.get("change") or "h0000"], d)
+    after = _fingerprint(d)
+    moved = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+    check("J9.7 이정표(둘째 달) restore — 정의는 그때와 같고 회차는 그대로(알림) · 그 뒤 data build는 짧아져 거절(3, 아무것도 바꾸지 않음) · restore를 되돌리면 restore 전과 바이트까지 같다",
+          c == 0 and same_defs and q.vintage == vb and any("회차는 그대로" in x for x in res.get("data") or []) and cb == 3
+          and "짧" in (ob + eb) and untouched and cr == 0 and not moved and quiet(Project.open, d).vintage == vb,
+          f"{c} 정의 같음 {same_defs} 회차 {q.vintage}/{vb} 거절 {cb} 되돌림 {cr} {(orr + er)[-120:] if cr else ''} 다른 파일 {moved[:4]}")
+
+
+# ---------------------------------------------------------------------------
+def _kill(proc, pid=None):
+    """강제 종료(작업 관리자의 '작업 끝내기'·Desk 창 닫기와 같다 — 정리할 틈이 없다). pid = equion을 돌리는 Python
+    (Windows의 가상환경 python.exe는 그 Python을 자식으로 띄운다). Windows는 그 프로세스를 곧바로 끝내고(TerminateProcess —
+    taskkill /F와 같다) taskkill /F /T로 나머지 나무까지, 다른 OS는 SIGKILL."""
+    try:
+        os.kill(pid or proc.pid, signal.SIGTERM if os.name == "nt" else signal.SIGKILL)
+    except OSError:
+        pass
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+    proc.wait(timeout=60)
+
+
+def _progress(state):
+    """도는 실행의 상태(work/run/.active/<이름>.json)에서 하는(또는 끝낸) 단계 번호."""
+    return max((state.get("current") or {}).get("n") or 0, len(state.get("steps") or []))
+
+
+def _kill_run(d, at, delay=0.0, limit=90):
+    """d에서 `equion run FLOWS/monthly.eqs`를 띄우고 at번째 단계에 들어서고 delay초 뒤에 강제로 끝낸다 → 그 단계에 들어설 때의 실행
+    상태(못 잡았으면 None). 시각이 아니라 실행이 적는 상태로 끊으므로 PC의 빠르기와 거의 상관없다(delay는 그 단계 안의 어디쯤)."""
+    from equion.script.record import _pid_alive
+    proc = subprocess.Popen([sys.executable, "-m", "equion", "run", "FLOWS/monthly.eqs", "-q"], cwd=d, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    act, state, t0 = os.path.join(d, "work", "run", ".active"), None, time.time()
+    while state is None and proc.poll() is None and time.time() - t0 < limit:
+        for f in glob.glob(os.path.join(act, "*.json")):
+            try:
+                s = json.loads(read(f) or "null")
+            except (OSError, ValueError):           # 쓰는 중인 파일
+                s = None
+            if s and _progress(s) >= at:
+                state = s
+        if state is None:
+            time.sleep(0.01)
+    if state and delay:
+        time.sleep(delay)
+    _kill(proc, (state or {}).get("pid"))
+    t1 = time.time()
+    while state and _pid_alive(state.get("pid")) and time.time() - t1 < 10:
+        time.sleep(0.05)
+    return state
+
+
+def _leftovers(d):
+    """반쯤 쓴 임시 파일·폴더(`*.tmp-equion` · `.tmp-<이름>-…` 등)."""
+    return sorted(os.path.relpath(f, d) for f in glob.glob(os.path.join(d, "**", "*"), recursive=True)
+                  if re.search(r"\.tmp|~$|\.partial$", os.path.basename(f)))
+
+
+def _together(d, cmds):
+    """명령 여럿을 같은 순간에 — 프로세스마다(Claude Code가 명령을 나란히 · Desk와 터미널) → [(종료 코드, 출력)]."""
+    gate, out = threading.Barrier(len(cmds)), [None] * len(cmds)
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+
+    def go(i):
+        gate.wait()
+        r = subprocess.run([sys.executable, "-m", "equion", *cmds[i]], cwd=d, capture_output=True, env=env, stdin=subprocess.DEVNULL)
+        out[i] = (r.returncode, (r.stdout + r.stderr).decode("utf-8", "replace"))
+    ts = [threading.Thread(target=go, args=(i,)) for i in range(len(cmds))]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    return out
+
+
+def j10(tmp):
+    print("\n== J10. 끊김과 동시 실행 ==")
+    _, base = new_project(tmp, "kill_base")
+    monthly_file(base, 1)
+    got = os.listdir(os.path.join(base, "DATA", "raw", "inbox"))[0]
+    # 자료 단계는 0.45초쯤 안에서(받은 파일을 넣은 뒤 · 회차를 만들기 전 언저리), 과거 재현은 조금 들어가서, 보고서는 들어서자마자
+    for i, (label, at, delay) in enumerate((("자료 단계 도중", 1, 0.45), ("과거 재현 도중", 4, 0.1), ("보고서 쓰는 중", 8, 0.0))):
+        d = os.path.join(tmp, f"kill_{i + 1}")
+        shutil.copytree(base, d)
+        v0 = quiet(Project.open, d).vintage
+        state = _kill_run(d, at, delay)
+        q = quiet(Project.open, d)
+        na = re.search(r'file = "(DATA/raw/[^"]+)"', read(os.path.join(d, "DATA", "series.toml")))
+        # 지금 회차의 폴더가 온전하고, 정의가 가리키는 원자료가 있고, 받은 파일은 받은 상자 아니면 정의가 가리키는 곳에(없어지지 않는다)
+        sane = bool(q.vintage and os.path.isfile(os.path.join(d, "work", "data", q.vintage, "series.csv"))
+                    and na and os.path.isfile(os.path.join(d, na[1]))
+                    and (got in os.listdir(os.path.join(d, "DATA", "raw", "inbox")) or na[1] == f"DATA/raw/{got}"))
+        c, o, e = run(["run", "FLOWS/monthly.eqs", "-q"], d)
+        q = quiet(Project.open, d)
+        name = (state or {}).get("name")
+        try:
+            km = q.work.get(f"run:{name}").meta
+        except Exception:  # noqa: BLE001
+            km = {}
+        cs, os_, _ = run(["work", "show", f"run:{name}"], d)
+        cr, _, _ = run(["run", "--replay", f"run:{name}"], d)
+        cc, _, _ = run(["report", "check", f"reports/forecast_{q.vintage}.md"], d)
+        runs = [r.id for r in q.work.records("run")]
+        vs = [v["id"] for v in q.data_list()]
+        left = _leftovers(d)
+        marks = [s.get("status") for s in km.get("steps") or []]
+        cut = (km.get("steps") or [{}])[-1]
+        # 기록의 단계는 끊긴 데까지(본 상태의 단계 이상 — 끊는 사이 조금 더 갔을 수 있다) · 끝 단계만 '끊김'이거나 단계 사이에서 끊겼다
+        stopped = bool(marks) and cut.get("n", 0) >= _progress(state or {}) and "interrupted" not in marks[:-1] \
+            and (marks[-1] == "interrupted" or len(marks) < 11)
+        check(f"J10.{i + 1} {label} 강제 종료 → 회차·정의·받은 파일이 서로 맞고(받은 파일은 상자 아니면 정의 쪽에), 다음 실행이 '끝나지 못함'(130 · 끊긴 단계까지) "
+              "기록을 남기고 새 번호로 끝까지 · 그 기록은 재연 거절(3) · 받은 상자 빔 · 회차 둘 · 임시 파일 없음 · 보고서 정상",
+              state is not None and sane and c == 0 and km.get("status") == "cancelled" and km.get("exit_code") == 130 and stopped
+              and cs == 0 and "끝나지 못함" in os_ and cr == 3 and len(runs) == len(set(runs)) == 2 and _run_id(o) != f"run:{name}"
+              and cc == 0 and not os.listdir(os.path.join(d, "DATA", "raw", "inbox"))
+              and not os.listdir(os.path.join(d, "work", "run", ".active")) and len(vs) == 2 and v0 in vs
+              and q.span("last:last")[1] == quarter(1) and not left,
+              f"끊은 단계 {_progress(state or {})} → 기록 {cut.get('n')} {cut.get('status')} · 정의 {sane} · 다시 {c} {(o + e)[-160:] if c else ''}"
+              f"· 기록 {km.get('status')}/{km.get('exit_code')} · 재연 {cr} · 보고서 {cc} · 실행 {runs} · 회차 {vs} · 남은 것 {left[:3]}")
+        if i == 0:
+            c2, o2, e2 = run(["run", "--replay", _run_id(o) or "run:x", "-q"], d)
+            check("J10.1b 끊긴 뒤 다시 돈 실행의 재연 — 모두 같음", c2 == 0 and "모두 같음" in o2, (o2 + e2)[-200:] if c2 else "")
+
+    _, d = new_project(tmp, "concurrent")
+    for args in (["est", "CN c Y CN(-1) CN(-2)", "--for", "demand:CN", "--as", "cn2"],
+                 ["est", "I c Y(-1) R I(-1)", "--for", "demand:I", "--as", "i2"],
+                 ["est", "RL c R RL(-1) RL(-2)", "--for", "finance:RL", "--as", "rl2"]):
+        run(args, d)
+    run(["history", "list"], d)
+    h0 = {c.id for c in quiet(Project.open, d).history.list()}
+    res = _together(d, [["adopt", "est:cn2"], ["adopt", "est:i2"], ["adopt", "est:rl2"]])
+    q = quiet(Project.open, d)
+    dem, fin = read(os.path.join(d, "EQUATIONS", "demand.txt")), read(os.path.join(d, "EQUATIONS", "finance.txt"))
+    ad = read(os.path.join(d, "EQUATIONS", "adopted.toml"))
+    new = [c.id for c in q.history.list() if c.id not in h0]
+    kept = [k for k, v in (("demand:CN", "cn2"), ("demand:I", "i2"), ("finance:RL", "rl2")) if f'"{k}" = "est:{v}"' in ad]
+    check("J10.4 채택 셋을 같은 순간에(같은 블록 파일의 다른 식 둘 + 다른 블록 하나) — 모두 0 · 블록 파일의 줄과 채택표 항목이 하나도 사라지지 않고 바뀜 기록 번호가 겹치지 않는다",
+          [r[0] for r in res] == [0, 0, 0] and "CN c Y CN(-1) CN(-2)" in dem and "I c Y(-1) R I(-1)" in dem and "RL c R RL(-1) RL(-2)" in fin
+          and len(kept) == 3 and len(new) == len(set(new)) == 3 and not _leftovers(d) and q.assemble("main").ok,
+          f"{[(r[0], r[1].strip()[-120:]) for r in res if r[0]]} 채택표 {kept} 바뀜 {new} {_leftovers(d)[:3]}")
+    n0 = len(q.work.records("est"))
+    res = _together(d, [["est", "demand:CN"]] * 4)
+    q = quiet(Project.open, d)
+    ests = [r.id for r in q.work.records("est")]
+    lines = [x for x in read(os.path.join(d, "work", "log.jsonl")).splitlines() if x.strip()]
+    try:
+        ids = [json.loads(x)["id"] for x in lines]
+    except (ValueError, KeyError):
+        ids = []
+    names = sorted(re.findall(r"\[(est:cn_\d{4})\]", " ".join(r[1] for r in res)))
+    folders = [x for x in os.listdir(os.path.join(d, "work", "est")) if not x.startswith(".")]
+    check("J10.5 같은 부품의 추정 넷을 같은 순간에 — 모두 0 · 서로 다른 이름 넷으로 남고 작업 목록(log.jsonl 줄마다 온전)·기록 폴더에 빠짐·겹침·임시 폴더가 없다",
+          [r[0] for r in res] == [0] * 4 and len(names) == len(set(names)) == 4 and len(ests) == n0 + 4
+          and len(ids) == len(lines) == len(set(ids)) and set(names) <= set(ids) and len(folders) == len(ests)
+          and all(os.path.isfile(os.path.join(d, "work", "est", x, "record.json")) for x in folders) and not _leftovers(d),
+          f"{[(r[0], r[1].strip()[-120:]) for r in res if r[0]]} 이름 {names} 기록 {len(ests)}(앞 {n0}) {_leftovers(d)[:3]}")
+
+
+# ---------------------------------------------------------------------------
+def _na_csv(path, df, unit=True, rename=None):
+    """통계표처럼 단위 줄(2줄)이 있는 분기 원자료 — unit=False면 단위 줄이 빠진 파일, rename이면 열 이름이 바뀐 파일."""
+    df = df.rename(columns=rename or {})
+    lines = ["period," + ",".join(df.columns)]
+    if unit:
+        lines.append("," + ",".join("%" if c in ("R", "RL") else "지수" if c in ("P", "POIL") else "조원" for c in df.columns))
+    lines += [i + "," + ",".join("" if pd.isna(v) else f"{v:.6f}" for v in row) for i, row in df.iterrows()]
+    write(path, "\n".join(lines) + "\n")
+
+
+def j11(tmp):
+    print("\n== J11. 낯선 받은 파일 ==")
+    _, d = new_project(tmp, "odd_files")
+    raw, inbox = os.path.join(d, "DATA", "raw"), os.path.join(d, "DATA", "raw", "inbox")
+    q = pd.read_csv(os.path.join(raw, "toy_q.csv"), index_col=0)
+    nxt = q.copy()
+    nxt.loc["2020Q1"] = q.loc["2019Q4"] * 1.004
+    _na_csv(os.path.join(raw, "na.csv"), q)                     # 원자료를 단위 줄이 있는 통계표로 바꿔 둔다
+    st = os.path.join(d, "DATA", "series.toml")
+    write(st, read(st).replace('file = "DATA/raw/toy_q.csv"', 'file = "DATA/raw/na.csv"\nunit_row = 2'))
+    c0, _, _ = run(["data", "build", "--use"], d)
+    v0, st0 = quiet(Project.open, d).vintage, read(st)
+    got = os.path.join(inbox, "na_2020Q1.csv")
+
+    def refused(df, **kw):
+        _na_csv(got, df, **kw)
+        _, oi, ei = run(["data", "inbox"], d)
+        c, o, e = run(["data", "build", "--inbox", "auto", "--use"], d)
+        same = quiet(Project.open, d).vintage == v0 and read(st) == st0 and os.listdir(inbox) == ["na_2020Q1.csv"]
+        return c, o + e, oi + ei, same
+
+    c, o, oi, same = refused(nxt, unit=False)
+    check("J11.1 단위 줄이 빠진 받은 파일 → 넣지 않고(3) 그 줄과 칸을 말한다(A2 '1970Q1' — 첫 기간이 단위로 사라지지 않는다) · data inbox도 · 회차·정의·받은 상자 그대로",
+          c0 == 0 and c == 3 and "단위 줄" in o and "A2 '1970Q1'" in o and "A2 '1970Q1'" in oi and same, o[-200:] if c != 3 else "")
+    os.remove(got)
+    c, o, oi, same = refused(nxt, rename={"CN": "CONS"})
+    check("J11.2 열 이름이 바뀐 받은 파일(CN → CONS) → 넣지 않고(3) 없는 열 CN과 새 파일에만 있는 열 CONS를 말한다 · 그대로",
+          c == 3 and "없는 열: CN" in o and "CONS" in o and "CONS" in oi and same, o[-200:] if c != 3 else "")
+    os.remove(got)
+
+    blk, ad = os.path.join(d, "EQUATIONS", "demand.txt"), os.path.join(d, "EQUATIONS", "adopted.toml")
+    blk0 = read(blk)
+    run(["est", "CN c Y Y(-1) CN(-1)", "--for", "demand:CN", "--as", "c3"], d)
+    c1, o1, _ = run(["adopt", "est:c3"], d)
+    h = re.search(r"바뀜 기록\s+(h\d{4})", o1)
+    for f in (blk, ad):                                         # 편집기·git autocrlf·Python write_text가 줄바꿈만 CRLF로
+        with open(f, "rb") as fh:
+            b = fh.read().replace(b"\r\n", b"\n")
+        with open(f, "wb") as fh:
+            fh.write(b.replace(b"\n", b"\r\n"))
+    run(["history", "list"], d)
+    outside = quiet(Project.open, d).history.list()[-1]
+    cs, os_, _ = run(["history", "show", outside.id], d)
+    c2, o2, e2 = run(["history", "revert", h[1] if h else "h0000"], d)
+    with open(blk, "rb") as fh:
+        b = fh.read()
+    check("J11.3 채택 뒤 줄바꿈만 CRLF로 바뀐 블록 파일·채택표 — 그 바뀜은 '줄바꿈만', 채택 되돌리기가 된다(0) · 식은 채택 전으로, 줄바꿈은 CRLF 그대로",
+          c1 == 0 and h is not None and cs == 0 and "줄바꿈만 바뀜" in os_ and c2 == 0 and b.replace(b"\r\n", b"\n").decode("utf-8") == blk0
+          and b.count(b"\n") == b.count(b"\r\n") and (not os.path.exists(ad) or '"demand:CN"' not in read(ad))
+          and quiet(Project.open, d).assemble("main").ok, f"{c1} {outside.id} {os_[-120:] if cs else ''} 되돌림 {c2} {(o2 + e2)[-200:] if c2 else ''}")
+
+    c, o, oi, same = refused(nxt.iloc[-8:])                     # 최근 8기만 든 파일(일부 기간만 내려받음)
+    from equion.projects.vintage import ShorterError
+    try:
+        quiet(quiet(Project.open, d).data_build, use=True, inbox="auto")
+        err = None
+    except Exception as ex:  # noqa: BLE001
+        err = ex
+    same2 = quiet(Project.open, d).vintage == v0 and os.listdir(inbox) == ["na_2020Q1.csv"]
+    c3, o3, e3 = run(["data", "build", "--inbox", "auto", "--use", "--allow-shorter"], d)
+    first = quiet(Project.open, d).workfile["CN"].first_valid_index()
+    check("J11.4 최근 8기만 든 받은 파일 → 넣지 않음(3 — Python은 ShorterError) · 회차 그대로 · --allow-shorter면 넣고 짧은 회차를 '!'와 함께",
+          c == 3 and "기간이 짧습니다" in o and "--allow-shorter" in o and "기간이 짧습니다" in oi and same and isinstance(err, ShorterError)
+          and same2 and c3 == 0 and "! 지금 회차" in o3 and not os.listdir(inbox) and quiet(Project.open, d).vintage != v0
+          and first is not None and str(pd.Period(first, "Q")) == "2018Q2",
+          f"{c} {type(err).__name__} 넣기 {c3} {(o3 + e3)[-200:] if c3 else ''} 처음 {first}")
+
+
+# ---------------------------------------------------------------------------
+def j12(tmp):
+    print("\n== J12. 풀리지 않는 모형 ==")
+    _, d = new_project(tmp, "unsolvable")
+    blk = os.path.join(d, "EQUATIONS", "demand.txt")
+    orig = read(blk)
+    write(blk, "CN c Y CN(-1)  @coef 0 1 0   # 계수를 고정해 CN = Y — 국민소득 항등식과 함께 해가 없다\nI c Y(-1) R\nY = CN + I + G\n")
+    c, o, e = run(["hs", "core", "--as", "sing"], d)
+    ok = n = gap = top = rm = None
+    if c == 0:
+        rec = quiet(Project.open, d).work.get("hs:sing")
+        cnt, sol, act = rec.meta["counts"], rec.read_csv("solved.csv"), rec.read_csv("series.csv")
+        ok, n = cnt.get("ok"), cnt.get("fallback")
+        gap = float((sol["Y"] - act["Y_실측"]).abs().max())        # 실패한 기는 실측으로 — 그래서 다음 기의 Y(-1)도 실측
+        top = float(sol.abs().max().max() / act.abs().max().max())  # 1e18로 커진 값이 남지 않는다
+        rm = (rec.meta.get("rmspe") or {}).get("I")                 # I(Y(-1)을 쓴다)는 보통 크기의 오차
+    check("J12.1 해가 없는 동시 블록(CN = Y · Y = CN + I + G) → 모든 기가 실패 대체(1e18에서 '정상'이 아님)와 까닭(자코비안 특이) · 다음 기로 흐르지 않는다",
+          c == 0 and ok == 0 and n == 60 and "특이" in o and gap == 0 and top is not None and top < 2 and rm is not None and rm < 5,
+          f"{c} 정상 {ok} · 대체 {n} · Y−실측 {gap} · 크기 비 {top} · I RMSPE {rm} {(o + e)[-200:] if c else ''}")
+    write(blk, "CN c Y CN(-1)\nI c Y(-1) R\nY = CN + I + G + SD   # 통계상 불일치 SD를\nSD = Y - CN - I - G   # 두 번 적었다\n")
+    c1, o1, e1 = run(["assemble", "core"], d)
+    c2, o2, e2 = run(["hs", "core"], d)
+    check("J12.2 서로 종속인 항등식(같은 관계를 두 번) → assemble이 문제로 알리고(3) hs는 풀지 않는다(3 — 아무 값으로나 '정상'이 아님)",
+          c1 == 3 and "서로 종속인 항등식 demand:Y · demand:SD" in o1 and c2 == 3 and "서로 종속" in e2, f"assemble {c1} · hs {c2} {e2.strip()[:160]}")
+    write(blk, "CN c Y CN(-1)\nI c Y(+1) R   # 선행변수 — 다음 기 소득을 내다보고 투자\nY = CN + I + G\n")
+    c1, o1, e1 = run(["sim", "base", "--model", "core", "--as", "lead"], d)
+    m = quiet(Project.open, d).work.get("sim:lead").meta if c1 == 0 else {}
+    c2, o2, _ = run(["hs", "core", "--as", "hlead"], d)
+    check("J12.3 선행변수(I c Y(+1) R) → sim이 Fair-Taylor 모형 일관 기대로 풀고 그렇다고 말한다(정상 8 — 전처럼 '실패 8'이 아님) · hs는 선행 값에 실측(완전 예견)이라고 알린다",
+          c1 == 0 and "fair-taylor" in o1 and m.get("mce") == "fair-taylor" and (m.get("counts") or {}).get("ok") == 8
+          and c2 == 0 and "완전 예견" in o2, f"{c1} {m.get('mce')} {m.get('counts')} {(o1 + e1)[-200:] if c1 else ''} hs {c2}")
+    write(blk, orig)
+    c1, o1, e1 = run(["est", "demand:CN", "--smpl", "2000:2019", "--as", "yr"], d)
+    c2, o2, e2 = run(["hs", "core", "--range", "2018:2019", "--as", "hyr"], d)
+    w = quiet(Project.open, d).work
+    em = w.get("est:yr").meta if c1 == 0 else {}
+    hm = w.get("hs:hyr").meta if c2 == 0 else {}
+    check("J12.4 해만 적은 구간은 그 해의 마지막 기까지 — est --smpl 2000:2019는 2000Q1~2019Q4(n=80) · hs --range 2018:2019는 2018Q1~2019Q4",
+          em.get("sample") == ["2000Q1", "2019Q4"] and em.get("n") == 80 and hm.get("range") == ["2018Q1", "2019Q4"],
+          f"{em.get('sample')} n={em.get('n')} · {hm.get('range')} {(o1 + e1 + o2 + e2)[-200:] if c1 or c2 else ''}")
+
+
 def test_suite():
     """pytest 진입점 — 이 파일의 검사 묶음 전체(하나라도 실패하면 실패). `python tests/test_journeys.py`와 같은 검사."""
     assert main() == 0
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):          # 출력을 파일·파이프로 받을 때(Windows cp949)도 '—' 같은 글자에서 멈추지 않게
+        sys.stdout.reconfigure(encoding="utf-8")
     try:
         sys.exit(main())
     except Exception:

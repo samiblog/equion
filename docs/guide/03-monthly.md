@@ -180,8 +180,8 @@ $ equion run FLOWS/monthly.eqs -q
 
 $ equion work list --kind hs
 [work list] monthly: 기록 2 (최근 30)
-  hs:hs_0001         2026-11-09T14:03 스크립트   main 2005Q1~2020Q1 · Y 0.48% · CN 0.51% · I 0.86%   회차 다름(d2026-11b)
-  hs:hs_0002         2026-11-09T14:03 스크립트   main 2005Q1~2020Q2 · Y 0.49% · CN 0.53% · I 0.85%
+  hs:hs_0001         2026-11-13T05:16 스크립트   main 2005Q1~2020Q1 · Y 0.48% · CN 0.51% · I 0.86%   회차 다름(d2026-11b)
+  hs:hs_0002         2026-11-13T05:16 스크립트   main 2005Q1~2020Q2 · Y 0.49% · CN 0.53% · I 0.85%
 
 $ equion compare hs:hs_0001 hs:hs_0002
 [compare] 과거 재현 기록 2
@@ -224,6 +224,34 @@ $ equion run --replay run:monthly_0001 -q
 기록  run:monthly_0003 · 종료 코드 0
 ```
 
+## 6. 이달을 확정하고 남기기 — 이정표 · 묶어 보내기
+
+전망을 확정했으면 **이정표**를 만들어 둡니다(정의 파일 사본 · 자료 회차 · 고정한 기록 — `work/milestones/<이름>/`). 나중에 `milestone show`로 지금과
+견주고, `milestone restore`로 정의를 그때로 되돌립니다(바뀜 기록에 남는다). 다른 PC로 옮길 때는 **묶어 보내기** — 정의·노트·보고서·지금 자료
+회차·남길 기록을 zip 하나로(원자료는 `--raw`일 때만), 받는 쪽은 `equion bundle open 묶음.zip 폴더`.
+
+```console
+$ equion milestone make fc_2026_11 --note "11월 전망 확정"
+$ equion bundle make
+```
+<!-- out -->
+```text
+$ equion milestone make fc_2026_11 --note "11월 전망 확정"
+[milestone] fc_2026_11 — 11월 전망 확정
+  만든 때 2026-11-13T05:16:24 · terminal
+  자료 회차 d2026-11c · 정의 파일 11 · 고정한 기록 0
+  폴더   work/milestones/fc_2026_11
+
+$ equion bundle make
+[bundle make] exports/monthly_2026-11-13.zip — 파일 138 · 242KB
+  자료 회차 d2026-11c · 기록 18 · 원자료 넣지 않음
+  기록이 쓰는 회차  d2026-11b
+  뺀 것   원자료 DATA/raw/ — 받은 쪽은 지금 자료 회차로 이어 한다(자료를 다시 만들려면 원자료를 따로 넣는다)
+  뺀 것   기록 — 남길 것만(모두 21개 가운데 18개)
+  뺀 것   바뀜 기록 work/history · Desk 화면 상태 — 그 PC의 것
+  받은 쪽  equion bundle open 묶음.zip 폴더
+```
+
 ## 표시(`!`)가 떴을 때
 
 | 표시 | 뜻 | 할 일 |
@@ -243,5 +271,6 @@ $ equion run --replay run:monthly_0001 -q
 - [ ] `data diff`가 새 기간과 개정을, `ident --check`가 어긋난 기간을 보인다
 - [ ] 같은 회차로 다시 돌려도 보고서에 쓴 글이 남는다
 - [ ] `--replay`가 '모두 같음'
+- [ ] 이정표가 `milestone list`에 보이고, 묶음(`exports/*.zip`)을 다른 폴더에 `bundle open`으로 풀면 같은 회차로 이어 할 수 있다
 
 다음: [4. 식 고르기](04-equations.md) · [9. 자동으로 돌리기](09-automation.md)

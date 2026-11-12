@@ -51,7 +51,8 @@ export function dataView(project, desc) {
   async function reestimate() {
     try {
       const res = await project.compute('reestimate', { name: st.todo?.hs?.model || project.overview?.hs?.model || undefined }, { quiet: true });
-      st.reest = { ...res.result, pick: new Set(res.result.rows.filter((r) => r.passed !== false && r.old).map((r) => r.part)) };
+      // 미리 고르는 것: 기준을 통과했거나 기준이 없는 식 — 걸러짐 · 판단 못 함(검정이 없는 추정법) · 채택 기록과 식이 다름은 사람이 고른다
+      st.reest = { ...res.result, pick: new Set(res.result.rows.filter((r) => (r.passed === true || (r.passed == null && !r.untested)) && r.old && !r.mismatch).map((r) => r.part)) };
       render();
     } catch (err) {
       if (err.kind !== 'busy') { st.error = err.message; render(); }
@@ -115,7 +116,10 @@ export function dataView(project, desc) {
         return h('tr', {}, h('td', {}, box), h('td', {}, h('b', { class: 'mono' }, row.part), row.old ? null : h('span', { class: 'tag', title: '아직 채택한 계수가 없던 식입니다' }, '채택 없음')),
           h('td', { class: 'num' }, row.max_change_pct == null ? '—' : `${row.max_change_pct.toFixed(row.max_change_pct < 10 ? 2 : 1)}%`),
           h('td', { class: 'num' }, o ? `${short3(o.r2_adj)} → ` : '', short3(n?.r2_adj)), h('td', { class: 'num' }, o ? `${short3(o.se)} → ` : '', short3(n?.se)),
-          h('td', {}, row.passed === false ? h('span', { class: 'tag warn', title: row.reasons.join('\n') }, `걸러짐 — ${row.reasons[0] || ''}`) : h('span', { class: 'tag ok' }, '통과')),
+          h('td', {}, row.passed === false ? h('span', { class: 'tag warn', title: row.reasons.join('\n') }, `걸러짐 — ${row.reasons[0] || ''}`)
+            : row.untested ? h('span', { class: 'tag', title: row.note || '' }, '판단 못 함 — 검정 없음')
+              : row.passed === true ? h('span', { class: 'tag ok' }, '통과') : h('span', { class: 'tag' }, '기준 없음'),
+          row.mismatch ? h('span', { class: 'tag warn', title: '채택 기록의 식이 블록 파일의 식과 다릅니다 — 모형은 블록 파일의 식을 지금 자료로 추정해 풉니다' }, '식이 다름') : null),
           h('td', {}, h('button', { class: 'link mono', type: 'button', title: '새 추정 기록을 식 작업대에서 본다', onclick: () => project.openTab({ type: 'bench', part: row.part, shown: row.new }) }, row.new)));
       }))));
   }
@@ -128,10 +132,30 @@ export function dataView(project, desc) {
 
   // ---- 하는 일 ----------------------------------------------------------------------------------
 
-  async function build() {
+  /** 패키지가 알린 것(짧은 자료로 만듦 · 옛 회차로 돌아감 · 옛 회차와 같음) — 알림 카드로(하라는 대로 했지만 사람이 볼 것) */
+  function warn(list) {
+    for (const text of list || []) project.notify({ level: 'warn', text, timeout: 30000 });
+  }
+
+  /** 새 자료가 지금 회차보다 짧다 — 시리즈마다 지금 회차와 새 자료의 구간을 보이고 묻는다. 그래도 만들면 true */
+  async function askShorter(err) {
+    const d = err.detail && typeof err.detail === 'object' ? err.detail : {};
+    const rows = Array.isArray(d.series) ? d.series : [];
+    const body = h('div', { class: 'adopt' },
+      h('p', {}, '새로 만들 자료가 지금 회차 ', h('b', { class: 'mono' }, d.current || current() || ''), ' 보다 짧습니다 — 시작이 늦거나 끝이 이른 시리즈가 있습니다. ',
+        '지난 파일을 다시 받았거나 일부 기간만 든 파일, 또는 정의가 옛 원자료를 가리키는지(되돌리기 뒤) 확인하세요. 아직 아무것도 바꾸지 않았습니다.'),
+      rows.length ? h('table', { class: 'choice-table' }, h('thead', {}, h('tr', {}, ['시리즈', '지금 회차', '새 자료'].map((x) => h('th', {}, x)))),
+        h('tbody', {}, rows.slice(0, 12).map((r) => h('tr', {}, h('td', { class: 'mono' }, r.name), h('td', { class: 'was' }, span(...(r.now || []))), h('td', { class: 'mine' }, span(...(r.new || []))))))) : h('pre', { class: 'conflict-text' }, err.message),
+      rows.length > 12 ? h('p', { class: 'muted' }, `… 외 ${rows.length - 12}개`) : null,
+      h('p', { class: 'muted' }, '그래도 만들면 새 회차가 생길 뿐 지금 회차는 그대로입니다(equion data build --allow-shorter).'));
+    return confirmDialog({ title: '지금 회차보다 짧은 자료입니다', body, confirm: '그래도 만들기', tone: 'danger', wide: true });
+  }
+
+  async function build({ allowShorter = false } = {}) {
     try {
-      const res = await project.compute('data/build', {}, { quiet: true });
+      const res = await project.compute('data/build', allowShorter ? { allow_shorter: true } : {}, { quiet: true });
       const r = res.result;
+      warn(r.warnings);
       if (r.created) {
         st.made = r;
         st.section = 'vintages';
@@ -148,6 +172,11 @@ export function dataView(project, desc) {
         render();
       }
     } catch (err) {
+      if (err.kind === 'shorter') {
+        if (await askShorter(err)) build({ allowShorter: true });
+        else flash('만들지 않았습니다 — 지금 회차는 그대로입니다');
+        return;
+      }
       if (err.kind !== 'busy') { st.error = err.message; render(); }
     }
   }
@@ -180,9 +209,10 @@ export function dataView(project, desc) {
       h('p', { class: 'muted' }, '바뀜 기록에 남습니다. 옛 회차는 지워지지 않으니 언제든 다시 바꿀 수 있습니다.'));
     if (!(await confirmDialog({ title: `${id} 회차로 바꾸기`, body, confirm: '이 회차로 바꾸기', wide: true }))) return;
     try {
-      await project.compute('data/use', { vintage: id }, { quiet: true });
+      const res = await project.compute('data/use', { vintage: id }, { quiet: true });
       st.made = null;
       flash(`지금 회차는 ${id} 입니다`);
+      warn(res.result?.warnings);
       await project.loadOverview();
       await load();
     } catch (err) {
@@ -262,7 +292,7 @@ export function dataView(project, desc) {
     if (stale) {
       const what = [...stale.definitions.map((f) => f.split('/').pop()), ...stale.sources.map((s) => `원자료 ${s}`)].join(' · ');
       return h('div', { class: 'banner warn' }, icon('alert'), h('div', {}, h('b', {}, `지금 회차 ${cur} 를 만든 뒤 바뀐 것이 있습니다`), ` — ${what}. 계산은 아직 옛 자료로 합니다. 새 자료로 하려면 자료를 다시 만드세요.`),
-        h('button', { class: 'btn small primary', type: 'button', onclick: build }, '자료 만들기'));
+        h('button', { class: 'btn small primary', type: 'button', onclick: () => build() }, '자료 만들기'));
     }
     if (d.inbox.length) {
       return h('div', { class: 'banner info' }, icon('inbox'), h('div', {}, h('b', {}, `받은 상자에 새 파일 ${d.inbox.length}개가 있습니다`), ' — 원자료로 넣은 뒤 자료를 만들면 새 회차가 됩니다.'),
@@ -450,7 +480,7 @@ export function dataView(project, desc) {
       h('div', {}, h('h1', {}, '자료'), h('div', { class: 'sub' }, d?.mode === 'file' ? '이 프로젝트는 자료 파일 하나를 그대로 읽습니다.'
         : '받은 파일(원자료)을 정의대로 읽어 만든 자료 한 벌이 ‘회차’입니다. 계산은 늘 지금 회차로 합니다.')),
       d?.mode === 'defs' ? h('div', { class: 'tools' }, h('button', { class: `btn ${stale ? 'primary' : ''}`.trim(), type: 'button', disabled: project.busy,
-        title: 'equion data build — 원자료를 정의대로 읽어 새 회차를 만든다(내용이 같으면 만들지 않는다). 지금 회차는 바뀌지 않는다', onclick: build }, icon('refresh'), '자료 만들기')) : null));
+        title: 'equion data build — 원자료를 정의대로 읽어 새 회차를 만든다(내용이 같으면 만들지 않는다). 지금 회차는 바뀌지 않는다', onclick: () => build() }, icon('refresh'), '자료 만들기')) : null));
     if (st.error) el.append(h('div', { class: 'banner error' }, icon('alert'), h('div', { class: 'grow' }, st.error), h('button', { class: 'icon-btn', type: 'button', title: '닫기', 'aria-label': '닫기', onclick: () => { st.error = null; render(); } }, icon('x'))));
     if (st.loadError) el.append(h('div', { class: 'banner error' }, icon('alert'), h('div', {}, '자료를 읽지 못했습니다.', h('pre', {}, st.loadError))));
     if (!d) { if (!st.loadError) el.append(h('div', { class: 'empty-state' }, '자료를 읽는 중…')); return; }

@@ -22,6 +22,10 @@ from typing import Dict, List, Optional, Tuple
 from .ast_formula import normalize_user_input
 
 
+class UnknownVariableError(ValueError):
+    """식이 자료에 없는 변수를 씀(오타·자료 누락) — 식 문법 오류처럼 입력 오류다(명령줄 종료 코드 3, `equion check`와 같게)."""
+
+
 class DSLError(ValueError):
     """방정식 문법/검증 오류 (사용자에게 그대로 보여줄 메시지)."""
 
@@ -128,8 +132,8 @@ def split_equation(text: str) -> Tuple[str, str]:
 # 정규화 / EViews 문법 변환
 # ---------------------------------------------------------------------------
 _AT_CALL_RE = re.compile(r"@([A-Za-z_][A-Za-z0-9_]*)\s*\(")
-_EVIEWS_RANGE_RE = re.compile(
-    r"(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_]*)\(\s*(-?\d+)\s*(?:to|:|\.\.)\s*(-?\d+)\s*\)")
+_EVIEWS_RANGE_RE = re.compile(                    # 'to'는 대소문자 무시(X(-1 TO -4)) — 함수 이름·@지시자처럼
+    r"(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_]*)\(\s*(-?\d+)\s*(?:[Tt][Oo]|:|\.\.)\s*(-?\d+)\s*\)")
 
 
 def normalize(text: str) -> str:
@@ -231,7 +235,7 @@ def split_terms(text: str) -> List[str]:
     return merged
 
 
-_LAGRANGE_RE = re.compile(r"\.t\(\s*(-?\d+)\s*(?:to|:|\.\.)\s*(-?\d+)\s*\)")
+_LAGRANGE_RE = re.compile(r"\.t\(\s*(-?\d+)\s*(?:[Tt][Oo]|:|\.\.)\s*(-?\d+)\s*\)")
 
 
 def expand_term_lag_range(term: str) -> List[str]:
@@ -256,6 +260,14 @@ def expand_term_lag_range(term: str) -> List[str]:
 # ---------------------------------------------------------------------------
 _DIRECTIVE_SPLIT_RE = re.compile(r"(?<![A-Za-z0-9_])@(smpl|inst|coef|start)\b|(?<=\s)@(?=\s|$)",
                                  re.IGNORECASE)
+_INST_RE = re.compile(r"(?<![A-Za-z0-9_])@inst\b|(?<=\s)@(?=\s|$)", re.IGNORECASE)
+
+
+def has_instruments(text: str) -> bool:
+    """식 명세에 도구변수 지시자(`@inst …`·EViews식 단독 `@`)가 있는가.
+
+    extract_directives와 같은 규칙이다(대소문자 무시). `#` 뒤 주석은 보지 않는다."""
+    return bool(_INST_RE.search((text or "").split("#", 1)[0]))
 
 
 def extract_directives(text: str) -> Tuple[str, Dict[str, List[str]]]:

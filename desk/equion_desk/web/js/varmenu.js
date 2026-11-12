@@ -140,6 +140,7 @@ export function openVarMenu(project, at, sel) {
 /** 화면 어디서든 data-var 를 단 요소를 우클릭하면 그 변수의 메뉴(계수표·적합도 표·전망 표의 이름) */
 export function bindVarClicks(project, root) {
   root.addEventListener('contextmenu', (e) => {
+    if (e.defaultPrevented) return;          // 그 자리가 이미 메뉴를 열었다(변수 탭의 줄 — 여럿 고른 채 우클릭하면 고른 것 모두의 메뉴)
     const node = e.target instanceof Element ? e.target.closest('[data-var]') : null;
     if (!node || !root.contains(node) || !project.side) return;
     const name = node.getAttribute('data-var');

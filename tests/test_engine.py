@@ -189,6 +189,7 @@ def main():
         ("단독 연산자 결합", "log(CN) c log(Y) + log(POIL)", 2),
         ("lead", "log(CN) c log(Y(1))", 2),
         ("더미·추세", "log(CN) c @trend @d(2008Q4) @step(2010Q1)", 4),
+        ("지시자·TO 대소문자, # 주석", "log(CN) c @TREND @D(2008Q4) @Step(2010Q1) log(Y(-1 TO -2))  # 주석", 6),
         ("@smpl", "log(CN) c log(Y) @smpl 2005Q1 2019Q4", 2),
     ]
     for label, s, k in forms:
@@ -557,6 +558,18 @@ def main():
     res2 = zfull[1:-1] - (1.3 * zfull[2:] - 0.35 * zfull[:-2] + 0.01 * zx)
     check("선행 계수 > 1: Fair-Taylor는 수렴 못 해도 stacked는 풀린다", (not rf.mce_converged) and rs2.mce_converged
           and np.max(np.abs(res2)) < 1e-9)
+    # terminal='hold': 끝 다음 값 = 풀린 끝 값(z_{T+1} = z_T) — 첫 추정(실측)에 묶이지 않는다
+    Mh = M_.copy()
+    Mh[-1, -1] -= 0.3
+    bh = bvec.copy()
+    bh[-1] -= 0.3 * zT
+    exact_h = np.linalg.solve(Mh, bh)
+    rsh = quiet(mm.simulate, "2010Q1", "2014Q4", mce=True, terminal="hold", mce_method="stacked", verbose=False)
+    rfh = quiet(mm.simulate, "2010Q1", "2014Q4", mce=True, terminal="hold", verbose=False)
+    check("stacked MCE terminal='hold' = 끝 값을 이어 붙인 선형계의 직접 해(독립 계산) · Fair-Taylor와 같다",
+          rsh.mce_converged and close(np.log(rsh.values["P"].to_numpy()), exact_h, 1e-10)
+          and close(rfh.values["P"], rsh.values["P"], 1e-7),
+          f"{np.max(np.abs(np.log(rsh.values['P'].to_numpy()) - exact_h)):.1e}")
     hs_d = quiet(m.simulate, "2003Q1", "2010Q4", verbose=False)
     hs_s = quiet(m.simulate, "2003Q1", "2010Q4", jacobian="sparse", verbose=False)
     dif = np.nanmax(np.abs(hs_s.values.to_numpy() / hs_d.values.to_numpy() - 1))
@@ -581,6 +594,119 @@ def main():
           and mr.engine.system.structure().blocks[0].size == nring)
     check("jacobian·mce_method 잘못된 값 → 오류", raises(lambda: m.simulate("2003Q1", "2003Q2", jacobian="x"), ValueError)
           and raises(lambda: mm.simulate("2010Q1", "2010Q2", mce=True, mce_method="x"), ValueError))
+
+    print("\n" + "=" * 80)
+    print("N. 수렴한 해의 확인 — 해가 없는 블록·서로 종속인 식, 해만 적은 구간 끝, 정의역 밖 표본 (D66)")
+    print("=" * 80)
+    from equion.system import solver as SV
+
+    def toy_model(lines, fixed=None):
+        w = quiet(eqn.datasets.load, "toy_q")
+        quiet(w.smpl, "1990Q1", "2019Q4")
+        mdl = w.model("m")
+        if fixed:
+            quiet(mdl.merge, quiet(w.equation("e_fix").fixed, *fixed))
+        for t in lines:
+            quiet(mdl.append if "=" in t else mdl.merge, t)
+        return w, mdl
+    # 해가 없는 동시 블록: CN = Y(계수 고정)와 Y = CN + I + G → 0 = I + G. 전에는 값이 1e18까지 커져 반올림으로 잔차가 0이 되면 '정상'이었고
+    # 그 값이 다음 기의 시차(Y(-1) → I)로 흘렀다
+    w, ms = toy_model(["I c Y(-1) R", "Y = CN + I + G"], fixed=("CN c Y CN(-1)", [0.0, 1.0, 0.0]))
+    rs = quiet(ms.solve, "2005Q1", "2009Q4")
+    st = rs.status()
+    act = w.data.loc[rs.values.index]
+    check("해가 없는 블록 → 모든 기 실패 대체(정상 없음) · 값은 실측 · 다음 기로 흐르지 않음(I는 실측 근처)",
+          rs.counts()["ok"] == 0 and rs.counts()["fallback"] == 20
+          and close(rs.values["Y"], act["Y"]) and close(rs.values["CN"], act["CN"])
+          and float(np.max(np.abs(rs.values["I"] / act["I"] - 1))) < 0.1
+          and st["message"].str.contains("특이|발산").all(), str(rs.counts()))
+    # 서로 종속인 항등식(통계상 불일치 SD를 두 번) — 아무 값에서나 잔차가 0이라 시작값이 그대로 '정상'이었다
+    w, md = toy_model(["CN c Y CN(-1)", "I c Y(-1) R", "Y = CN + I + G + SD", "SD = Y - CN - I - G"])
+    rd = quiet(md.solve, "2005Q1", "2006Q4")
+    check("서로 종속인 항등식 → 모든 기 실패 대체 · '서로 종속이라 해가 하나로 정해지지 않습니다'",
+          rd.counts()["ok"] == 0 and rd.status()["message"].str.contains("서로 종속").all(), str(rd.counts()))
+    sysd = md.engine.system
+    dep = sysd.dependent_identities()
+    w2, mab = toy_model(["CN c Y CN(-1)", "I c Y(-1) R", "Y = CN + I + G", "A = B + G", "B = A - G"])
+    dab = mab.engine.system.dependent_identities()
+    w3, mok = toy_model(["CN c Y CN(-1)", "I c Y(-1) R", "Y = CN + I + G", "YN = Y * P", "LY = log(YN)"])
+    check("구조 검사: 서로 종속인 항등식을 계수·자료 없이 찾는다(SD 두 번 · A=B+G와 B=A-G) · 보통 모형은 없음",
+          len(dep) == 1 and set(dep[0]["variables"]) == {"CN", "Y", "SD"} and len(dep[0]["identities"]) == 2
+          and len(dab) == 1 and set(dab[0]["variables"]) == {"A", "B"}
+          and mok.engine.system.dependent_identities() == [], f"{dep} {dab}")
+    rab = quiet(mab.solve, "2005Q1", "2005Q4")
+    check("종속 블록만 실패 — 다른 블록(CN·I·Y)은 풀린다(실측과 같지 않음)",
+          rab.counts()["fallback"] == 4 and not close(rab.values["Y"], w2.data.loc[rab.values.index, "Y"])
+          and np.isfinite(rab.values["Y"]).all())
+    # 크기를 맞춘 역조건수: 단위와 무관 · 밀집과 희소가 같은 판정
+    from scipy import sparse as _sp
+    Jd = np.array([[1.0, -0.6], [-1.0, 1.0]])
+    Js = np.array([[1.0, -1.0], [-1.0, 1.0]])
+    big = np.eye(150) - 0.3 * np.roll(np.eye(150), 1, axis=1)
+    sing = np.eye(150) - np.roll(np.eye(150), 1, axis=1)
+    check("역조건수: 보통 행렬은 크고(단위를 바꿔도 같음) 특이 행렬은 0 근처 — 밀집·희소 같은 판정",
+          SV.equilibrated_rcond(Jd) > 1e-2
+          and abs(SV.equilibrated_rcond(Jd * np.array([1e8, 1e-3])) - SV.equilibrated_rcond(Jd)) < 1e-12
+          and SV.equilibrated_rcond(Js) < SV.RCOND_MIN and SV.equilibrated_rcond(sing) < SV.RCOND_MIN
+          and SV.equilibrated_rcond(_sp.csc_matrix(sing)) < SV.RCOND_MIN
+          and SV.equilibrated_rcond(_sp.csc_matrix(big)) > 1e-2 and SV.equilibrated_rcond(big) > 1e-2)
+    # 큰(희소) 블록도 같은 확인: 150변수 고리에서 계수 1 → (I − P)가 특이 → 해 없음
+    wr2 = quiet(eqn.wfcreate, "ring2", "Q", "2000Q1", "2000Q4")
+    for i in range(nring):
+        wr2[f"X{i}"] = xr[:, i]
+        wr2[f"Y{i}"] = np.zeros(4)
+    for i in range(nring):
+        quiet(wr2.equation(f"r{i}").fixed, f"Y{i} Y{(i + 1) % nring} X{i}", [1.0, 1.0])
+    mr2 = wr2.model("ring2")
+    quiet(mr2.merge, [f"r{i}" for i in range(nring)])
+    sol2 = quiet(mr2.solve, "2000Q1", "2000Q1", fallback=())
+    check("희소 블록(150변수, 특이) → 실패 대체", sol2.counts()["fallback"] == 1 and sol2.counts()["ok"] == 0,
+          str(sol2.counts()))
+    # stacked MCE가 풀지 못하면 그 해를 쓰지 않는다 — 실패 정책대로 대체하고 상태도 실패
+    wl = quiet(eqn.datasets.load, "toy_q")
+    ml = wl.model("lead")
+    quiet(ml.merge, quiet(wl.equation("e_l").fixed, "CN CN(1) Y", [0.5, 0.3]))
+    quiet(ml.append, "Y = CN + I + G", "A = B + G", "B = A - G")
+    rl = quiet(ml.solve, "2010Q1", "2010Q4", mce=True, mce_method="stacked")
+    check("stacked MCE 실패(종속 블록) → 상태 실패 대체 · 값은 실측 · on_fail='stop'이면 멈춤",
+          rl.counts()["ok"] == 0 and rl.counts()["fallback"] == 4
+          and close(rl.values["CN"], wl.data.loc[rl.values.index, "CN"])
+          and rl.status()["message"].str.contains("MCE\\(stacked\\) 미수렴").all()
+          and raises(lambda: ml.solve("2010Q1", "2010Q4", mce=True, mce_method="stacked", on_fail="stop"),
+                     Exception), str(rl.counts()))
+    # 보통 모형: 받아들인 해는 그대로(확인이 거절한 블록 없음)
+    w4, m4 = toy_model(["CN c Y CN(-1)", "I c Y(-1) R", "Y = CN + I + G"])
+    r4 = quiet(m4.solve, "1991Q1", "2019Q4")
+    check("보통 모형은 모든 기 정상(확인이 거절하지 않음)", r4.counts()["ok"] == 116, str(r4.counts()))
+
+    # 해만 적은 구간의 끝 = 그 해의 마지막 기(EViews 'smpl 2000 2019'처럼). 시작은 첫 기 그대로
+    idx_q = P.period_starts("2000Q1", "2019Q2", "Q")
+    check("해만 적은 끝: 분기 2019 → 2019Q4 · 월 → 2019M12 · 연간 그대로 · 시작은 첫 기",
+          str(P.parse_period("2019", "Q", end=True)) == "2019Q4" and str(P.parse_period("2019", "Q")) == "2019Q1"
+          and P.format_period(P.parse_period("2019", "M", end=True), "M") == "2019M12"
+          and P.format_period(P.parse_period("2019", "A", end=True), "A") == "2019"
+          and P.parse_period("2019Q2", "Q", end=True) == P.parse_period("2019Q2", "Q"))
+    check("구간 표기 2000:2019 → 2000Q1~2019Q4 · 자료가 2019Q2에서 끝나면 그 해의 마지막 자료 기",
+          P.resolve_span("2000:2019", P.period_starts("1990Q1", "2024Q4", "Q"), "Q") == ("2000Q1", "2019Q4")
+          and P.resolve_span("2000:2019", idx_q, "Q") == ("2000Q1", "2019Q2")
+          and P.locate(idx_q, "2019", "Q", end=True) == len(idx_q) - 1 and P.locate(idx_q, "2019", "Q") == 76
+          and P.resolve_span("2018:2019", P.period_starts("2000M1", "2024M12", "M"), "M") == ("2018M1", "2019M12"))
+    e_yr = quiet(lambda: Equation("log(CN) c log(Y) @smpl 2005 2019", D))
+    quiet(lambda: (e_yr._parse(), e_yr._prepare_data()))
+    check("@smpl 2005 2019 (분기) → 2005Q1~2019Q4, 60기", len(e_yr._y) == 60, str(len(e_yr._y)))
+    r_yr = quiet(m4.solve, "2018", "2019")
+    check("solve('2018', '2019') → 2018Q1~2019Q4(8기)", len(r_yr.values) == 8, str(len(r_yr.values)))
+
+    # log·dlog 안의 값이 0 이하 → 결측이 아니라 정의역 밖으로 빠진 것이라고 구분한다(표본·계수는 그대로)
+    wn = quiet(eqn.datasets.load, "toy_q")
+    wn["DY"] = wn["Y"] - wn["Y"].shift(1)
+    en = quiet(lambda: Equation("log(DY) c R", wn._data))
+    quiet(lambda: (en._parse(), en._prepare_data()))
+    dy = wn.data["DY"]
+    check("정의역 밖 표본: 0 이하 DY의 log는 'domain', 첫 기(시차)는 'missing'",
+          len(en.sample_drops["domain"]) == int((dy <= 0).sum()) and len(en.sample_drops["missing"]) == 1
+          and "0 이하" in en.sample_drops["why"] and len(en._y) == int((dy > 0).sum()),
+          f"{len(en.sample_drops['domain'])} vs {(dy <= 0).sum()}")
 
     print("\n" + "=" * 80)
     total = len(PASS) + len(FAIL)

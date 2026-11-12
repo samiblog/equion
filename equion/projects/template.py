@@ -243,7 +243,8 @@ CLAUDE_MD = """\
 모형 작업을 하기 전에 안내를 읽으세요: `equion guide`(규칙·프로젝트 지도·명령·분석·판단 기준·보고 꼴).
 
 - 계산은 `equion` 명령으로(est·hs·sim·an·run) — 결론에는 근거 기록의 이름(`est:…`·`hs:…`·`sim:…`)을 붙입니다.
-- `work/`·`DATA/raw/`·노트와 보고서의 결과 구역은 고치지 않습니다. 정의 파일은 명령(`adopt`·`data use`·`propose`)으로 먼저.
+- `work/`·`DATA/raw/`·노트와 보고서의 결과 구역은 고치지 않습니다. 정의 파일은 명령(`adopt`·`data use`·`data define`·`block add`·
+  `scenario define`·`propose`)으로 먼저 — 정의를 한꺼번에 되돌리는 `milestone restore`·`history revert`는 사람에게 먼저 묻습니다.
 - 월간 작업: 새 원자료를 `DATA/raw/inbox/`에 → `equion data inbox` → `equion run FLOWS/monthly.eqs --dry-run` → `equion run FLOWS/monthly.eqs`.
 """
 
@@ -268,9 +269,10 @@ equion run --replay run:monthly_0001      # 그 실행을 그때 그대로 다�
 ```python
 import equion as eqn
 p = eqn.project(".")
-r = p.hs("main")              # 과거 재현(HS) — [hs]의 구간·방식
+r = p.hs("main")              # 과거 재현(HS) — [hs]의 구간·방식(풀기만 — 기록은 남기지 않는다)
 r.statistics()
 p.hs("demand")                # 블록 HS — 수요 블록만 풀고 나머지 변수는 실측
+h = p.hs("main", record=True) # 기록 hs:hs_0001을 남긴다 — 명령줄 equion hs main과 같다
 ```
 
 | 위치 | 내용 |

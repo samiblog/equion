@@ -15,6 +15,8 @@ test_workfile.py — 워크파일 API(라이브러리 1단계) 테스트.
 
 import contextlib
 import io
+import json
+import logging
 import os
 import sys
 import tempfile
@@ -81,6 +83,22 @@ def main():
     check("smpl 설정(한 문자열)", wf.smpl() == ("1980Q1", "2019Q4"))
     quiet(wf.smpl, "@all")
     check("smpl @all", wf.smpl() == ("1970Q1", "2019Q4"))
+    # 해만 적은 끝은 그 해의 마지막 기(EViews 'smpl 2000 2019'처럼 — D66). 전에는 2019Q1에서 멈췄다
+    quiet(wf.smpl, "2000", "2019")
+    s_a = wf.smpl()
+    quiet(wf.smpl, "2000 2019")
+    s_b = wf.smpl()
+    quiet(wf.smpl, 2000, 2025)                       # 자료 밖 끝은 자료 끝으로(전과 같음)
+    s_c = wf.smpl()
+    wm_ = quiet(eqn.datasets.load, "toy_m")
+    quiet(wm_.smpl, "2018", "2019")
+    wc_ = quiet(eqn.wfcreate, "yr", "Q", "2020", "2021")
+    quiet(wc_.extend, "2023")
+    check("smpl·wfcreate·extend: 해만 적은 끝 = 그 해의 마지막 기(분기 Q4·월 M12), 시작은 첫 기",
+          s_a == ("2000Q1", "2019Q4") and s_b == s_a and s_c == ("2000Q1", "2019Q4")
+          and wm_.smpl() == ("2018M1", "2019M12") and len(wc_.data) == 16 and wc_.smpl()[1] == "2023Q4",
+          f"{s_a} {s_c} {wm_.smpl()} {len(wc_.data)}")
+    quiet(wf.smpl, "@all")
     check("시리즈 읽기는 pandas Series(대소문자 무시)", isinstance(wf["cn"], pd.Series)
           and wf["cn"].name == "CN")
     wf["ONES"] = 1.0
@@ -554,6 +572,118 @@ def main():
         wq["XN"] = x1 - 2.0                                         # 음수가 섞인 설명변수의 분수 거듭제곱
         check("식 하나의 NLS: 추정한 계수에서 식이 수가 아닌 관측치가 있으면 시작값을 그대로 돌려주지 않고 오류(QA)",
               raises(lambda: quiet(wq.equation("neg").ls, "Y1 = c(1) + c(2)*XN^c(3) @start 1 0.8 0.5"), ValueError, "수가 아닌"))
+
+    print("\n" + "=" * 80)
+    print("사용자 자료 지키기·일관성 — 지시자 열 이름·글자 칸·별칭 시리즈·@INST·AR 진단·적합값·메시지 (0.9.0 뒤 점검)")
+    print("=" * 80)
+    tmpz = tempfile.mkdtemp(prefix="eqn-wf-z-")
+    wz = eqn.datasets.load("toy_q")
+    dfz = wz.to_pandas(["CN", "Y"])
+    dfz["TREND"] = wz["Y"].rolling(8, min_periods=1).mean()           # 사용자의 '추세' 시리즈
+    pz = os.path.join(tmpz, "with_trend.csv")
+    dfz.to_csv(pz)
+    wt_ = quiet(eqn.wfopen, pz)
+    user_t = wt_["TREND"].copy()
+    err_t = raises(lambda: quiet(wt_.equation("e").ls, "CN c @trend"), ValueError, "'TREND' 열")
+    quiet(wt_.extend, "2020Q4")
+    check("자료의 TREND 열 → @trend가 몰래 쓰지 않고 이름을 바꾸라는 오류 · extend가 사용자 열을 덮지 않는다",
+          err_t and close(wt_["TREND"].iloc[:200], user_t.to_numpy()) and np.isnan(wt_["TREND"].iloc[-1]))
+    wd_ = eqn.datasets.load("toy_q")
+    wd_["D_2008Q4"] = wd_["Y"]
+    wd_["_q2"] = wd_["CN"]
+    check("@d(P)·@seas도 같은 이름(대소문자 무시)의 사용자 열이면 오류", raises(lambda: wd_.eval("@d(2008Q4)"), ValueError, "D_2008Q4")
+          and raises(lambda: quiet(wd_.equation("s").ls, "CNNSA c @seas"), ValueError, "'_q2'"))
+    wr_ = eqn.datasets.load("toy_q")
+    e_r = quiet(wr_.equation("e").ls, "CN c @trend @seas(2) @d(2008Q4) @step(2010Q1)")
+    pr_ = quiet(wr_.write, os.path.join(tmpz, "ind.csv"), smpl=False)
+    wr2 = quiet(eqn.wfopen, pr_)
+    e_r2 = quiet(wr2.equation("e").ls, "CN c @trend @seas(2) @d(2008Q4) @step(2010Q1)")
+    quiet(wr2.extend, "2020Q4")
+    wr_["TREND"] = 5.0
+    quiet(wr_.extend, "2020Q4")
+    check("지시자 열을 내보냈다 다시 열면(값이 같다) 지시자로 받는다 · 대입한 지시자 열은 사용자 자료(기간을 늘려도 다시 계산 안 함)",
+          close(e_r.coefs.to_numpy(), e_r2.coefs.to_numpy()) and wr2.elem("TREND", "2020Q4") == 203.0
+          and np.isnan(wr_.elem("TREND", "2020Q4")) and "TREND" not in wr_._data.indicators)
+    wc_ = eqn.datasets.load("toy_q")
+    check("지시자 이름·시차범위 TO는 대소문자 무시 · ls 글자의 # 뒤는 주석",
+          list(quiet(wc_.equation("u").ls, "CN c @TREND @STEP(2008Q4) Y(-1 TO -2)  # 주석").coefs.index)
+          == ["const", "TREND", "STEP_2008Q4", "Y.t(-1)", "Y.t(-2)"])
+    a_ = quiet(wc_.equation("i1").tsls, "CN c Y @INST G R CN(-1)").coefs
+    b_ = quiet(wc_.equation("i2").tsls, "CN c Y @inst G R CN(-1)").coefs
+    check("@INST(대문자): tsls는 받고 ls는 TSLS로 몰래 바꾸지 않고 거절", close(a_.to_numpy(), b_.to_numpy())
+          and raises(lambda: wc_.equation("i3").ls("CN c Y @INST G R"), ValueError, ".tsls"))
+    dft = wz.to_pandas(["Y", "CN"]).astype(object)
+    dft.iloc[3, 0] = "n.a."
+    dft["NOTE"] = "메모"
+    ptx = os.path.join(tmpz, "textcell.csv")
+    dft.to_csv(ptx)
+    logs = io.StringIO()
+    hnd = logging.StreamHandler(logs)
+    logging.getLogger("equion").addHandler(hnd)
+    try:
+        wtx = quiet(eqn.wfopen, ptx)
+    finally:
+        logging.getLogger("equion").removeHandler(hnd)
+    warn_ = logs.getvalue()
+    check("csv의 숫자가 아닌 칸('n.a.') → 열 전체가 글자형이 아니라 그 칸만 결측 · 열·시점·값을 경고 · 추정이 된다",
+          all(str(t) == "float64" for t in wtx.data.dtypes) and np.isnan(wtx.elem("Y", "1970Q4"))
+          and "Y: 1970-10-01 'n.a.'" in warn_ and "NOTE(200칸)" in warn_ and quiet(wtx.equation("e").ls, "Y c CN").nobs == 199,
+          warn_[:160])
+    wa_ = eqn.datasets.load("toy_q")
+    ma_ = wa_.model("m").merge("I c Y(-1) R", "CN c Y CN(-1)").append("Y = CN + I + G")
+    quiet(ma_.solve, "2000Q1", "2000Q4")
+    quiet(ma_.solve, "2010Q1", "2010Q4")
+    sc_ = quiet(ma_.scenario, "hi").override("G", wa_["G"] * 1.2)
+    quiet(ma_.solve, "2000Q1", "2000Q4")
+    sc_.clear()
+    quiet(ma_.solve, "2010Q1", "2010Q4")
+    check("별칭 시리즈는 마지막 풀이만(구간 밖은 빈 칸) — 앞 풀이·지운 시나리오의 값이 남지 않는다",
+          int(wa_["Y_0"].notna().sum()) == 4 and np.isnan(wa_.elem("Y_0", "2000Q1")) and np.isnan(wa_.elem("Y_1", "2000Q1"))
+          and int(wa_["Y_1"].notna().sum()) == 4)
+    wu_ = eqn.datasets.load("toy_q")
+    wu_["I_1"] = 123.0
+    wu_["G_C"] = 5.0
+    mu_ = wu_.model("m").merge("I c Y(-1) R", "CN c Y CN(-1)").append("Y = CN + I + G")
+    quiet(mu_.scenario, "s1")
+    check("별칭과 이름이 같은 사용자 시리즈(I_1·G_C)는 덮어쓰지 않고 오류", raises(lambda: mu_.solve("2010Q1", "2010Q4"), ValueError, "I_1")
+          and raises(lambda: mu_.control("Y", "G", 600.0, "2010Q1", "2010Q2"), ValueError, "G_C")
+          and (wu_["I_1"] == 123.0).all() and (wu_["G_C"] == 5.0).all())
+    ws_ = eqn.datasets.load("toy_q")
+    ms_ = ws_.model("m").merge("I c Y(-1) R", "CN c Y CN(-1)").append("Y = CN + I + G")
+    quiet(ms_.solve, "2010Q1", "2010Q4")
+    p_s = quiet(ws_.save, os.path.join(tmpz, "results"))
+    ws2 = quiet(eqn.wfopen, p_s)
+    quiet(ws2.obj("m").solve, "2011Q1", "2011Q4")
+    man_ = json.loads(open(os.path.join(p_s, "workfile.json"), encoding="utf-8").read())
+    man_.pop("results")
+    with open(os.path.join(p_s, "workfile.json"), "w", encoding="utf-8") as fh_:
+        json.dump(man_, fh_)
+    ws3 = quiet(eqn.wfopen, p_s)
+    quiet(ws3.obj("m").solve, "2012Q1", "2012Q4")
+    check("저장한 워크파일을 다시 열어 풀어도 된다(결과 시리즈 목록 'results') · 목록이 없는 옛 워크파일도",
+          np.isnan(ws2.elem("Y_0", "2010Q1")) and np.isfinite(ws2.elem("Y_0", "2011Q1")) and np.isfinite(ws3.elem("Y_0", "2012Q1")))
+    wg_ = eqn.datasets.load("toy_q")
+    e_ar = quiet(wg_.equation("e_ar").ls, "RL c R ar(1)")
+    d_ar = e_ar.diagnostics()
+    check("AR 오차식: 낱개 검정(serial_lm·white·reset)과 diagnostics()가 같은 기준 — 잔차 검정만, 맞는 거절 문구",
+          raises(lambda: e_ar.serial_lm(2), ValueError, "AR 오차가 없는 OLS 식에만") and raises(lambda: e_ar.white(), ValueError, "ar(1)")
+          and list(d_ar.data.index) == ["Ljung-Box Q(4)", "ARCH LM(1)", "Jarque-Bera"] and "AR 오차식이라" in d_ar.text())
+    e_f = quiet(wg_.equation("e_f").ls, "-CN c Y")
+    f0 = e_f.fitted.copy()
+    cn0 = wg_["CN"]
+    wg_["CN"] = cn0 * 2
+    f1 = e_f.fitted.copy()
+    wg_["CN"] = cn0
+    check("적합값은 추정할 때의 값 — 추정 뒤 자료를 바꿔도 달라지지 않는다", close(f0.to_numpy(), f1.to_numpy(), 0, 0))
+    wm_ = eqn.datasets.load("toy_q")
+    mm_ = wm_.model("m").merge("I c Y(-1) R", "CN c Y CN(-1)").append("Y = CN + I + G")
+    wy_ = eqn.datasets.load("toy_a")
+    check("메시지: 빈 구간은 기간 라벨로 · reps·window는 1 이상 · 연간 elem의 정수 해는 글자로",
+          raises(lambda: mm_.solve("2012Q4", "2010Q1"), ValueError, "시작 2012Q4")
+          and raises(lambda: mm_.forecast("2021Q4", "2020Q1"), ValueError, "시작 2021Q4")
+          and raises(lambda: mm_.stochastic("2015Q1", "2015Q4", reps=0), ValueError, "reps는 1 이상")
+          and raises(lambda: wm_.fill("I", method="growth", window=0), ValueError, "window는 1 이상")
+          and raises(lambda: wy_.elem("Y", 2000), IndexError, "wf.elem('Y', '2000')"))
 
     print("\n" + "=" * 80)
     total = len(PASS) + len(FAIL)

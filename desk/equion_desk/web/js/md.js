@@ -11,6 +11,7 @@ import { copyText, h } from './util.js';
 const VEGA = ['/web/vendor/vega/vega.min.js', '/web/vendor/vega/vega-lite.min.js'];
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 const NUMBER = /^[-+−]?(?:\d{1,3}(?:,\d{3})+|\d+)?(?:\.\d+)?(?:[eE][-+]?\d+)?\s*(?:%|%p)?$/;
+const SHORT_CELL = 16;      // 이만큼 짧은 표 칸은 줄을 바꾸지 않는다(기간·단위·이름)
 let vegaLoading = null;
 const charts = new Set();      // 그려 둔 차트들 {node, redraw} — 테마가 바뀌면 다시 그린다
 
@@ -185,6 +186,8 @@ function decorateTables(root) {
       for (const td of cells) td.classList.add('n');
       table.querySelector(`thead tr > :nth-child(${c + 1})`)?.classList.add('n');
     }
+    // 짧은 칸(기간 · 단위 · 이름)은 줄을 바꾸지 않는다 — 좁은 열에서 '조원(가상)'이 '조원 / (가상)'으로 갈라지지 않게(넓으면 표가 옆으로 밀린다)
+    for (const td of table.querySelectorAll('td:not(.n)')) if (td.textContent.trim().length <= SHORT_CELL) td.classList.add('short');
     const wrap = h('div', { class: 'table-wrap' });
     table.replaceWith(wrap);
     wrap.append(table);

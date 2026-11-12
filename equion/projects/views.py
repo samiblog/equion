@@ -106,9 +106,10 @@ def load_views(root: str) -> List[ViewSpec]:
 
 
 def view_text(root: str, name: str, series=None, show: str = None, title: str = None, range: str = None,
-              known: List[str] = None) -> Tuple[str, bool, ViewSpec]:
+              known: List[str] = None, span=None) -> Tuple[str, bool, ViewSpec]:
     """보기를 더하거나 고친 **새 내용** — (글, 새 보기인지, 보기). 준 것만 바꾸고(빈 글은 그 키를 지움) 주석은 그대로(tomlkit), 파일은 쓰지 않는다.
-    known을 주면 시리즈 이름이 그 안에 있는지 본다(대소문자 무시). 문제는 ProjectError."""
+    known을 주면 시리즈 이름이 그 안에 있는지 본다(대소문자 무시). span(구간 표기 → (시작, 끝), 예: Project.span)을 주면 range를 지금
+    자료로 풀어 본다(`2015Q1:zzz` 같은 글을 적어 두지 않게). 문제는 ProjectError."""
     import tomlkit
     if not NAME_RE.match(str(name)):
         raise ProjectError(f"보기 이름 {name!r} — 영문으로 시작하고 영문·숫자·_만(한글은 title로)")
@@ -137,6 +138,12 @@ def view_text(root: str, name: str, series=None, show: str = None, title: str = 
         missing = [s for s in spec.series if s.upper() not in have]
         if missing:
             problems.append(f"{rel}: 자료에 없는 시리즈 {', '.join(missing)}")
+    if spec is not None and spec.range and span is not None:
+        try:
+            span(spec.range)
+        except (ValueError, KeyError) as e:
+            problems.append(f"{rel}: range = {spec.range!r} — 지금 자료로 풀 수 없는 구간입니다({e}). "
+                            "\"시작:끝\" — 라벨(2015Q1) · first · last · last-N · first+N, 또는 next:N")
     if problems:
         raise ProjectError(problems)
     spec.file = rel

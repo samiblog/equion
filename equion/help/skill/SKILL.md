@@ -12,7 +12,11 @@ Equion 프로젝트에서 일할 때의 요약입니다. **처음 한 번은 전
 
 - 계산은 `equion` 명령으로(est·hs·sim·an·run) — 할 때마다 `work/`에 기록이 남는다. 결론에는 근거 기록 이름(`est:…`·`hs:…`·`sim:…`)을 붙인다.
 - `work/`·`DATA/raw/`·보고서와 노트의 결과 구역(`<!-- equion:… -->`)은 고치지 않는다.
-- 정의 파일은 명령으로 먼저(`adopt`·`data use`·`an keep`·`propose`). "제안만"이면 `equion propose new`로 남기고 파일은 그대로.
+- 정의 파일은 명령으로 먼저(`adopt`·`data use`·`data define`·`an keep`·`block add`·`block remove`·`model define`·`scenario define`·`note add`·`propose`)
+  — 바뀜 기록에 Claude로 남는다. "제안만"이면 `equion propose new`로 남기고 파일은 그대로.
+- 정의를 한꺼번에 되돌리는 `milestone restore`·`history revert`는 사람에게 먼저 묻는다 — 시켰어도 무엇이 물려지는지(특히 사람·Desk가 한 바뀜)를 먼저 보인다.
+- 판단 기준에 걸린 기록(걸러짐·판단 못 함)의 채택은 사람이 이름을 대고 시켜도 까닭을 보이고 한 번 확인받는다. `work clean --yes`는 미리보기를 보이고 묻는다.
+- 후보는 3~5개부터. '무슨 일이 있었나' 같은 물음은 기록을 읽어 답하고 다시 계산하지 않는다. 채택 기록의 표본(`--smpl`)은 `est --adopted`가 그대로 쓴다(블록 줄에 `@smpl` 불필요).
 - 거른 후보도 `equion est "식" --for 부품`으로 기록하고 `equion compare`로 견준다.
 - 돌리기 전에 `equion check …`·`--dry-run`. 출력은 짧은 글 — 필요한 것만 `--json`.
 
@@ -39,10 +43,14 @@ equion sim base oil20                      # 전망·시나리오
 equion work list --limit 10                # 기록 · work show 기록 [--md]
 equion data inbox                          # 받은 원자료(DATA/raw/inbox/) 미리보기
 equion run FLOWS/monthly.eqs --dry-run     # 월간 스크립트 미리보기 → --dry-run 없이 실행 → run --replay run:이름
+equion block add single "M2 c Y RL"        # 블록 파일에 식 한 줄 · 빼기 block remove single:M2
+equion scenario define oil30 --shock POIL=+30%   # 시나리오 쓰기 → equion sim oil30
+equion work show sim:2026-11_base          # 기록 하나 — '알아서 한 것'은 여기서 전부 읽는다(단계 줄은 줄여 보인다)
 ```
 
 ## 종료 코드
 
 0 성공(스크립트면 `!` 표시를 읽어 전한다) · 1 스크립트 오류 · 2 풀이 실패 조건·`expect --stop`·재연에 다름 · 3 입력 오류(없는 파일·부품, 문법,
-틀이 맞지 않음, 손으로 고친 구역, 허용 안 된 명령). 메시지에 고칠 곳과 있는 이름 목록이 나온다 — 그대로 따르고, 사람의 판단이 필요한 것
-(틀을 고칠지, 손으로 고친 구역을 덮을지, 채택할지)은 묻는다.
+틀이 맞지 않음, 허용 안 된 명령, 손으로 고친 구역을 덮지 않고 건너뜀 — `note run`·`report update`, 스크립트 안에서는 그 단계가 `!`).
+메시지에 고칠 곳과 있는 이름 목록이 나온다 — 그대로 따르고, 사람의 판단이 필요한 것(틀을 고칠지, 손으로 고친 구역을 덮을지, 채택할지)은 묻는다.
+스크립트 단계의 기록은 '누가'가 `스크립트`(그 실행 `run:…`) — Claude 이름으로는 실행 기록 하나가 남는다.

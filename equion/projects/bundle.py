@@ -154,7 +154,8 @@ def make(p, out: str = None, raw: bool = False, records: str = "keep", who: str 
     if len(names) > MAX_FILES:
         raise ProjectError(f"파일이 너무 많습니다({len(names)}) — records='keep'으로 줄이세요")
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp-equion"
+    from ..work.lock import tmp_path
+    tmp = tmp_path(path)                          # 프로세스마다 다른 임시 이름
     log_lines = []
     log_path = os.path.join(root, "work", "log.jsonl")
     if os.path.isfile(log_path):

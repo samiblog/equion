@@ -337,6 +337,44 @@ def _layout(spec: SourceSpec, grid: pd.DataFrame):
     return grid, [r - 1 for r in rows], unit, None, (lambda r, c: f"{col_letter(c)}{r + 1}"), col_letter
 
 
+def _is_number(v, thousands=None) -> bool:
+    """칸이 수인가 — 엑셀의 수 칸, 또는 수로 읽히는 글(천 단위 글자·괄호 음수 포함)."""
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, (int, float, np.integer, np.floating)):
+        return bool(np.isfinite(v))
+    t = _cell_text(v)
+    if not t:
+        return False
+    if thousands:
+        t = t.replace(thousands, "")
+    if t.startswith("(") and t.endswith(")"):
+        t = t[1:-1]
+    try:
+        float(t)
+        return True
+    except ValueError:
+        return False
+
+
+def _unit_problem(spec: SourceSpec, work: pd.DataFrame, unit: int, tcol: int, cols: List[int], ref, columns: bool) -> Optional[str]:
+    """단위 줄(열)이 단위가 아니라 값 줄로 보이면 까닭 — 시점 칸이 기간이거나, 채운 칸이 모두 수. 단위 줄이 빠진 파일을 그대로 읽으면
+    첫 기간이 단위로 읽혀 말없이 사라진다(D62 — 조용히 잘못 읽는 것이 가장 나쁘다)."""
+    t = _time_text(work.iat[unit, tcol])
+    filled = [(k, work.iat[unit, k]) for k in cols if _cell_text(work.iat[unit, k])]
+    nums = [(k, v) for k, v in filled if _is_number(v, spec.thousands)]
+    looks_time = bool(t) and _yearish(t) and parse_dates([normalize_label(t)]) is not None
+    if not looks_time and not (filled and len(nums) == len(filled)):
+        return None
+    where = (f"단위 열({col_letter(unit)}열 — unit_col = {spec.unit_col!r})" if columns else
+             f"단위 줄({unit + 1}줄 — unit_row = {spec.unit_row})")
+    seen = ([f"{ref(unit, tcol)} {t!r}"] if t else []) + [f"{ref(unit, k)} {_cell_text(v)!r}" for k, v in nums[:2]]
+    return (f"{spec.file}: {where}에 단위가 아니라 값이 있습니다 — {', '.join(seen)}. 단위 {'열' if columns else '줄'}이 빠진 파일로 "
+            f"보입니다(그대로 읽으면 첫 기간이 단위로 읽혀 사라집니다). 단위 {'열' if columns else '줄'}이 있는 파일로 다시 받거나, 이제부터 "
+            f"없다면 [source.{spec.name}]의 {'unit_col' if columns else 'unit_row'}를 지운 틀로 읽으세요"
+            f"(먼저 equion data preview {os.path.basename(spec.file)}{' --time-axis columns' if columns else ''}로 확인)")
+
+
 def read_source(spec: SourceSpec) -> SourceTable:
     """불러오기 틀로 원자료를 읽는다. 문제는 ValueError(파일·줄·칸 위치와 함께)."""
     axis = str(spec.time_axis or "rows").strip().lower()
@@ -367,6 +405,10 @@ def read_source(spec: SourceSpec) -> SourceTable:
             raise ValueError(f"{spec.file}: 이름 열·단위 열({', '.join(col_letter(k) for k in late)})은 시점이 시작하는 열"
                              f"({col_letter(first_time)})보다 왼쪽에 있어야 합니다")
     series_cols = [k for k in range(work.shape[1]) if k != tcol and (not columns or k > tcol)]
+    if unit is not None:
+        why = _unit_problem(spec, work, unit, tcol, series_cols, ref, columns)
+        if why:
+            raise ValueError(why)
     start = max(hdr + ([unit] if unit is not None else [])) + 1
     body = work.iloc[start:]
     # 아주 빈 줄(rows) · 빈 열(columns)은 건너뛴다 — 줄 번호·칸 위치는 원래 표 그대로 센다

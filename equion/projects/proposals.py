@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from ..work.store import WORK_DIR, WHO_KO, dumps, move_into_place, now_iso
+from ..work.lock import locked, tmp_dir
 from .config import ProjectError
 from .records import ADOPTED, _who, history_of, replace_line, store_of
 
@@ -182,6 +183,7 @@ def _part_line(p, pid: str, text: str, new: Dict[str, str]):
     return pt
 
 
+@locked
 def new(p, name: str = None, title: str = "", why: str = "", parts: Dict[str, str] = None, files: Dict[str, str] = None,
         previews: List[str] = (), who: str = None, command: str = None) -> Proposal:
     """제안을 만든다 — parts {부품: est:기록(그 식 + 채택) 또는 식 글자}, files {경로: 새 내용 파일}. 파일은 바꾸지 않는다."""
@@ -241,7 +243,7 @@ def new(p, name: str = None, title: str = "", why: str = "", parts: Dict[str, st
         with open(src, encoding="utf-8-sig") as f:
             new_text[rel] = f.read()
     d = os.path.join(_dir(p), name)
-    tmp = d + ".tmp"
+    tmp = tmp_dir(_dir(p), name)                 # 프로세스마다 다른 임시 이름
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(os.path.join(tmp, "changes"))
     meta_files = {}
@@ -263,6 +265,7 @@ def new(p, name: str = None, title: str = "", why: str = "", parts: Dict[str, st
     return prop
 
 
+@locked
 def apply(p, name: str, force: bool = False, who: str = None, command: str = None) -> Proposal:
     """제안을 적용한다 — 바꿀 파일을 새 내용으로 쓰고 바뀜 기록에 "제안 … 적용"으로. 낡은 제안은 force일 때만."""
     prop = get(p, name)
@@ -282,6 +285,7 @@ def apply(p, name: str, force: bool = False, who: str = None, command: str = Non
     return prop
 
 
+@locked
 def drop(p, name: str, why: str = "", who: str = None) -> Proposal:
     """제안을 버린다(지우지 않는다 — 제안 기록은 남는다)."""
     prop = get(p, name)

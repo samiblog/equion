@@ -11,6 +11,13 @@
 수렴 판정(정규화 잔차): max_i |r_i| / (1 + |좌변_i| + |우변_i|) < ftol.
 실패하면 fallback 목록을 차례로 시도하고, 어떤 방법이 성공했는지 기록한다.
 
+수렴으로 보인 해의 확인(`_verify`, D66): 정규화 잔차는 값이 끝없이 커지면(해가 없는 블록) 반올림으로 0이 되어
+'수렴'처럼 보이고, 식이 서로 종속인 블록은 아무 값에서나 잔차가 0이다. 그래서 수렴한 해도
+  ① 값이 모두 유한한지, ② 식의 크기(1 + |좌변| + |우변|의 최댓값)가 시작값의 GROWTH_MAX배를 넘지 않는지,
+  ③ 행·열 크기를 맞춘 자코비안이 특이하지 않은지(1-노름 역조건수 ≥ RCOND_MIN, 변수 둘 이상인 블록)
+를 본다. 하나라도 어기면 그 방법은 실패로 치고 다음 방법으로 — 모두 실패하면 실패 정책(on_fail)대로 대체한다.
+받아들인 해는 건드리지 않으므로 보통 모형의 결과는 바이트까지 그대로다.
+
 자코비안(jacobian): 'dense' · 'sparse'(scipy.sparse LU) · 'auto'(블록이 SPARSE_MIN 변수 이상이면 희소, D25).
 희소 경로는 Newton에만 쓰이고, 폴백(hybr·lm 등)은 밀집 행렬로 받는다.
 """
@@ -25,6 +32,8 @@ METHODS = ("newton", "gauss-seidel", "broyden", "hybr", "lm")
 DEFAULT_FALLBACK = ("hybr", "lm", "gauss-seidel")
 JACOBIANS = ("auto", "dense", "sparse")
 SPARSE_MIN = 100     # 'auto'에서 희소 LU를 쓰는 블록 크기
+GROWTH_MAX = 1e6     # 수렴한 해의 식 크기가 시작값의 이 배수를 넘으면 발산으로 본다
+RCOND_MIN = 1e-12    # 크기를 맞춘 자코비안의 역조건수가 이보다 작으면 특이(식이 서로 종속이거나 해가 없음)
 
 
 @dataclass
@@ -36,6 +45,10 @@ class BlockResult:
     max_resid: float = float("nan")
     message: str = ""
     tried: List[str] = field(default_factory=list)
+    # 해 확인(_verify)이 다시 계산하지 않도록 방법이 이미 구한 것(없으면 None): 시작·끝의 식 크기 벡터, 마지막 자코비안
+    scale0: Optional[np.ndarray] = field(default=None, repr=False)
+    scale: Optional[np.ndarray] = field(default=None, repr=False)
+    J: object = field(default=None, repr=False)
 
 
 class _Ctx:
@@ -93,25 +106,155 @@ def _norm_resid(r, scale):
     return float(np.max(np.abs(r) / scale)) if len(r) else 0.0
 
 
+def _size(ctx: _Ctx, x) -> float:
+    """블록 식의 크기 — max_i(1 + |좌변_i| + |우변_i|). 계산할 수 없으면 1 + max|x|."""
+    p = ctx.cb.parts(x, ctx.S, ctx.L, ctx.AF, ctx.P, ctx.t)
+    if p is not None:
+        s = 1.0 + np.abs(p[0]) + np.abs(p[1])
+        s = s[np.isfinite(s)]
+        if len(s):
+            return float(np.max(s))
+    xf = np.abs(np.asarray(x, dtype=float))
+    xf = xf[np.isfinite(xf)]
+    return 1.0 + (float(np.max(xf)) if len(xf) else 0.0)
+
+
+def equilibrated_rcond(J, D=None, scale=None) -> float:
+    """정방 행렬 J의 크기를 맞춘 1-노름 역조건수(0 = 특이, 1 = 아주 좋음).
+
+    열에 D(변수 크기)를 곱하고 행을 scale(식 크기)로 나눈 뒤, 행·열의 최대 절댓값이 1이 되게 맞춘다 —
+    변수·식의 단위와 무관한 수. 행이나 열이 모두 0이면 0. J는 밀집 배열이나 scipy 희소 행렬.
+    """
+    from scipy import sparse as sp
+    n = J.shape[0]
+    if n == 0:
+        return 1.0
+    if sp.issparse(J):
+        A = sp.csr_matrix(J, dtype=float)
+        if D is not None:
+            A = A @ sp.diags(np.asarray(D, dtype=float))
+        if scale is not None:
+            A = sp.diags(1.0 / np.asarray(scale, dtype=float)) @ A
+        if not np.all(np.isfinite(A.data)):
+            return 0.0
+        r = np.asarray(abs(A).max(axis=1).todense()).ravel()
+        if np.any(r == 0):
+            return 0.0
+        A = sp.diags(1.0 / r) @ A
+        c = np.asarray(abs(A).max(axis=0).todense()).ravel()
+        if np.any(c == 0):
+            return 0.0
+        A = (A @ sp.diags(1.0 / c)).tocsc()
+        from scipy.sparse.linalg import LinearOperator, onenormest, splu
+        try:
+            lu = splu(A)
+        except RuntimeError:                   # 정확히 특이
+            return 0.0
+        inv = LinearOperator((n, n), matvec=lu.solve, rmatvec=lambda v: lu.solve(v, trans="T"), dtype=float)
+        try:
+            est = float(onenormest(inv))
+        except Exception:  # noqa: BLE001 — 추정이 안 되면 특이로 보지 않는다
+            return 1.0
+        anorm = float(abs(A).sum(axis=0).max())
+        return 0.0 if not (math.isfinite(est) and est > 0) else 1.0 / (anorm * est)
+    A = np.array(J, dtype=float)
+    if D is not None:
+        A = A * np.asarray(D, dtype=float)[None, :]
+    if scale is not None:
+        A = A / np.asarray(scale, dtype=float)[:, None]
+    if not np.all(np.isfinite(A)):
+        return 0.0
+    r = np.max(np.abs(A), axis=1)
+    if np.any(r == 0):
+        return 0.0
+    A = A / r[:, None]
+    c = np.max(np.abs(A), axis=0)
+    if np.any(c == 0):
+        return 0.0
+    A = A / c[None, :]
+    from scipy.linalg import lapack
+    anorm = float(np.max(np.sum(np.abs(A), axis=0)))
+    lu, _piv, info = lapack.dgetrf(A)
+    if info > 0:                               # 피벗이 정확히 0
+        return 0.0
+    rc, info = lapack.dgecon(lu, anorm, norm="1")
+    return float(rc) if info == 0 and math.isfinite(rc) else 0.0
+
+
+_RC_CACHE_MAX = 256   # 블록마다 기억하는 자코비안 수(선형 블록은 자코비안이 늘 같아 한 번만 계산한다)
+
+
+def _rcond_cached(cb, J) -> float:
+    """블록 자코비안의 크기를 맞춘 역조건수 — 같은 자코비안(선형 블록)이면 계산해 둔 값을 쓴다.
+
+    행·열 크기를 맞추므로(equilibrated_rcond) 변수·식의 단위를 곱한 행렬과 판정이 같다 — 그래서 값 그대로를 열쇠로 쓴다."""
+    data = J.data if hasattr(J, "tocsc") else J
+    try:
+        key = np.ascontiguousarray(data, dtype=float).tobytes()
+    except (TypeError, ValueError):
+        return equilibrated_rcond(J)
+    cache = cb.__dict__.setdefault("_rcond_cache", {})
+    rc = cache.get(key)
+    if rc is None:
+        rc = equilibrated_rcond(J)
+        if len(cache) < _RC_CACHE_MAX:
+            cache[key] = rc
+    return rc
+
+
+def _verify(ctx: _Ctx, x0, res: BlockResult) -> str:
+    """수렴으로 보인 해를 확인한다 — 문제가 없으면 '', 있으면 까닭(그 해는 받아들이지 않는다).
+
+    방법이 이미 구한 식 크기·자코비안(Newton의 마지막 반복)이 있으면 그것을 쓴다(다시 계산하지 않는다)."""
+    x = res.x
+    if not np.all(np.isfinite(x)):
+        return "해에 무한·NaN 값이 있습니다"
+    n = len(x)
+    s0 = float(np.max(res.scale0)) if res.scale0 is not None and len(res.scale0) else _size(ctx, x0)
+    sc = res.scale if res.scale is not None else ctx.scale(x)
+    s = float(np.max(sc)) if res.scale is not None and len(sc) else _size(ctx, x)
+    grown = math.isfinite(s0) and math.isfinite(s) and s > GROWTH_MAX * max(s0, 1.0)
+    rc = None
+    if n >= 2:
+        J = res.J
+        if J is None and ctx.sparse:
+            J = ctx.jac_sparse(x)
+        if J is None:
+            J = ctx.jac(x)
+        rc = _rcond_cached(ctx.cb, J) if J is not None else None
+    singular = rc is not None and rc < RCOND_MIN
+    if grown:
+        return (f"해가 없어 값이 끝없이 커집니다(발산 — 식의 크기가 시작값의 {s / max(s0, 1.0):.1e}배에서 "
+                "반올림으로 잔차가 0이 되어 수렴처럼 보였습니다"
+                + (f"; 자코비안 특이, 역조건수 {rc:.1e}" if singular else "") + ")")
+    if singular:
+        return (f"식이 서로 종속이라 해가 하나로 정해지지 않습니다(자코비안 특이 — 크기를 맞춘 역조건수 {rc:.1e}). "
+                "같은 관계를 두 번 적은 식(예: 항등식과 그것을 다른 변수로 고쳐 쓴 항등식)이 없는지 보세요")
+    return ""
+
+
 def _newton(ctx: _Ctx, x0, ftol, maxiter) -> BlockResult:
     x = np.array(x0, dtype=float)
     r = ctx.resid(x)
     if r is None or not np.all(np.isfinite(r)):
         return BlockResult(x, False, "newton", 0, math.inf, "초기값에서 잔차 계산 불가(NaN/정의역)")
-    scale = ctx.scale(x)
+    scale = scale0 = ctx.scale(x)
     nr = _norm_resid(r, scale)
     it = 0
+    Jlast = None
     for it in range(1, maxiter + 1):
         if nr < ftol:
-            return BlockResult(x, True, "newton", it - 1, nr)
+            return BlockResult(x, True, "newton", it - 1, nr, scale0=scale0, scale=scale, J=Jlast)
         D = np.maximum(np.abs(x), 1.0)   # 열 스케일링: 규모가 다른 변수(금리~1, 통관~1e8)
         Jsp = ctx.jac_sparse(x) if ctx.sparse else None
         if Jsp is not None:
+            Jlast = Jsp
             dz = _sparse_step(Jsp, D, r)
         else:
             J = ctx.jac(x)
             if J is None:
                 return BlockResult(x, False, "newton", it, nr, "자코비안 계산 불가")
+            Jlast = J
             Js = J * D
             try:
                 dz = np.linalg.solve(Js, -r)
@@ -136,7 +279,7 @@ def _newton(ctx: _Ctx, x0, ftol, maxiter) -> BlockResult:
         scale = ctx.scale(x)
         nr = _norm_resid(r, scale)
     if nr < ftol:
-        return BlockResult(x, True, "newton", it, nr)
+        return BlockResult(x, True, "newton", it, nr, scale0=scale0, scale=scale, J=Jlast)
     return BlockResult(x, False, "newton", it, nr, f"최대 반복({maxiter}) 도달")
 
 
@@ -227,7 +370,7 @@ def solve_block(cb, x0, S, L, AF, P, t, method="newton", ftol=1e-10, maxiter=50,
 def _solve_block(cb, x0, S, L, AF, P, t, method, ftol, maxiter, fallback, sparse=False) -> BlockResult:
     ctx = _Ctx(cb, S, L, AF, P, t, sparse)
     order = [method] + [m for m in (fallback or ()) if m != method]
-    tried, best = [], None
+    tried, best, rejected = [], None, ""
     for m in order:
         if m == "newton":
             res = _newton(ctx, x0, ftol, maxiter)
@@ -240,6 +383,11 @@ def _solve_block(cb, x0, S, L, AF, P, t, method, ftol, maxiter, fallback, sparse
             res = _scipy(ctx, x0, ftol, maxiter, m)
         else:
             raise ValueError(f"알 수 없는 풀이법: {m} (지원: {', '.join(METHODS)})")
+        if res.converged:
+            why = _verify(ctx, x0, res)
+            if why:                            # 수렴처럼 보였지만 받아들일 수 없는 해 — 다음 방법으로
+                res.converged, res.message = False, why
+                rejected = rejected or why
         tried.append(m if res.converged else f"{m}✗")
         if res.converged:
             res.tried = tried
@@ -247,5 +395,23 @@ def _solve_block(cb, x0, S, L, AF, P, t, method, ftol, maxiter, fallback, sparse
         if best is None or (math.isfinite(res.max_resid) and res.max_resid < best.max_resid):
             best = res
     best.tried = tried
-    best.message = "; ".join(t for t in [best.message] if t) or "모든 방법 실패"
+    if not rejected and cb.n >= 2:
+        rejected = _singular_start(ctx, x0)
+    # 해를 확인하다 걸린 까닭(발산·종속)이 있으면 그것이 블록의 진짜 문제다 — 다른 방법의 '수렴 못 함'보다 앞에
+    best.message = rejected or "; ".join(t for t in [best.message] if t) or "모든 방법 실패"
     return best
+
+
+def _singular_start(ctx: _Ctx, x0) -> str:
+    """모든 방법이 실패한 블록 — 시작점의 자코비안이 특이하면 그 까닭을(아니면 '')."""
+    x0 = np.asarray(x0, dtype=float)
+    if not np.all(np.isfinite(x0)):
+        return ""
+    J = ctx.jac(x0)
+    if J is None:
+        return ""
+    rc = equilibrated_rcond(J, np.maximum(np.abs(x0), 1.0), ctx.scale(x0))
+    if rc >= RCOND_MIN:
+        return ""
+    return (f"자코비안이 특이합니다(크기를 맞춘 역조건수 {rc:.1e}) — 식이 서로 종속이거나(해가 하나로 정해지지 않음) "
+            "서로 맞지 않습니다(해가 없음). 같은 관계를 두 번 적은 식이나, 계수를 고정해 두 식이 같은 관계가 된 곳이 없는지 보세요")

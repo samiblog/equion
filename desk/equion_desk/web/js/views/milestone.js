@@ -1,7 +1,7 @@
 // 이정표 (D61) — 중요한 때의 정의·자료 회차·고정한 기록. 지금과 견주고(파일마다 같음 · 고침 · 새로 · 지움과 차이), 정의를 그때로 되돌린다.
 // 되돌리기는 바뀜 기록 하나로 남아 그것도 되돌릴 수 있다. 계산은 하지 않는다 — 되돌린 뒤 필요하면 다시 푼다.
 
-import { confirmDialog } from '../dialog.js';
+import { confirmDialog, nameRule } from '../dialog.js';
 import { clear, flash, h, icon, when, WHO } from '../util.js';
 import { diffBlock } from './lists.js';
 
@@ -90,7 +90,7 @@ export async function makeMilestone(project) {
     h('label', { class: 'field-row' }, h('span', {}, '이름'), name), h('label', { class: 'field-row' }, h('span', {}, '메모'), note),
     h('p', { class: 'muted' }, '정의 파일은 바뀌지 않습니다. 이정표가 적은 기록은 정리(equion work clean)에서 빠집니다.'));
   setTimeout(() => name.select(), 30);
-  if (!(await confirmDialog({ title: '이정표 만들기', body, confirm: '만들기', wide: true }))) return null;
+  if (!(await confirmDialog({ title: '이정표 만들기', body, confirm: '만들기', wide: true, valid: () => nameRule(name.value, { what: '이정표 이름', max: 64 }), enter: true }))) return null;
   try {
     const res = await project.compute('milestone/make', { name: name.value.trim(), note: note.value.trim() }, { quiet: true });
     flash(`이정표 ${res.result.name} 를 만들었습니다 — 정의 파일 ${res.result.files}개`);

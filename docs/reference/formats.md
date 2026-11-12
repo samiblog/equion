@@ -6,12 +6,13 @@ Equion이 읽고 쓰는 파일. 아래 코드는 실제로 파일을 만들어 �
 
 | 형식 | 확장자 | 규칙 |
 |---|---|---|
-| 엑셀 | `.xlsx` · `.xls` | 첫 열이 시점(날짜 또는 `2000Q1`·`2000M1`·`2000` 표기), 첫 행이 시리즈 이름. 시트는 `sheet=` |
+| 엑셀 | `.xlsx` | 첫 열이 시점(날짜 또는 `2000Q1`·`2000M1`·`2000` 표기), 첫 행이 시리즈 이름. 시트는 `sheet=`. 엑셀 97-2003(`.xls`)은 `xlrd`(필수 의존성이 아님)를 설치했을 때만 읽습니다 — 엑셀에서 .xlsx나 .csv로 저장해 쓰세요 |
 | CSV | `.csv` | 같은 규칙. UTF-8(BOM 무관) — cp949는 경고하고 읽는다 |
-| Parquet | `.parquet` | 선택 기능(`pip install equion[parquet]`) |
+| Parquet | `.parquet` | 선택 기능(`equion[parquet]` — [설치](../start/install.md)) |
 
 - 시리즈 이름은 대소문자를 가리지 않습니다(`cpi`와 `CPI`는 같은 시리즈). 대소문자만 다른 열이 둘 있으면 열 때 경고합니다.
-- 주기는 시점에서 추론합니다(안 되면 `freq=`). 숫자가 아닌 칸은 결측입니다.
+- 주기는 시점에서 추론합니다(안 되면 `freq=`). 숫자가 아닌 칸(`n.a.`·`-` 등)은 결측으로 읽고, 어느 열·시점의 어떤 값인지 경고로 알립니다.
+- 지시자 열 이름(`TREND` · `_Q1`~`_Q4` · `_M1`~`_M12` · `D_2008Q4` · `STEP_2008Q4` 꼴)과 같은 열이 있으면 그 지시자(`@trend` · `@seas` · `@d` · `@step`)를 쓸 때 오류입니다 — 사용자 열을 지시자로 쓰거나 덮어쓰지 않도록 멈춥니다. 열 이름을 바꿔 주세요.
 - 읽는 법: [데이터 레시피](../howto/data.md).
 
 ## 방정식 파일(`.txt`)
@@ -37,12 +38,12 @@ Y = CN + I + G
 | 위치 | 형식 · 판 | 만드는 것 · 고치는 것 |
 |---|---|---|
 | `equion.toml` | 프로젝트 — `format = "equion-project"` · `format_version` | 사람 · `data use`(`[data] vintage`) |
-| `EQUATIONS/<블록>.txt` | 방정식 파일(아래 '방정식 파일') | 사람 · `adopt`(그 줄) · `propose apply` |
+| `EQUATIONS/<블록>.txt` | 방정식 파일(아래 '방정식 파일') | 사람 · `block define`(빈 파일) · `block add · remove`(식 한 줄) · `adopt`(그 줄) · `propose apply` |
 | `EQUATIONS/adopted.toml` | 채택표 | `adopt` · `est --adopted --adopt` · `propose apply` |
 | `DATA/raw/` · `DATA/raw/inbox/` | 원자료(받은 그대로) · 받은 상자 · 옆 파일 `*.source.toml` | `data add` · `data build --inbox` |
 | `DATA/series.toml` · `DATA/derived.txt` | 자료 정의 · 파생식 | 사람 · `data define` · `data add --source` · `an keep` |
-| `equion.toml`의 `[model.*]`·`[block]` | 모형 조립 · 블록 | 사람 · `model define` · `block define` |
-| `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` | 가정 CSV · 보정항 TOML · 시나리오 TOML | 사람 |
+| `equion.toml`의 `[model.*]`·`[block]`·`[group]` | 모형 조립 · 블록 · 묶음(이름 붙인 시리즈 묶음) | 사람 · `model define` · `block define` · `group define · remove` |
+| `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` | 가정 CSV · 보정항 TOML · 시나리오 TOML | 사람 · 시나리오는 `scenario define · remove` |
 | `VIEWS/*.toml` | 보기 — 어느 시리즈를 어떤 모양으로 볼지 | 사람 · `view define` |
 | `FLOWS/*.eqs` | 스크립트 — `equion-script` | 사람 · `script new` |
 | `notes/*.md` · `reports/*.md`(+ `<보고서>_data/`) | 노트·보고서 — 글과 결과 구역 | 글은 사람·Claude · 블록은 `note add` · 구역은 `note run` · `report add·update` |
@@ -50,10 +51,13 @@ Y = CN + I + G
 | `work/data/<회차>/` | 자료 회차 — `equion-data-vintage` | `data build` |
 | `work/<est·hs·sim·an·run>/<이름>/` · `work/log.jsonl` · `work/marks.json` | 작업 기록 — `equion-record` | 명령(덧붙이기만) · `work pin·memo` |
 | `work/history/` · `work/proposals/` | 바뀜 기록 — `equion-change` · 제안 — `equion-proposal` | 정의를 바꾸는 명령 · `propose` |
-| `exports/` | 엑셀 | `export` |
+| `work/milestones/<이름>/` | 이정표 — 정의 파일 사본 · 자료 회차 · 고정한 기록 | `milestone make`(`restore`는 정의를 그때로) |
+| `exports/` | 엑셀 · 묶음(zip) | `export` · `bundle make` |
 
 파일을 쓰거나 고치는 명령(보고서·노트·내보내기·스크립트와 그 포함·Python 단계)의 경로는 **프로젝트 안만** 받습니다 — `../`나 밖의 절대 경로는 3.
-명령은 프로젝트의 하위 폴더에서 쳐도 위로 올라가며 `equion.toml`을 찾습니다.
+명령은 프로젝트의 하위 폴더에서 쳐도 위로 올라가며 `equion.toml`을 찾습니다. 상대 경로는 규칙 하나입니다 — 있는 파일을 가리키면 지금 폴더에서
+먼저, 없으면 프로젝트 폴더에서 찾고(`data add`·`data preview`·`check … --data`·`note`·`report` …), 새로 만드는 파일(`export --xlsx`·`bundle make --out`)은
+프로젝트 폴더 기준입니다.
 
 ## 프로젝트(`equion.toml`)
 
@@ -165,7 +169,7 @@ convert = "mean"                  # 원자료 주기 ≠ 자료 주기면 꼭 �
 
 | 키 | 내용 |
 |---|---|
-| `[source.이름]` | `file`(csv·xlsx·xls) · `sheet` · `header_row`(여러 줄이면 `[3, 4]` — 위 줄의 병합 칸을 이어 붙여 `국내총생산 실질` 꼴의 이름) · `unit_row` · `time_col` · `missing` · `thousands` · `freq`(시점에서 추론이 안 될 때) · `desc` · `inbox`(받은 상자의 어떤 파일이 이 출처를 바꾸나 — 파일 이름 글롭, 예 `"국민계정_*.xlsx"`) |
+| `[source.이름]` | `file`(csv·xlsx — `.xls`는 `xlrd`가 있을 때만, 없으면 "엑셀 97-2003 파일(.xls)은 읽지 못합니다 …"로 거절) · `sheet` · `header_row`(여러 줄이면 `[3, 4]` — 위 줄의 병합 칸을 이어 붙여 `국내총생산 실질` 꼴의 이름) · `unit_row` · `time_col` · `missing` · `thousands` · `freq`(시점에서 추론이 안 될 때) · `desc` · `inbox`(받은 상자의 어떤 파일이 이 출처를 바꾸나 — 파일 이름 글롭, 예 `"국민계정_*.xlsx"`) |
 | 시점이 열로 가는 표 | `time_axis = "columns"` · `time_row`(시점 줄) · `name_col`(이름 열, 여럿 가능) · `unit_col`(단위 열) — 시점 줄 아래의 줄마다 시리즈 하나. 시점 줄의 앞쪽 글 열(단위 · 비고)은 건너뛰고, 칸 위치는 원래 표 기준(`E4`) |
 | 시점 꼴 | `2003Q4` · `2003M10` · `2003-10` · `2003` · ISO 날짜, 그리고 `2003.Q4` · `2003 Q4` · `2003년 4분기` · `2003년 4/4분기` · `2003 4/4` · `2003/4/4`(분기) · `2003년 10월` · `2003.10`. 끝의 잠정치·각주 표시(`p)` · `(p)` · `*` · `1)`)는 떼고 읽고, 반기(`2003 1/2`)는 오류. 엑셀의 숫자 칸 `2003.1`은 10월 |
 | 줄 번호 | 1부터, 편집기의 줄 번호 그대로(CSV의 빈 줄도 센다). 시점 줄·열의 앞뒤 글 칸(단위 · 비고 · 합계 · 각주)은 건너뛰고, 값이 하나도 없는 줄(columns — 무리 제목 · 빈 줄)은 시리즈가 아니다 |
@@ -220,7 +224,7 @@ period
 ## 이정표(`work/milestones/`)와 묶음(`equion bundle`)
 
 이정표는 그때의 정의 파일 사본(`defs/`)과 `milestone.json`(이름 · 메모 · 만든 때 · 누가 · 자료 회차 · 정의 파일의 해시 · 고정한 기록)입니다
-(`equion milestone make · show · restore`). 묶음은 zip 하나로, 맨 위 폴더(프로젝트 이름) 아래에 정의 · 노트 · 보고서 · 지금 자료 회차(`work/data/<회차>/`)와 넣는 기록 · 이정표가 쓰는 회차 ·
+(`equion milestone make · list · show · restore`). 묶음은 zip 하나로, 맨 위 폴더(프로젝트 이름) 아래에 정의 · 노트 · 보고서 · 지금 자료 회차(`work/data/<회차>/`)와 넣는 기록 · 이정표가 쓰는 회차 ·
 이정표 · 남길 기록과 그 기록의 `work/log.jsonl` 줄, 그리고 `bundle.json`(`format: equion-bundle`, `format_version` · 프로젝트 · 만든 때 · 회차 · 원자료를 넣었나 ·
 기록 · 회차들 `vintages` · 뺀 것)이 듭니다. 원자료(`DATA/raw/`)는 `--raw`일 때만, 바뀜 기록과 Desk 화면 상태는 넣지 않습니다. 묶음 열기(`equion bundle open 묶음.zip 폴더`)는
 빈 폴더에만 풀고, 묶음의 명세는 `work/bundle.json`에 남습니다.
@@ -370,7 +374,9 @@ Lectern·GitHub·편집기에서 표와 차트째 읽힙니다.
 
 바뀜 기록에 남는 파일은 `equion.toml` · 블록 파일 · `EQUATIONS/adopted.toml` · `DATA/series.toml`·`derived.txt` · `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` · `VIEWS/` ·
 `notes/` · `reports/` · `FLOWS/*.eqs`입니다. 스크립트 안에서 바뀌면 `change.json`의 `run`에 그 실행 이름이 남습니다.
-되돌리기(`history revert`)는 이전 내용으로 다시 쓰는 것이고 그것도 기록에 남습니다. `--file 경로`를 주면 그 바뀜이 고친 파일 가운데 그것만 되돌립니다.
+되돌리기(`history revert`)는 **그 바뀜 하나만** 물립니다 — 그 바뀜의 차이만 지금 내용에서 거꾸로 적용하고(뒤의 바뀜은 그대로 — 메모에 남는다),
+뒤의 바뀜이 같은 줄(TOML이면 같은 키)을 고쳤으면 아무것도 쓰지 않고 멈춥니다(종료 코드 3 — 겹친 파일과 뒤의 바뀜). `--force`면 그 파일을 그 바뀜
+앞 내용으로 통째로 씁니다(뒤의 바뀜도 그 파일에서 함께 물린다). 되돌리기도 기록에 남습니다. `--file 경로`를 주면 그 바뀜이 고친 파일 가운데 그것만 되돌립니다.
 
 `work/desk/requests.jsonl`은 Equion Desk(데스크톱 앱)에 알리는 줄입니다 — `equion desk show <이름>`이 `{"at", "who", "show", "kind"}` 한 줄을 덧붙이고,
 그 프로젝트를 열어 둔 앱이 새 줄을 보고 그 화면을 엽니다(`kind`는 record·proposal·data·part·model·file·place). 기록이 아니라 신호라서 커지면 지난 줄을 버립니다.
@@ -487,13 +493,13 @@ pages/annual.eqw/data.npz
 pages/annual.eqw/workfile.json
 residuals.npz
 workfile.json
-['engine_version', 'format', 'format_version', 'freq', 'indicators', 'metadata', 'name', 'objects', 'pages', 'saved_at', 'smpl']
+['engine_version', 'format', 'format_version', 'freq', 'indicators', 'metadata', 'name', 'objects', 'pages', 'results', 'saved_at', 'smpl']
 [('equation', 'eq_i'), ('model', 'm_toy'), ('equation', 'eq_cn')]
 ```
 
 | 파일 | 내용 |
 |---|---|
-| `workfile.json` | 목록: `format: "equion-workfile"` · `format_version`(지금 2) · 주기 · 표본 · 지시자 · 메타데이터 · 객체 · 페이지 |
+| `workfile.json` | 목록: `format: "equion-workfile"` · `format_version`(지금 2) · 주기 · 표본 · 지시자 · 메타데이터 · 풀이 결과 시리즈(`results` — 풀이가 쓴 별칭 시리즈, 없으면 옛 워크파일로 보고 이름으로 알아본다) · 객체 · 페이지 |
 | `data.npz` | 시리즈 전체(numpy 압축 배열: `values` · `index` · `columns`) — pickle을 쓰지 않아 열 때 코드가 실행되지 않는다 |
 | `residuals.npz` | 방정식 잔차 |
 | `pages/<이름>.eqw/` | 다른 주기 페이지(같은 구조) |

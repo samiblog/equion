@@ -228,13 +228,15 @@ $ equion report update memo --region 1 --to sim:s2
   바뀜 기록  h0008
 ```
 
-손으로 구역의 숫자를 고쳤다면 덮지 않고 고친 곳을 보입니다 — 덮으려면 `--force`.
+손으로 구역의 숫자를 고쳤다면 덮지 않고 고친 곳을 보입니다 — 덮을지는 사람이 정할 일이라 종료 코드 3으로 끝나고(다른 구역은 바뀐다),
+덮으려면 `--force`. 스크립트 안에서는 멈추지 않고 그 단계에 `!`와 까닭이 남습니다.
 
 ```python
 memo = Path("reports/memo.md")
 memo.write_text(memo.read_text(encoding="utf-8").replace("| Y |", "| Y(고침) |", 1), encoding="utf-8")
 ```
 
+<!-- error -->
 ```console
 $ equion report check memo
 $ equion report update memo --region 1 --to sim:s1
@@ -259,6 +261,8 @@ $ equion report update memo --region 1 --to sim:s1
     +| Y(고침) | 1.8 | 2.3 |
      | CN | 1.7 | 2.2 |
      | I | 0.4 | 2.7 |
+  손으로 고친 구역(#1)은 바꾸지 않았습니다 — 사람에게 묻고, 덮으려면 equion report update reports/memo.md --force (종료 코드 3)
+(종료 코드 3)
 ```
 
 ## 5. 엑셀로

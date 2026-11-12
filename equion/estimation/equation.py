@@ -70,6 +70,8 @@ class Equation:
                  coefficients: Sequence[float] = None, cov: str = None, lags: int = None,
                  weights: str = None, wtype: str = "ivar", gmm_weight: str = None, iterate: bool = False):
         self.original_input = equation_str
+        if "#" in equation_str:          # 방정식 파일·append·genr처럼 '#' 뒤는 주석(식 문법에 '#'는 없다)
+            equation_str = equation_str.split("#", 1)[0]
         self.cov_type = normalize_cov_type(cov)
         self.cov_lags = None if lags is None else int(lags)
         wtype = (wtype or "ivar").lower()
@@ -410,7 +412,8 @@ class Equation:
             referenced |= ir.variables(node)
         unknown = sorted(v for v in referenced if v not in cols)
         if unknown:
-            raise ValueError(
+            from ..formula.parser import UnknownVariableError
+            raise UnknownVariableError(
                 f"데이터에 없는 변수 {unknown} (오타이거나 데이터/지시자 누락). "
                 f"식: {self.equation_str[:80]}")
 
@@ -480,9 +483,13 @@ class Equation:
                 combined = combined[per >= parse_period(self.smpl_start, freq)]
                 per = periods_of(combined.index, freq)
             if self.smpl_end:
-                combined = combined[per <= parse_period(self.smpl_end, freq)]
+                combined = combined[per <= parse_period(self.smpl_end, freq, end=True)]   # 해만 적은 끝 = 그 해 끝
 
         combined_clean = combined.dropna()
+        try:                                   # 까닭은 알림용 — 계산하지 못해도 추정은 그대로
+            self.sample_drops = self._drop_reasons(combined, combined_clean)
+        except Exception:  # noqa: BLE001
+            self.sample_drops = {"missing": [], "domain": [], "why": ""}
         self._y = combined_clean["__y__"]
         self._X = combined_clean[[c for c in X.columns]]
         self._Z = (combined_clean[[c for c in combined_clean.columns if c.startswith("__z__")]]
@@ -494,11 +501,56 @@ class Equation:
         n, k = len(self._y), len(self.coef_names)
         if n <= k:
             raise ValueError(f"관측치 {n}개가 계수 {k}개보다 많아야 합니다 (식: {self.equation_str[:60]})")
+        dom = self.sample_drops["domain"]
+        dom_note = f" — {self.sample_drops['why']}라 {len(dom)}기 빠짐(결측이 아님)" if dom else ""
         if self.smpl_start or self.smpl_end:
             _log.info(f"[DATA] 관측치: {n}개 "
-                  f"(@smpl {self.smpl_start or '처음'}~{self.smpl_end or '끝'})")
+                  f"(@smpl {self.smpl_start or '처음'}~{self.smpl_end or '끝'}){dom_note}")
         else:
-            _log.info(f"[DATA] 관측치: {n}개")
+            _log.info(f"[DATA] 관측치: {n}개{dom_note}")
+
+    def _drop_reasons(self, combined: pd.DataFrame, clean: pd.DataFrame) -> dict:
+        """표본 구간에서 빠진 기간과 까닭(D66) — 계산 결과에는 손대지 않는다.
+
+        돌려주는 것
+            {"missing": [입력 값이 없어(시차로 자료 밖 포함) 빠진 기간], "domain": [입력 값은 다 있는데 log·sqrt·나눗셈의
+             정의역 밖이라(0 이하의 log 등) 빠진 기간], "why": 정의역 쪽 까닭 글(예: 'log·dlog 안의 값이 0 이하')}
+        """
+        nodes = [self.lhs_ir] + ([self.rhs_template] if self.kind == "nls" else list(self.term_irs))
+        if self.method in IV_METHODS:
+            nodes += list(self.instrument_irs)
+        if self.method == "wls":
+            nodes.append(self.weights_ir)
+        T = len(self.data.data)
+        ok = np.ones(T, dtype=bool)
+        with np.errstate(all="ignore"):
+            for node in nodes:
+                for name, lag in ir.leaves(node):
+                    ok &= np.isfinite(ir.shift_array(self._get_array(name), lag))
+        base = ok.copy()
+        for p in (self.ar_lags or ()):
+            p = int(p)
+            ok &= np.concatenate([np.zeros(min(p, T), dtype=bool), base[:max(T - p, 0)]])
+        pos = self.data.data.index.get_indexer(combined.index)
+        dropped = ~combined.index.isin(clean.index)
+        have = ok[pos] if len(pos) else np.zeros(0, dtype=bool)
+        kinds = []
+        for node in nodes:
+            for nd in ir.walk(node):
+                k = ("log" if isinstance(nd, ir.Func) and nd.name == "log" else
+                     "sqrt" if isinstance(nd, ir.Func) and nd.name == "sqrt" else
+                     "/" if isinstance(nd, ir.Bin) and nd.op == "/" else
+                     "**" if isinstance(nd, ir.Bin) and nd.op == "**" else None)
+                if k and k not in kinds:
+                    kinds.append(k)
+        if kinds == ["log"]:
+            why = "log·dlog 안의 값이 0 이하"
+        else:
+            label = {"log": "log·dlog", "sqrt": "sqrt", "/": "나눗셈", "**": "거듭제곱"}
+            why = ("·".join(label[k] for k in kinds) if kinds else "계산") + \
+                "의 정의역 밖 값(0 이하의 log · 음수의 sqrt · 0으로 나누기 등)"
+        return {"missing": list(combined.index[dropped & ~have]), "domain": list(combined.index[dropped & have]),
+                "why": why}
 
     # ------------------------------------------------------------------
     # 추정
@@ -1077,9 +1129,9 @@ def expand_indicators(data, s: str, bare_seas: bool = True) -> str:
 
     def repl(m):
         return data.ensure_indicator(m.group(0))
-    s = re.sub(r"@step\([^)]*\)", repl, s)
-    s = re.sub(r"@d\([^)]*\)", repl, s)
-    s = re.sub(r"@trend\b", repl, s)
+    s = re.sub(r"@step\([^)]*\)", repl, s, flags=re.IGNORECASE)     # @seas처럼 대소문자를 가리지 않는다(@TREND·@STEP(…))
+    s = re.sub(r"@d\([^)]*\)", repl, s, flags=re.IGNORECASE)
+    s = re.sub(r"@trend\b", repl, s, flags=re.IGNORECASE)
     return s
 
 

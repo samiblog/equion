@@ -5,11 +5,14 @@ assemble them into a (non-linear) simultaneous system, solve it period by period
 forecasts and scenarios, and analyse the results. Equations are plain text in a compact time-series notation, and
 the engine is built to accept equation sets that change often — the model is an input, not code.
 
-- Version **0.9.0** (2026-11-12) · Python 3.12+ · numpy · pandas · scipy · openpyxl · [MIT licence](LICENSE)
-- Use it as a **library** (`import equion as eqn`) or from the **command line** (`equion run script.py`).
+- Version **0.9.1** (2026-11-13) · Python 3.12+ · numpy · pandas · scipy · openpyxl · tomlkit · [MIT licence](LICENSE)
+- Use it as a **library** (`import equion as eqn`), from the **command line** (`equion run script.py`), or as a
+  **project** — a folder with `equion.toml`, equation blocks, data vintages and a record of every computation, driven by
+  commands such as `equion est`, `equion hs` and `equion sim`.
 - Synthetic example data sets ship with the package (`eqn.datasets`: `toy_q`, `toy_a`, `toy_m`, `klein_like`), generated
   from known models, so every example and test runs anywhere and estimates can be compared with the truth.
-- A Windows desktop app, **Equion Desk**, is at its first release candidate (0.1.0rc1) in [`desk/`](desk/README.md) (Korean UI; install checks on other PCs are still pending).
+- A Windows desktop app, **Equion Desk**, is at the release candidate of its second version (0.2.0rc3) in [`desk/`](desk/README.md)
+  (Korean UI; install checks on other PCs are still pending). Its step-by-step manual (in Korean) is [`docs/desk/`](docs/desk/README.md).
 - Most documentation is in Korean ([`docs/README.md`](docs/README.md)). In English: [getting started](docs/en/README.md),
   [your first model](docs/en/first-model.md), a [cheat sheet](docs/en/cheatsheet.md), and the generated API reference
   [`docs/reference/api.md`](docs/reference/api.md), which lists every public function and method with its signature.
@@ -79,14 +82,17 @@ with size limits — equation text can never execute code.
 
 | Area | Features |
 |---|---|
-| Single-equation estimation | OLS, WLS, 2SLS, linear GMM (Hansen J), LIML, NLS (analytic Jacobian), fixed coefficients, AR(p) errors, PDL, error-correction models; robust covariances (HC0–HC3, HAC) |
+| Single-equation estimation | OLS, WLS, 2SLS, linear GMM (Hansen J), LIML, NLS (analytic Jacobian), non-linear 2SLS (`c(n)` equation with `@inst`), fixed coefficients, AR(p) errors, PDL, error-correction models; robust covariances (HC0–HC3, HAC) |
 | Diagnostics | serial-correlation LM, Ljung–Box, White, Breusch–Pagan, ARCH, Jarque–Bera, RESET, Wald, Chow, CUSUM, omitted/redundant variables; ADF, KPSS, Engle–Granger, Johansen; forecast evaluation (RMSE, Theil U, Diebold–Mariano) |
-| Systems | system OLS, SUR (iterated = ML), 2SLS, 3SLS, FIML; cross-equation restrictions via shared `c(n)` or `restrict=` |
+| Systems | system OLS, SUR (iterated = ML), 2SLS, 3SLS, FIML — also for equations that are non-linear in the coefficients; cross-equation restrictions via shared `c(n)` or `restrict=` |
 | Multivariate | VAR (lag selection, Granger causality, impulse responses, variance decomposition, forecasts), VECM (Johansen ML) |
 | Model solving | block decomposition + analytic-Jacobian Newton with fallbacks, sparse LU for large blocks; dynamic / static / fit simulation; per-period status — a failed solution is never carried into the next period |
 | Model use | forecasts, scenarios (overrides, excludes, add factors, shocks), stochastic simulation, control (target tracking), multipliers, model-consistent expectations (Fair–Taylor or stacked-time Newton), dynamic stability, Shapley scenario decomposition |
 | Data | metadata, pages at other frequencies, frequency conversion (aggregation, Denton, Chow–Lin), seasonal adjustment (STL, classical) |
 | Command line | `equion run` (report folder, exit codes 0/1/2/3, `--set`, `--smpl`, `--fail-on`, `--watch`, `--redact`), `check`, `info`, `new`, `convert` |
+| Projects | `equion.toml` with blocks and models (`assemble`); data definitions and vintages built from raw files (`data build · diff · inbox`); work commands that leave a record each — `est` (candidates and criteria), `adopt`, `compare`, `hs` (swap, before/after, replay), `sim` (assumptions, add factors, scenarios); analyses, notes and reports that are refreshed from new records; history of definition changes with revert; milestones and bundles (zip) for moving a project |
+| Scripts | `.eqs` scripts — one `equion` command per line, parameters, `expect` checks — with a run record; `equion run --replay run:…` re-runs a past run on a copy and compares the numbers; `script export --py` |
+| Desktop app | Equion Desk (Windows 11) — the same commands and records on screen, with terminals for people and Claude Code; manual in [`docs/desk/`](docs/desk/README.md) |
 
 Estimation and solving share one intermediate representation of every equation, so "the residual of the compiled
 model on actual data equals the estimation residual" holds by construction — this is checked in the test suite.
@@ -97,7 +103,7 @@ example 50-digit arithmetic for GMM, where the normal-equation route of the exte
 
 ## Dependencies
 
-Dependencies are version ranges (numpy ≥ 2.1, pandas ≥ 2.2.2, scipy ≥ 1.14, openpyxl ≥ 3.1); the repository's
+Dependencies are version ranges (numpy ≥ 2.1, pandas ≥ 2.2.2, scipy ≥ 1.14, openpyxl ≥ 3.1, tomlkit ≥ 0.12); the repository's
 own environment is pinned exactly by `uv.lock`. Optional extras: `[parquet]` (reading workfiles saved by 0.6.0 and
 earlier) and `[plot]` (plotly `Figure` objects — charts themselves use a bundled copy of plotly.js).
 
@@ -107,10 +113,11 @@ earlier) and `[plot]` (plotly `Figure` objects — charts themselves use a bundl
 uv run pytest
 ```
 
-CI (`.github/workflows/ci.yml`) runs the suites on Linux, Windows and macOS with Python 3.12–3.14, with the
-locked versions, with the lowest and the latest allowed versions, without the optional extras, checks that every
-documentation example runs and prints what the page shows, and audits the locked dependencies. The tests use only
-the bundled example data.
+Before a release the suites are run with Python 3.12–3.14, with the locked versions, with the lowest and the latest
+allowed versions and without the optional extras, and the documentation check confirms that every example runs and
+prints what the page shows. CI is switched off for now (since 2026-11-12) and these runs are done locally; the
+workflow file (`.github/workflows/ci.yml` — Linux, Windows and macOS, plus a dependency audit) is kept for when CI is
+turned back on. The tests use only the bundled example data.
 Design decisions are recorded in [`docs/DECISIONS.md`](docs/DECISIONS.md) (in Korean).
 
 ## Licence and trademarks

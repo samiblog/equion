@@ -7,7 +7,7 @@
 .view-head h1 .mono { font-size: calc(18px * var(--scale)); letter-spacing: -.02em; }
 .view-head .sub { margin-top: 5px; color: var(--ink-3); font-size: var(--fs-s); display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
 .view-head .sub .sep { color: var(--line-strong); }
-.view-head .tools { display: flex; gap: 6px; margin-left: auto; flex: none; }
+.view-head .tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; flex: 0 1 auto; min-width: 0; }   /* 좁으면 단추가 줄을 바꾼다(잘리지 않게) */
 .view-head > :first-child { flex: 1 1 260px; min-width: 0; }
 /* 기록을 만든 명령 — 그대로 보이고, 누르면 복사 */
 .cmdline { display: flex; align-items: flex-start; gap: 9px; width: 100%; margin: -4px 0 16px; padding: 8px 10px 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--raised); text-align: left; font: calc(12px * var(--scale))/1.55 var(--font-mono); color: var(--ink-2); }
@@ -65,7 +65,7 @@ h2.sect .count { font-weight: 500; color: var(--ink-4); letter-spacing: 0; }
 .card .made .pc { display: inline-flex; align-items: center; height: 19px; padding: 0 7px; border-radius: 4px; background: var(--canvas); color: var(--ink-2); font-family: var(--font-mono); font-size: calc(11px * var(--scale)); }
 .card .made .pc.inc { background: color-mix(in srgb, var(--k-hs) 11%, transparent); color: var(--k-hs); }
 .card .made .pc.exc { text-decoration: line-through; opacity: .7; }
-.card .foot { display: flex; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line-2); }
+.card .foot { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line-2); }
 .blocks { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .block-row { display: grid; grid-template-columns: minmax(120px, 190px) 1fr; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line-2); align-items: center; }
 .block-row:last-child { border-bottom: 0; }
@@ -172,6 +172,10 @@ ul.implicit li::before { content: ""; position: absolute; left: 3px; top: 12px; 
 .doc table { border-collapse: collapse; font-size: calc(13px * var(--scale)); font-variant-numeric: tabular-nums; }
 .doc th { padding: 6px 12px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); text-align: left; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
 .doc td { padding: 6px 12px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+/* 표의 칸은 낱말 가운데서 끊지 않는다(문서의 overflow-wrap: anywhere 를 풀어 — 1970Q1 · 조원(가상)이 한 글자씩 떨어지지 않게).
+   긴 글은 빈칸에서만 줄을 바꾸고, 그래도 넓은 표는 .table-wrap 이 옆으로 밀어 본다 */
+.doc td { overflow-wrap: normal; word-break: keep-all; }
+.doc td.short { white-space: nowrap; }
 .doc td.n, .doc th.n { text-align: right; white-space: nowrap; }
 .doc tr:last-child td { border-bottom: 0; }
 .doc td:first-child, .doc th:first-child { padding-left: 2px; }

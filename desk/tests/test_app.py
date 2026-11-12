@@ -713,7 +713,7 @@ def section_data(tmp: str) -> None:
         d = c.get(f"{api}/data").json
         o = c.get(f"{api}/overview").json["overview"]
         check("K13 이 회차로 바꾸기 — equion.toml 의 회차가 바뀌고 개요·자료가 새 회차를 가리킨다",
-              used.json["result"] == {"vintage": second, "previous": first} and d["current"] == second and d["stale"] is None and d["pending"] is False
+              used.json["result"] == {"vintage": second, "previous": first, "warnings": []} and d["current"] == second and d["stale"] is None and d["pending"] is False
               and d["span"] == ["1970Q1", "2020Q1"] and o["vintage"]["id"] == second and f'vintage = "{second}"' in read("equion.toml"), str(used.json) + str(o["vintage"]))
         again = c.post(f"{api}/data/build", json={}).json["result"]
         nope = c.post(f"{api}/data/use", json={"vintage": "nope"})
@@ -965,6 +965,15 @@ def section_model(tmp: str) -> None:
                                                                              {"name": "x", "exclude": ["demand"]}, {"name": "demand", "blocks": ["price"]})]
         check("N4 모형 고치기 — 준 키만(뺄 식) · 없는 블록·블록과 같은 이름은 까닭과 함께 거절, 꼴이 틀린 값은 받지 않는다",
               not edit["new"] and c.get(f"{api}/assembly?model=dp").json["report"]["excluded"] == ["demand:I"] and codes == [422, 400, 400, 400, 422], str(codes))
+        said = {k: c.post(f"{api}/{path}", json=j).json.get("error", "") for k, path, j in (
+            ("model", "model/define", {"name": "", "blocks": ["demand"], "dry": True}), ("block", "block/define", {"name": "", "dry": True}),
+            ("korean", "report/new", {"name": "11월 보고서"}), ("list", "model/define", {"name": "x", "exclude": ["demand"]}),
+            ("bare", "est", {"part": "demand:CN"}), ("json", "model/define", [1]))}
+        check("N4-1 받을 수 없는 값은 우리 말로 무엇을 고칠지 — 빈 이름(모형·블록) · 한글 이름은 규칙과 함께 · 까닭 없는 400 도 영어 기본 글이 아니다",
+              said["model"].startswith("모형 이름을 적으세요 — 영문") and said["block"].startswith("블록 이름을 적으세요")
+              and "‘11월 보고서’" in said["korean"] and "영문·숫자로 시작" in said["korean"] and "블록:목표" in said["list"] and "‘demand’" in said["list"]
+              and said["bare"].startswith("받을 수 없는 요청입니다") and said["json"].startswith("받을 수 없는 요청입니다")
+              and not any("browser" in v.lower() for v in said.values()), str(said))
         bplan = c.post(f"{api}/block/define", json={"name": "labor", "desc": "노동", "dry": True}).json
         not_yet = not os.path.exists(os.path.join(folder, "EQUATIONS", "labor.txt")) and "labor" not in read("equion.toml")
         bdone = c.post(f"{api}/block/define", json={"name": "labor", "desc": "노동"}).json["result"]
@@ -1115,6 +1124,19 @@ def section_forecast(tmp: str) -> None:
               core["model"] == "core" and [x["name"] for x in core["exogenous"]] == ["G", "R"] and c.get(f"{api}/forecast?model=nope").json["error"]
               and c.get(f"{api}/forecast?model=..%2Fx").status_code == 400, str([x["name"] for x in core["exogenous"]]))
 
+        # 화면은 표 전체(외생 모두 — 파일에 없는 R 의 빈 열까지)를 보낸다: 고친 칸의 줄만 바뀌어야 한다(빈 열을 덧붙이지 않는다)
+        orig = read("ASSUMPTIONS", "base.csv")
+        grid = {p: dict(cells) for p, cells in f["assume"]["values"].items()}
+        grid["2020Q2"]["G"] = "71.25"
+        one = c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": grid}).json["result"]
+        edited = read("ASSUMPTIONS", "base.csv")
+        changed =[(a, b) for a, b in zip(orig.split("\n"), edited.split("\n")) if a != b]
+        grid["2020Q2"]["G"] = f["assume"]["values"]["2020Q2"]["G"]
+        back = c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": grid}).json["result"]
+        check("O2-1 가정 표: 칸 하나를 고치면 그 줄만 바뀐다(파일에 없는 빈 열을 덧붙이지 않고 다른 줄은 글자 그대로) · 되돌리면 파일이 처음과 같다",
+              one["change"] and len(changed) == 1 and changed[0][1].startswith("2020Q2,71.25,") and edited.split("\n")[0] == "period,G,POIL"
+              and len(edited.split("\n")) == len(orig.split("\n"))
+              and read("ASSUMPTIONS", "base.csv") == orig and back["change"], f"{changed} {edited[:120]!r}")
         before = read("ASSUMPTIONS", "base.csv")
         r = c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": {"2020Q1": {"G": "70.5", "R": "3.1"}, "2021Q4": {"POIL": ""}}})
         after = read("ASSUMPTIONS", "base.csv")
@@ -1303,6 +1325,20 @@ def section_review(tmp: str) -> None:
               and whole["change"] and whole["files"] == ["EQUATIONS/price.txt"] and "P(-2)" not in read("EQUATIONS", "price.txt") and "사람이 적은 줄" in read("EQUATIONS", "price.txt")
               and again["change"] is None and detail["reverts"] == change and detail["who"] == "desk", str(one_file) + str(bad) + str(whole))
 
+        # 되돌리기는 그 바뀜 하나만 — 뒤의 바뀜이 같은 줄을 또 고쳤으면 쓰지 않고 알린다(409 conflict), 사람이 고르면 force 로 통째로
+        equion(folder, "group", "define", "gq", "--series", "Y,CN")
+        equion(folder, "group", "define", "gq", "--series", "Y,I")
+        first = [x["id"] for x in c.get(f"{api}/changes").json["changes"] if "Y,CN" in (x.get("how") or "")]
+        toml_before = read("equion.toml")
+        clash = c.post(f"{api}/revert", json={"change": first[-1]}) if first else None
+        toml_mid = read("equion.toml")
+        forced_rv = c.post(f"{api}/revert", json={"change": first[-1], "force": True}) if first else None
+        check("P5-1 되돌리기가 뒤의 바뀜과 겹치면 아무것도 쓰지 않고 conflict(409)로 뒤의 바뀜을 알린다 — force 면 그 파일을 그 바뀜 앞으로 통째로, 모양이 틀린 force 는 400",
+              first and clash.status_code == 409 and clash.json["kind"] == "conflict" and "--force" in clash.json["error"] and toml_mid == toml_before and "gq" in toml_mid
+              and forced_rv.status_code == 200 and forced_rv.json["result"]["command"].endswith("--force") and "gq" not in read("equion.toml")
+              and c.post(f"{api}/revert", json={"change": first[-1], "force": "yes"}).status_code == 400,
+              f"{first} {clash.status_code if clash is not None else None} {(clash.json if clash is not None else {})!s:.300}")
+
         equion(folder, "propose", "new", "--title", "버릴 제안", "--part", "demand:CN=CN c Y", who="claude")
         dropped = c.post(f"{api}/proposal/drop", json={"id": "prop:p2", "why": "시차를 빼면 설명이 안 된다"}).json["result"]
         rows = {x["id"]: x for x in c.get(f"{api}/proposals").json["proposals"]}
@@ -1471,6 +1507,10 @@ def section_forms(tmp: str) -> None:
               [x["name"] for x in info["scenarios"]] == ["oil20"] and "base" in info["assumptions"] and "main" in info["models"] and "POIL" in info["series"]
               and dry["new"] is True and '+var = "R"' in dry["diff"] and "--shock R=+1@start:start+3 --shock POIL=+10%" in dry["command"]
               and "--addfactor demand:CN=-0.2" in dry["command"] and not os.path.exists(os.path.join(folder, "SCENARIOS", "rr.toml")), str(dry)[:300])
+        mv = info.get("model_vars", {}).get("main", {})
+        check("R2-1 시나리오 폼의 재료 — 모형마다 식이 푸는 변수·항등식이 푸는 변수·외생, 전망 구간의 기간(충격 줄을 치는 동안 알리려고)",
+              info.get("default_model") == "main" and "CN" in mv.get("equation", []) and "Y" in mv.get("identity", []) and {"G", "POIL", "R"} <= set(mv.get("exogenous", []))
+              and "CN" not in mv.get("exogenous", []) and info.get("freq") == "Q" and info.get("periods", [""])[0] == "2020Q1" and len(info["periods"]) == 8, str(info)[:300])
         w = c.post(f"{api}/scenario/define", json={"name": "rr", "desc": "금리", "shocks": ["R=+1@start:start+3"]}).json["result"]
         bad = c.post(f"{api}/scenario/define", json={"name": "rr", "shocks": ["NOPE=+1"]})
         badform = c.post(f"{api}/scenario/define", json={"name": "rr", "shocks": ["R+1"]})
@@ -1602,6 +1642,167 @@ def section_instance(tmp: str, folder: str) -> None:
     check("I3 떠 있는 창에 폴더를 넘긴다 — 폴더 없이 부르면 창만 앞으로", first and second and got == [folder, None], str(got))
 
 
+def section_outside(tmp: str) -> None:
+    print("U. 밖에서 바뀐 파일 — 쓰던 글의 지문 · 가정 표는 친 칸만 · 시각만 바뀐 정의 파일")
+    from equion_desk.server import create_app
+    from equion_desk.watch import QUIET, Feed, ProjectWatcher, definitions
+
+    folder = example(tmp, "outside")
+    price = os.path.join(folder, "EQUATIONS", "price.txt")
+    base_csv = os.path.join(folder, "ASSUMPTIONS", "base.csv")
+
+    def read(path: str) -> str:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def append(path: str, line: str) -> None:
+        with open(path, "a", encoding="utf-8", newline="\n") as f:
+            f.write(line)
+
+    def cell(period: str, col: str) -> str:
+        rows = [ln.split(",") for ln in read(base_csv).lstrip("﻿").strip().split("\n")]
+        return next(r[rows[0].index(col)] for r in rows[1:] if r[0] == period)
+
+    def excel(period: str, col: str, value: str) -> None:
+        """엑셀이 저장하듯 — 그 칸만 바꿔 파일을 통째로 다시 쓴다."""
+        rows = [ln.split(",") for ln in read(base_csv).strip().split("\n")]
+        for r in rows[1:]:
+            if r[0] == period:
+                r[rows[0].index(col)] = value
+        with open(base_csv, "w", encoding="utf-8", newline="") as f:
+            f.write("\n".join(",".join(r) for r in rows) + "\n")
+
+    state, pid = new_state(tmp, folder, "u.json")
+    api = f"/api/p/{pid}"
+    try:
+        c = create_app(state).test_client()
+        c.get(f"{api}/overview")
+        seen = c.get(f"{api}/file?path=EQUATIONS/price.txt").json
+        draft = seen["text"] + "# 화면에서 쓴 줄\n"
+        append(price, "# 밖(Claude)에서 더한 줄\n")
+        now = c.get(f"{api}/file?path=EQUATIONS/price.txt").json["hash"]
+        stale = c.post(f"{api}/text/write", json={"path": "EQUATIONS/price.txt", "text": draft, "expect": seen["hash"]})
+        kept = "밖(Claude)에서 더한 줄" in read(price) and "화면에서 쓴 줄" not in read(price)
+        bad = c.post(f"{api}/text/write", json={"path": "EQUATIONS/price.txt", "text": draft, "expect": "zz"}).status_code
+        ok = c.post(f"{api}/text/write", json={"path": "EQUATIONS/price.txt", "text": draft, "expect": now})
+        check("U1 정의 파일 쓰기 — 화면이 읽은 지문(expect)과 지금 파일이 다르면 쓰지 않는다(409 conflict, 지금의 지문을 함께) · 새 지문으로는 쓴다 · 모양이 틀린 지문은 400",
+              len(seen["hash"]) == 64 and stale.status_code == 409 and stale.json["kind"] == "conflict" and stale.json["detail"]["hash"] == now and kept
+              and bad == 400 and ok.status_code == 200 and read(price).endswith("# 화면에서 쓴 줄\n") and "밖(Claude)에서 더한 줄" not in read(price),
+              f"{stale.status_code} {stale.json} {bad} {ok.status_code}")
+
+        f = c.get(f"{api}/forecast").json
+        g0, p2 = f["assume"]["values"]["2020Q1"]["G"], cell("2020Q2", "POIL")
+        excel("2020Q2", "POIL", "99.9")                   # 화면이 표를 읽은 뒤 엑셀이 다른 칸을 고쳤다
+        r = c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": {"2020Q1": {"G": "77.7"}}, "bases": {"2020Q1": {"G": g0}}})
+        check("U2 가정 표 — 친 칸만 받아 지금 파일에 얹는다: 그 사이 엑셀이 고친 다른 칸(POIL 2020Q2 99.9)이 그대로 남는다",
+              r.status_code == 200 and r.json["result"]["change"] and cell("2020Q1", "G") == "77.7" and cell("2020Q2", "POIL") == "99.9" and p2 != "99.9",
+              f"{r.status_code} {cell('2020Q2', 'POIL')}")
+        excel("2020Q1", "G", "80.0")                      # 이번에는 화면이 친 칸을 밖에서도 고쳤다
+        before = read(base_csv)
+        clash = c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": {"2020Q1": {"G": "78.8"}, "2020Q3": {"POIL": "61"}},
+                                               "bases": {"2020Q1": {"G": "77.7"}, "2020Q3": {"POIL": cell("2020Q3", "POIL")}}})
+        detail = clash.json.get("detail") or []
+        unchanged = read(base_csv) == before
+        forced = c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": {"2020Q1": {"G": "78.8"}}, "bases": {"2020Q1": {"G": "77.7"}}, "force": True})
+        same = c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": {"2020Q1": {"G": "78.8"}}, "bases": {"2020Q1": {"G": "70"}}})
+        check("U3 친 칸이 밖에서도 다른 값으로 바뀌었으면 쓰지 않고 409 — 칸마다 읽은 값·지금 값·친 값(겹치지 않은 칸도 쓰지 않는다) · force 면 친 값으로 · 지금 값이 친 값과 같으면 겹침이 아니다",
+              clash.status_code == 409 and clash.json["kind"] == "conflict" and detail == [{"period": "2020Q1", "name": "G", "base": "77.7", "now": "80.0", "mine": "78.8"}]
+              and unchanged and forced.status_code == 200 and cell("2020Q1", "G") == "78.8" and cell("2020Q2", "POIL") == "99.9"
+              and same.status_code == 200 and same.json["result"]["change"] is None, f"{clash.status_code} {detail} {forced.status_code} {same.status_code}")
+        bad = [c.post(f"{api}/assume", json=j).status_code for j in (
+            {"name": "base", "columns": ["G"], "rows": {}, "bases": [1]}, {"name": "base", "columns": ["G"], "rows": {}, "bases": {"2020Q1": {"G": 1}}})]
+        check("U4 가정 표의 읽은 값(bases) — 모양이 틀리면 400", bad == [400, 400], str(bad))
+        session = state.session(pid)
+        old = os.path.join(folder, "EQUATIONS", "finance.txt")
+        os.utime(old, (session.opened_at - 60, session.opened_at - 60))
+        time.sleep(0.6)
+        os.utime(base_csv, None)                          # 연 뒤에 밖에서 고친 파일
+        check("U7 처음 적기가 늦게 돌아 연 뒤의 바깥 고침(엑셀)이 섞이면 'Desk 가 꺼져 있는 동안'이라 하지 않는다 — 연 전에 고친 것만이면 그렇게 알린다",
+              session._changed_before_open(["EQUATIONS/finance.txt"]) and not session._changed_before_open(["EQUATIONS/finance.txt", "ASSUMPTIONS/base.csv"])
+              and session._changed_before_open(["EQUATIONS/gone.txt"]))
+    finally:
+        state.close()
+
+    # 프로젝트 잠금 — 다른 명령이 쥐고 있으면 가정 표·정의 파일 쓰기는 기다렸다가 그 글 그대로(입력 오류 422), 아무것도 쓰지 않는다
+    from equion.work.lock import project_lock
+
+    os.environ["EQUION_LOCK_TIMEOUT"] = "1"               # 작업 프로세스가 물려받는다
+    state, pid = new_state(tmp, folder, "u3.json")
+    api = f"/api/p/{pid}"
+    try:
+        c = create_app(state).test_client()
+        c.get(f"{api}/overview")
+        csv_before, price_before = read(base_csv), read(price)
+        with project_lock(folder):                        # 다른 명령(이 시험 프로세스)이 잡고 있다
+            a = c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": {"2020Q4": {"G": "71"}}})
+            t = c.post(f"{api}/text/write", json={"path": "EQUATIONS/price.txt", "text": price_before + "# 잠금 중\n"})
+        after = c.post(f"{api}/assume", json={"name": "base", "columns": ["G", "POIL", "R"], "rows": {"2020Q4": {"G": "71"}}})
+        check("U10 다른 명령이 프로젝트를 고치는 중이면(work/.lock) 가정 표·정의 파일 쓰기는 기다렸다가 그 까닭 그대로 422 — 아무것도 쓰지 않고, 풀리면 쓴다",
+              a.status_code == 422 and "고치는 중" in a.json["error"] and t.status_code == 422 and "고치는 중" in t.json["error"]
+              and after.status_code == 200 and csv_before != read(base_csv) and read(price) == price_before, f"{a.status_code} {a.json} {t.status_code} {after.status_code}")
+    finally:
+        os.environ.pop("EQUION_LOCK_TIMEOUT", None)
+        state.close()
+
+    # 자료 만들기 — 지금 회차보다 짧은 자료는 멈추고 까닭을(사람이 고르면 --allow-shorter), 옛 회차·짧은 회차로 바꾸면 알린다
+    short = example(tmp, "shorter")
+    state, pid = new_state(tmp, short, "u2.json")
+    api = f"/api/p/{pid}"
+    try:
+        c = create_app(state).test_client()
+        c.get(f"{api}/overview")
+        before = [v["id"] for v in c.get(f"{api}/data").json["vintages"]]
+        cur = c.get(f"{api}/data").json["current"]
+        raw = os.path.join(short, "DATA", "raw", "toy_q.csv")
+        lines = read(raw).rstrip("\n").split("\n")
+        with open(raw, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(lines[:-2]) + "\n")        # 끝 두 분기가 빠진 지난 파일을 다시 받았다
+        r = c.post(f"{api}/data/build", json={})
+        d = r.json.get("detail") or {}
+        cn = next((x for x in d.get("series") or [] if x["name"] == "CN"), {})
+        same = [v["id"] for v in c.get(f"{api}/data").json["vintages"]] == before
+        ok = c.post(f"{api}/data/build", json={"allow_shorter": True})
+        made = ok.json["result"] if ok.status_code == 200 else {}
+        used = c.post(f"{api}/data/use", json={"vintage": made.get("id", "")}).json.get("result", {})
+        back = c.post(f"{api}/data/use", json={"vintage": cur}).json.get("result", {})
+        check("U8 자료 만들기 — 지금 회차보다 짧은 자료는 만들지 않고 409(kind shorter — 시리즈마다 지금 회차·새 자료의 구간, 회차는 그대로) · allow_shorter 면 만들고 알릴 것을 함께",
+              r.status_code == 409 and r.json["kind"] == "shorter" and d.get("current") == cur and cn.get("now", [None, None])[1] != cn.get("new", [None, None])[1]
+              and cn.get("new") and same and ok.status_code == 200 and made.get("created") and any("짧은" in w for w in made.get("warnings") or []),
+              f"{r.status_code} {r.json} {ok.status_code} {made.get('warnings')}")
+        check("U9 회차 바꾸기 — 끝이 이른 회차·더 옛 회차로 바꾸면 하라는 대로 하되 알릴 것(warnings)을 돌려준다",
+              used.get("warnings") and any("옛 회차" in w for w in back.get("warnings") or []), f"{used} {back}")
+    finally:
+        state.close()
+
+    # 정의 파일 감시 — 시각만 바뀐 것은 알리지 않는다, 잇달아 바뀌면 묶어서
+    feed = Feed()
+    w = ProjectWatcher(folder, "u", feed)
+    w.stop()                                              # 견주기는 손으로(시험이 때를 정한다)
+    defs = lambda: [e for e in feed.read(0, 0)["events"] if e["type"] == "defs"]     # noqa: E731
+    later = time.time() + 30
+    for _ in range(3):
+        os.utime(price, (later, later))                  # 동기화 프로그램·백신 흉내 — 내용은 그대로
+        os.utime(os.path.join(folder, "notes", "data_check.md"), (later, later))
+        with open(os.path.join(folder, "EQUATIONS", "~$price.txt"), "w", encoding="utf-8") as f:
+            f.write("x")                                  # 오피스의 잠금 파일
+        later += 1
+        w.check()
+    quiet = defs()
+    os.remove(os.path.join(folder, "EQUATIONS", "~$price.txt"))
+    append(price, "# 내용이 바뀜 1\n")
+    w.check()
+    append(price, "# 내용이 바뀜 2\n")
+    w.check()                                             # QUIET 안 — 미뤄 둔다
+    held = len(defs())
+    time.sleep(QUIET + 0.1)
+    w.check()
+    events = defs()
+    check("U5 정의 파일의 시각만 바뀌면(동기화·백신) 알리지 않는다 · 오피스 잠금 파일(~$x.txt)은 정의 파일이 아니다",
+          quiet == [] and "EQUATIONS/~$price.txt" not in definitions(folder), str(quiet)[:200])
+    check("U6 내용이 바뀌면 알린다 — 잇달아 바뀌면 QUIET 안의 것은 묶어서 한 번 더(알림이 쏟아지지 않는다)",
+          held == 1 and len(events) == 2 and events[0]["files"] == ["EQUATIONS/price.txt"] and events[1]["files"] == ["EQUATIONS/price.txt"], str(events)[:300])
+
+
 def run() -> int:
     RESULTS.clear()
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
@@ -1621,6 +1822,7 @@ def run() -> int:
         section_side(tmp)
         section_forms(tmp)
         section_data3(tmp)
+        section_outside(tmp)
         section_instance(tmp, folder)
     bad = [n for n, ok, _ in RESULTS if not ok]
     print(f"\nEquion Desk 앱 시험 {len(RESULTS) - len(bad)}/{len(RESULTS)}")

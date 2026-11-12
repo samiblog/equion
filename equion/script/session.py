@@ -41,9 +41,9 @@ from ..work.store import NAME_RE, RecordError, WorkStore, detect_who
 from .language import (EXPECT_KINDS, RECORD_REFS, ScriptError, _q, parse_expect, places, resolve)
 
 EXIT_OK, EXIT_SCRIPT, EXIT_SOLVE, EXIT_INPUT, EXIT_INTERRUPT = 0, 1, 2, 3, 130
-MARK = {"ok": "✓", "flag": "!", "stop": "×", "error": "×", "denied": "×", "skip": "–", "interrupted": "×"}
+MARK = {"ok": "✓", "flag": "!", "stop": "×", "error": "×", "denied": "×", "skip": "–", "interrupted": "×", "cancelled": "×"}
 STATUS_KO = {"ok": "정상", "flag": "표시", "stop": "멈춤(확인)", "error": "오류", "denied": "허용 안 됨", "skip": "건너뜀",
-             "interrupted": "중단"}
+             "interrupted": "중단", "cancelled": "끝나지 못함(취소·중단)"}
 FAIL_ON = {"failed": ("failed",), "fallback": ("failed", "fallback"), "partial": ("failed", "fallback", "partial"), "never": ()}
 
 
@@ -75,11 +75,12 @@ class StepResult:
     inbox: List[dict] = field(default_factory=list)
     elapsed: float = 0.0
     out: str = ""
+    warnings: List[str] = field(default_factory=list)   # 경고(파이썬 경고·[WARN] 줄) — 결과 줄 대신 보이지 않게 따로
 
     @property
     def brief(self) -> str:
-        """한 줄 요약 — 명령 출력의 첫 줄 또는 까닭."""
-        first = next((x.strip() for x in (self.out or "").splitlines() if x.strip()), "")
+        """한 줄 요약 — 명령 출력의 첫 결과 줄(경고 줄은 건너뜀) 또는 까닭."""
+        first = next((x.strip() for x in _split_warnings(self.out)[0] if x.strip()), "")
         return self.detail or first
 
     def to_dict(self) -> dict:
@@ -87,7 +88,37 @@ class StepResult:
         return {"n": self.n, "kind": self.kind, "line": self.line, "source": self.source, "section": self.section,
                 "where": self.where, "status": self.status, "code": self.code, "records": self.records,
                 "changes": self.changes, "effects": self.effects, "vintage": self.vintage, "detail": self.detail,
-                "inbox": self.inbox, "elapsed": round(self.elapsed, 3)}
+                "inbox": self.inbox, "elapsed": round(self.elapsed, 3), "warnings": self.warnings}
+
+
+_PYWARN = re.compile(r"^\S.*?:\d+: [A-Za-z_]*Warning: ")
+
+
+def _is_warning(line: str) -> bool:
+    """명령 출력의 경고 줄인가 — 엔진의 [WARN] 줄 · 파이썬 경고('파일:줄: …Warning: …')."""
+    t = line.strip()
+    return t.startswith("[WARN]") or bool(_PYWARN.match(t))
+
+
+def _split_warnings(out: str):
+    """출력 → (경고가 아닌 줄들, 경고 줄들). 파이썬 경고 바로 뒤의 들여 쓴 줄(경고가 난 소스 줄)도 경고에 붙인다."""
+    plain, warn, after_py = [], [], False
+    for x in (out or "").splitlines():
+        if _is_warning(x):
+            warn.append(x.strip())
+            after_py = bool(_PYWARN.match(x.strip()))
+            continue
+        if after_py and x[:1] in (" ", chr(9)) and x.strip():
+            after_py = False
+            continue
+        after_py = False
+        plain.append(x)
+    return plain, warn
+
+
+def _warning_lines(out: str) -> List[str]:
+    """출력에서 경고 줄(같은 글은 하나로)."""
+    return list(dict.fromkeys(_split_warnings(out)[1]))
 
 
 def find_root(path: str) -> str:
@@ -159,21 +190,23 @@ class Session:
                  title: str = "", replay_of: str = None, origin: str = "python"):
         from ..projects import Project
         from ..projects.records import data_spec
+        from . import record as _rec
         root = find_root(project)
         self.p = Project.open(root)
         self.root = self.p.root
         self.store = WorkStore(self.root)
+        try:
+            _rec.recover(self.root)          # 끝나지 못한 실행(취소·프로세스 끝남)은 먼저 그 기록을 남긴다 — 그 이름을 다시 쓰지 않게
+        except Exception:  # noqa: BLE001 — 지난 실행을 정리하지 못해도 이번 실행은 한다
+            pass
         self.params = {k: _as_list(v) for k, v in (params or {}).items()}
         if script and os.path.isabs(script):
             script = os.path.relpath(script, self.root).replace(os.sep, "/")
         self.script = script
-        self.name = name or self.store.next_name("run", _stem(script))
-        self.store.check_new("run", self.name)
-        self.id = f"run:{self.name}"
-        self.who = who or detect_who("python")
-        self.command = command
         if fail_on not in FAIL_ON:
             raise ScriptError(f"fail_on은 {' · '.join(FAIL_ON)}: {fail_on!r}")
+        self.who = who or detect_who("python")
+        self.command = command
         self.fail_on = fail_on
         self.echo = echo
         self.verbosity = verbosity
@@ -200,6 +233,17 @@ class Session:
         self.result = None
         self.status = "ok"
         self.exit_code = EXIT_OK
+        self.name = _rec.reserve(self.store, name, _stem(script))     # 이름을 잡아 둔다(work/run/.active/<이름>.json)
+        self.id = f"run:{self.name}"
+        self._save_active()
+
+    def _save_active(self, current: "StepResult" = None):
+        """도는 실행의 상태(지금까지의 단계·하는 단계)를 work/run/.active/<이름>.json에 — 끝나지 못하면 다음 실행이 이것으로 기록을 남긴다."""
+        from .record import save_active
+        try:
+            save_active(self, current)
+        except OSError:                      # 상태를 못 써도 실행은 한다(끝나면 기록은 그대로 남는다)
+            pass
 
     # ---- 값 ------------------------------------------------------------
     def values(self, text: str = "") -> dict:
@@ -241,11 +285,20 @@ class Session:
         ids = self.records(kind, filt)
         if ids:
             return ids
-        if self.from_step:                              # 건너뛴 단계의 기록 — 프로젝트의 가장 새 것
-            cands = [r.id for r in self.store.records(kind) if not filt or self._matches(r.id, filt)]
-            if cands:
-                self.implicit.append(f"{{{kind}{':' + filt if filt else ''}}} — 건너뛴 단계의 기록 대신 가장 새 기록 {cands[-1]}")
-                return [cands[-1]]
+        if self.from_step:                              # 건너뛴 단계의 기록 — 지금 자료 회차에서 계산한 가장 새 것
+            from ..projects import Project
+            vint = Project.open(self.root).vintage
+            recs = [r for r in self.store.records(kind) if not filt or self._matches(r.id, filt)]
+            here = [r for r in recs if not vint or ((r.meta.get("data") or {}).get("id") == vint)]
+            if here:
+                rid = here[-1].id
+                self.implicit.append(f"{{{kind}{':' + filt if filt else ''}}} — 건너뛴 단계의 기록 대신 자료 회차 {vint or '-'}의 가장 새 기록 {rid}")
+                return [rid]
+            if recs:
+                other = (recs[-1].meta.get("data") or {}).get("id")
+                raise ScriptError(f"{{{kind}{':' + filt if filt else ''}}} — 건너뛴 단계의 기록이 지금 자료 회차 {vint}에는 없습니다"
+                                  f"(가장 새 {recs[-1].id}는 회차 {other}) — 옛 회차의 기록을 쓰지 않습니다. --from을 그 기록을 만드는 "
+                                  "단계로 당기세요")
         raise ScriptError(f"{{{kind}{':' + filt if filt else ''}}} — 이 실행에서 아직 {RECORD_REFS[kind]} 기록이 없습니다")
 
     def resolve(self, text: str) -> str:
@@ -270,6 +323,8 @@ class Session:
 
     def _done(self, st: StepResult):
         self.steps.append(st)
+        if self.result is None:
+            self._save_active()
         if st.status != "skip":
             self.lines.append(st.line)
         if self.echo and self.verbosity > 0:
@@ -298,13 +353,26 @@ class Session:
     def _effects(self, st: StepResult, before: dict, after: dict):
         from ..data.source import file_sha256
         from ..projects.vintage import RAW_DIR
-        new_log = [d["id"] for d in self.store.log() if d["id"] not in before["log"]]
+        # 이 실행의 단계가 만든 것만(기록의 run이 이 실행) — 같은 프로젝트에서 다른 명령·흐름이 동시에 만든 기록을 이 단계의 것({sim:base} 등)으로 잡지 않게
+        new_log = [d["id"] for d in self.store.log() if d["id"] not in before["log"] and d.get("run") == self.id]
         st.records = new_log
         made = [v for v in after["vintages"] if v not in before["vintages"]]
         if made or after["vintage"] != before["vintage"]:
             st.records = [f"data:{v}" for v in (made or [after["vintage"]])] + st.records
         st.vintage = after["vintage"]
         st.changes = sorted(after["changes"] - before["changes"])
+        if st.changes:                          # 다른 명령이 동시에 남긴 바뀜은 빼고(이 실행의 것과 이 단계가 알아본 '바깥' 바뀜만)
+            from ..work.history import History
+            h = History(self.root)
+            keep = []
+            for cid in st.changes:
+                try:
+                    c = h.get(cid)
+                except (KeyError, OSError, ValueError):
+                    continue
+                if c.run == self.id or c.who == "바깥":
+                    keep.append(cid)
+            st.changes = keep
         gone = {k: v for k, v in before["inbox"].items() if k not in after["inbox"]}
         raw = os.path.join(self.root, RAW_DIR)
         for name, sha in gone.items():
@@ -312,9 +380,15 @@ class Session:
             st.inbox.append({"from": name, "sha256": sha, "to": f"{RAW_DIR}/{to}".replace(os.sep, "/") if to else None,
                              "new": bool(to and to not in before["raw"])})
 
-    def _flag(self, st: StepResult):
-        """명령은 성공했지만 사람이 볼 것 — 기준 미달 식 · 실패 대체 기간."""
+    def _flag(self, st: StepResult, vintage_before: Optional[str] = None):
+        """명령은 성공했지만 사람이 볼 것 — 기준 미달 식 · 실패 대체 기간 · 지금 회차가 더 옛 회차·짧은 회차로 바뀜."""
         notes = []
+        if vintage_before and st.vintage and st.vintage != vintage_before:
+            from ..projects.vintage import move_notes
+            try:
+                notes += move_notes(self.root, vintage_before, st.vintage)
+            except Exception:  # noqa: BLE001 — 회차를 읽지 못하면 표시하지 않는다(단계는 끝났다)
+                pass
         for rid in st.records:
             if rid.startswith("data:"):
                 continue
@@ -322,8 +396,12 @@ class Session:
                 m = self.store.get(rid).meta
             except RecordError:
                 continue
-            if rid.startswith("est:") and (m.get("criteria") or {}).get("pass") is False:
+            cr = m.get("criteria") or {}
+            if rid.startswith("est:") and cr.get("pass") is False:
                 notes.append(f"기준 미달 {m.get('part') or m.get('target')}")
+            elif rid.startswith("est:") and cr and cr.get("pass") is None and cr.get("untested"):
+                # 기준의 검정을 그 추정법이 계산하지 않았다 — 통과로 보지 않는다(est --adopted --adopt if_pass도 채택하지 않는다)
+                notes.append(f"기준 판단 못 함 {m.get('part') or m.get('target')}" + (f"({cr['note']})" if cr.get("note") else ""))
             c = m.get("counts") or {}
             bad = (c.get("fallback") or 0) + (c.get("failed") or 0)
             if bad:
@@ -354,17 +432,25 @@ class Session:
             raise ScriptStop(EXIT_INPUT, why)
         st.effects = reg.effects(toks)
         before = self._state()
+        self._save_active(st)
         t0 = time.perf_counter()
-        code, out = self._call(toks)
+        code, out, soft, warned = self._call(toks)
         st.elapsed = time.perf_counter() - t0
-        st.code, st.out = code, out
+        st.warnings = list(dict.fromkeys(warned + _warning_lines(out)))
+        st.code, st.out = code, out + ("".join(f"\n[경고] {w}" for w in warned) if warned else "")
         self._effects(st, before, self._state())
+        if code != 0 and soft and code == EXIT_INPUT:
+            # 명령은 '사람이 정할 것'만 남기고 끝났다(손으로 고친 결과 구역을 덮지 않음 등) — 멈추지 않고 '!'로 까닭을 남긴다
+            st.status = "flag"
+            st.detail = " · ".join(dict.fromkeys(soft))
+            self._done(st)
+            return st
         if code != 0:
             st.status = "error"
             st.detail = _error_line(out, code)
             self._done(st)
             raise ScriptStop(code, st.detail)
-        self._flag(st)
+        self._flag(st, before.get("vintage"))
         self._done(st)
         return st
 
@@ -372,14 +458,21 @@ class Session:
         return {"EQUION_WHO": "script", "EQUION_RUN": self.id}
 
     def _call(self, toks: List[str]):
+        """명령 한 줄 → (종료 코드, 출력, 사람에게 넘긴 것, 경고) — 셋째는 명령이 errors.soft()로 알린 까닭들, 넷째는 파이썬 경고
+        (출력의 첫 줄 — 단계 줄·실행 카드의 결과 — 을 가리지 않게 따로 모은다, 같은 경고는 하나로 · 몇 번인지)."""
+        import warnings as _warnings
+        from ..cli import errors
         from ..cli.commands import main as cli
+        errors.LAST_SOFT = []
         buf = io.StringIO()
         old_cwd = os.getcwd()
         saved = {k: os.environ.get(k) for k in self._env()}
         os.environ.update(self._env())
         os.chdir(self.root)                          # 기록의 '명령'이 스크립트의 줄 그대로 남게
+        caught = []
         try:
-            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf), _warnings.catch_warnings(record=True) as caught:
+                _warnings.simplefilter("always")
                 try:
                     code = cli(list(toks))
                 except SystemExit as e:
@@ -396,7 +489,12 @@ class Session:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-        return (code if code is not None else EXIT_OK), buf.getvalue()
+        counts: Dict[str, int] = {}
+        for w in caught or []:
+            key = f"{w.category.__name__}: {str(w.message).splitlines()[0][:160]}"
+            counts[key] = counts.get(key, 0) + 1
+        warned = [k + (f" (×{n})" if n > 1 else "") for k, n in counts.items()]
+        return (code if code is not None else EXIT_OK), buf.getvalue(), list(errors.LAST_SOFT), warned
 
     def expect(self, target: str, cond: str, stop: bool = True, where: str = None, _source: str = None) -> StepResult:
         """확인 — target(hs·sim·est = 이 실행의 앞 단계 기록, 또는 기록 이름)의 지표가 조건을 지키나. 어긋나면 stop이면 ScriptStop(2),
@@ -460,7 +558,8 @@ class Session:
             self._done(st)
             raise ScriptStop(EXIT_INPUT, st.detail)
         before = self._state()
-        env = dict(os.environ, **self._env())
+        self._save_active(st)
+        env = dict(os.environ, **self._env(), PYTHONIOENCODING="utf-8")    # 출력을 UTF-8로 받는다(아래 encoding과 같게)
         t0 = time.perf_counter()
         r = subprocess.run([sys.executable, "-m", "equion", "run", toks[1], "--no-report", "-q", *toks[2:]], cwd=self.root,
                            capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
@@ -477,12 +576,16 @@ class Session:
 
     # ---- 끝 ------------------------------------------------------------
     def __enter__(self):
+        from ..cli.commands import _safe_streams
+        _safe_streams()          # 내보낸 Python(python x.py)도 명령줄과 같은 출력 인코딩(Windows 파이프 → UTF-8)
         return self
 
     def __exit__(self, et, ev, tb):
         if isinstance(ev, ScriptStop):
-            self.close(ev.code)
+            res = self.close(ev.code)
             if ev.code:
+                # 멈춘 까닭을 알린다 — 내보낸 Python(python x.py · equion run x.py)이 말없이 끝나지 않게(.eqs 실행의 끝 줄과 같은 글)
+                print(res.text(), file=sys.stderr, flush=True)
                 raise SystemExit(ev.code)
             return True
         if isinstance(ev, KeyboardInterrupt):
@@ -517,17 +620,22 @@ class Session:
                 self.status = "flag" if any(s.status == "flag" for s in self.steps) else "ok"
         self.exit_code = code
         self.result = write_run(self)
+        from .record import release
+        release(self.store, self.name)
         return self.result
 
     def _fail_on(self) -> str:
         kinds = FAIL_ON[self.fail_on]
         if not kinds:
             return ""
-        out = []
+        out, seen = [], set()
         for st in self.steps:
+            if st.kind == "expect":                  # 확인 단계는 앞 단계의 기록을 가리킬 뿐이다
+                continue
             for rid in st.records:
-                if not rid.startswith(("hs:", "sim:")):
+                if not rid.startswith(("hs:", "sim:")) or rid in seen:
                     continue
+                seen.add(rid)
                 try:
                     c = self.store.get(rid).meta.get("counts") or {}
                 except RecordError:
@@ -538,13 +646,23 @@ class Session:
         return " · ".join(out)
 
 
-def _error_line(out: str, code: int) -> str:
-    """명령 출력에서 까닭 한 줄 — 'equion: 오류:' 줄(여러 줄 오류의 첫 줄), 없으면 마지막 줄."""
-    lines = [x.strip() for x in (out or "").splitlines() if x.strip()]
-    hit = [x for x in lines if x.startswith("equion: 오류:")]
-    if hit:
-        return hit[-1].replace("equion: 오류: ", "", 1)
-    return lines[-1] if lines else f"종료 코드 {code}"
+def _error_line(out: str, code: int, max_lines: int = 8, max_chars: int = 600) -> str:
+    """명령 출력에서 까닭 — 'equion: 오류:' 줄과 그 뒤의 까닭 줄(여러 줄 오류의 '  - 파일 → 출처 …' — 어느 파일·열인지)을 한 줄로 이어
+    (줄 수·글자 수 한도 안에서), 없으면 경고가 아닌 마지막 줄."""
+    lines = [x.rstrip() for x in (out or "").splitlines() if x.strip()]
+    at = [i for i, x in enumerate(lines) if x.strip().startswith("equion: 오류:")]
+    if at:
+        head = lines[at[-1]].strip().replace("equion: 오류: ", "", 1)
+        rest = []
+        for x in lines[at[-1] + 1:]:
+            if not x.startswith((" ", "\t")) or _is_warning(x):      # 들여 쓴 까닭 줄만 — 뒤의 다른 출력은 아니다
+                break
+            rest.append(x.strip())
+        more = len(rest) > max_lines - 1
+        text = " ".join([head] + rest[:max_lines - 1]) + (f" … (외 {len(rest) - max_lines + 1}줄 — 단계 출력 steps/에)" if more else "")
+        return text if len(text) <= max_chars else text[:max_chars - 1] + "…"
+    plain = [x.strip() for x in _split_warnings(chr(10).join(lines))[0] if x.strip()]
+    return plain[-1] if plain else (lines[-1].strip() if lines else f"종료 코드 {code}")
 
 
 def _cmp(v, op, x) -> bool:

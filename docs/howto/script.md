@@ -69,7 +69,7 @@ print(r.text())
 [4/11] hs main                                      ✓ [hs:hs_0001] main dynamic 2005Q1~2020Q1 · 정상 61 · 일부식 제외 0 · 실패대체 0 · 실패 0
 [5/11] expect hs Y.rmspe < 3% --flag                ✓ Y RMSPE 0.4879 — Y.rmspe < 3
 [6/11] sim base oil20 --model main                  ✓ [sim:2026-11_base] main · base · 2020Q2~2022Q1 dynamic · 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
-[7/11] note run notes/data_check.md                 ✓ [note run] notes/data_check.md: 블록 1
+[7/11] note run notes/data_check.md                 ✓ [note run] notes/data_check.md: 블록 2
 [8/11] report new reports/forecast_d2026-11b.md --title "월간 전망 — 자료 d2026-11b" --exist-ok ✓ [report new] reports/forecast_d2026-11b.md
 [9/11] report add reports/forecast_d2026-11b.md sim:2026-11_base --key growth --rows Y,CN,I,P --show yoy --annual --title "성장률 전망" ✓ [report add] reports/forecast_d2026-11b.md
 [10/11] report add reports/forecast_d2026-11b.md hs:hs_0001 --key hs --rows Y,CN --chart --title "과거 재현" ✓ [report add] reports/forecast_d2026-11b.md
@@ -89,7 +89,7 @@ print(text.split("<!-- /equion:report -->")[0].strip())     # 머리와 첫 구�
 ```text
 # 월간 전망 — 자료 d2026-11b
 
-2026-11-09 · 자료 회차 d2026-11b · 모형 main
+2026-11-13 · 자료 회차 d2026-11b · 모형 main
 
 ## 요약
 
@@ -97,7 +97,7 @@ print(text.split("<!-- /equion:report -->")[0].strip())     # 머리와 첫 구�
 
 ## 본문
 
-<!-- equion:report sim:2026-11_base #1 · 2026-11-09 · data:d2026-11b {"rows": ["Y", "CN", "I", "P"], "show": "yoy", "annual": true, "title": "성장률 전망", "n": 1, "key": "growth", "h": "1bfda15172d8"} -->
+<!-- equion:report sim:2026-11_base #1 · 2026-11-13 · data:d2026-11b {"rows": ["Y", "CN", "I", "P"], "show": "yoy", "annual": true, "title": "성장률 전망", "n": 1, "key": "growth", "h": "1bfda15172d8"} -->
 **표 1. 성장률 전망** (연간 증가율, %)
 
 | 시리즈 | 2020 | 2021 |
@@ -154,13 +154,13 @@ print(r2.text())
 [4/11] hs main                                      – --from 6
 [5/11] expect hs Y.rmspe < 3% --flag                – --from 6
 [6/11] sim base --model main                        ✓ [sim:2026-11_base_2] main · base · 2020Q2~2022Q1 dynamic · 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
-[7/11] note run notes/data_check.md                 ✓ [note run] notes/data_check.md: 블록 1
+[7/11] note run notes/data_check.md                 ✓ [note run] notes/data_check.md: 블록 2
 [8/11] report new reports/forecast_d2026-11b.md --title "월간 전망 — 자료 d2026-11b" --exist-ok ✓ [report new] reports/forecast_d2026-11b.md — 이미 있어 그대로 둠
 [9/11] report add reports/forecast_d2026-11b.md sim:2026-11_base_2 --key growth --rows Y,CN,I,P --show yoy --annual --title "성장률 전망" ✓ [report add] reports/forecast_d2026-11b.md
 [10/11] report add reports/forecast_d2026-11b.md hs:hs_0001 --key hs --rows Y,CN --chart --title "과거 재현" ✓ [report add] reports/forecast_d2026-11b.md
 [11/11] export hs:hs_0001 sim:2026-11_base_2 --xlsx exports/forecast_d2026-11b.xlsx ✓ [export] exports/forecast_d2026-11b.xlsx — 기록 2 · 시트 9: 출처, hs_0001_적합도, hs_0001_해, hs_00…
 기록  run:monthly_0003 · 단계 6 · 종료 코드 0
-  알아서 한 것  {hs} — 건너뛴 단계의 기록 대신 가장 새 기록 hs:hs_0001
+  알아서 한 것  {hs} — 건너뛴 단계의 기록 대신 자료 회차 d2026-11b의 가장 새 기록 hs:hs_0001
 ```
 
 ## R58 탐색한 기록으로 스크립트 · Python으로
@@ -184,7 +184,7 @@ print(q.check_script(rel).text())
 [main] 채택 계수: demand:I(est:i_0001), price:P(est:p_0001)
 [main] 채택 기록 없이 지금 자료로 추정: finance:RL, finance:M2
 [main] baseline(_0) dynamic 2005Q1~2020Q1: 정상 61 · 일부식 제외 0 · 실패대체 0 · 실패 0
-# try_lag2 — equion script new가 만든 초안(2026-11-09) · 고쳐 쓰세요
+# try_lag2 — equion script new가 만든 초안(2026-11-13) · 고쳐 쓰세요
 # 한 줄 = equion 명령 하나 · ## 제목 = 단계 묶음 · param 이름 = 값 · {이름} · expect … --flag(문법: docs/reference/formats.md)
 
 ## 추정
@@ -207,9 +207,9 @@ print(Path(q.root, py).read_text(encoding="utf-8"))
 ```text
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""FLOWS/try_lag2.eqs를 Python으로 — equion script export --py가 만들었다(2026-11-09).
+"""FLOWS/try_lag2.eqs를 Python으로 — equion script export --py가 만들었다(2026-11-13).
 
-try_lag2 — equion script new가 만든 초안(2026-11-09) · 고쳐 쓰세요
+try_lag2 — equion script new가 만든 초안(2026-11-13) · 고쳐 쓰세요
 
 같은 단계를 같은 차례로 한다: s.cmd(…)는 그 명령 한 줄을 그대로(기록·바뀜 기록도 같다), s.expect(…)는 확인, s.py(…)는 Python
 단계. 끝나면 실행 기록 run:…이 남는다. 반복·조건·직접 계산을 더하려면 이 파일을 고쳐 쓴다 — 프로젝트 API는 s.p(eqn.project),

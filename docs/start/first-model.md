@@ -262,7 +262,7 @@ print(wf.to_pandas(["Y_0", "CN_0", "I_0"], labels=True).loc["2020Q1":"2021Q4"].r
 
 ```python
 g = wf.graph("g_y", "Y Y_0 Y_1", start="2010Q1", end="2021Q4", title="국민소득: 실측·기준선·시나리오")
-g.save("y.html")                          # 인터넷 없이 열리는 html(plotly 없이도 됨)
+g.save("y.html")                          # html(plotly 없이도 됨) — plotly.js는 인터넷에서 부른다. 인터넷 없이: g.output().save("y.html", include_js="inline")
 wf.save("toy")                            # toy.eqw/ — 자료·방정식 계수·모델·시나리오를 모두 저장
 wf2 = eqn.wfopen("toy.eqw")               # 다시 열면 재추정 없이 그대로
 print(wf2.obj("eq_i").coefs.round(3).to_dict())
@@ -276,7 +276,7 @@ print(wf2.obj("eq_i").coefs.round(3).to_dict())
 
 ## 다음 단계
 
-- 각 단계를 자세히: [튜토리얼 1~8](../tutorial/README.md)
+- 각 단계를 자세히: [튜토리얼 1~9](../tutorial/README.md)
 - 할 일별 짧은 처방: [레시피](../howto/README.md)
 - 방정식 문법 전체: [방정식 문법](../explain/equations.md)
 - 모든 함수: [API 참조](../reference/api.md) · 한 장 요약: [치트시트](cheatsheet.md)

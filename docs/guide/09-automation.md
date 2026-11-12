@@ -67,8 +67,9 @@ print(code, err["error"]["kind"], "—", err["error"]["message"][:40])
 3 input — 없는 부품: demand:ZZ (있는 부품: demand:CN, dema
 ```
 
-**Windows에서 다른 프로그램이 부를 때**는 환경 변수 `PYTHONIOENCODING=utf-8`을 주고 UTF-8로 읽습니다 — 주지 않으면 출력이 시스템 코드 페이지
-(한국어 Windows는 cp949)로 나와 UTF-8로 읽다가 깨집니다.
+**Windows에서 다른 프로그램이 부를 때**는 출력을 UTF-8로 읽습니다. 출력이 콘솔이 아닌 곳(파이프·파일)으로 나가면 Equion은 인코딩을 따로 정하지
+않았을 때 UTF-8로 씁니다 — 한국어 Windows에서도 cp949로 나오지 않습니다. `PYTHONIOENCODING`을 주면 그 인코딩을 따르므로, 위처럼
+`utf-8`을 주면 옛 판에서도 같게 읽힙니다. 콘솔(터미널 창)에 나가는 출력은 그대로입니다.
 
 오류의 JSON은 `{"error": {"message", "exit_code", "kind", "kind_ko"}}`입니다(사용법 오류에는 `usage`, 예상 못 한 내부 오류에는 `traceback`도).
 결과가 있는 실패(멈춘 스크립트, 문제가 있는 조립)는 오류 대신 그 결과의 JSON이 나오고 종료 코드만 0이 아닙니다.
@@ -106,14 +107,16 @@ $ equion run FLOWS/monthly.eqs -q --set scenarios=base --fail-on fallback --log 
 ## 4. CI에서 검사 — 정의를 고친 커밋마다
 
 프로젝트를 git에 넣었다면(정의만 — `work/`·`DATA/raw/`·`exports/`는 `.gitignore`), 고칠 때마다 계산 없이 검사합니다.
+Equion은 아직 PyPI에 없으므로 저장소의 태그(또는 릴리스의 휠 파일)에서 설치합니다.
 
     # .github/workflows/equion.yml (줄임)
-    - run: pip install equion
-    - run: equion assemble main
+    - run: pip install "equion @ git+https://github.com/samiblog/equion@v0.9.1"
     - run: equion check FLOWS/monthly.eqs
     - run: equion check EQUATIONS/demand.txt
 
-원자료가 저장소에 없으므로(실제 자료는 넣지 않는다) CI에서는 조립·문법 검사까지, 계산은 원자료가 있는 PC에서 합니다.
+이 두 검사는 자료 없이 돕니다 — 스크립트의 문법·명령·모형·블록·시나리오, 방정식 파일의 문법·구조. `equion assemble main`은 자료 회차가
+있어야 합니다(`work/`가 없는 체크아웃에서는 "자료 회차 '…'가 없습니다"로 종료 코드 3). 원자료가 저장소에 없으므로(실제 자료는 넣지 않는다)
+CI에서는 문법·구조 검사까지, 조립·계산은 원자료와 회차가 있는 PC에서 합니다.
 
 ## 5. 다른 프로그램에서 Python으로
 
@@ -126,6 +129,6 @@ $ equion run FLOWS/monthly.eqs -q --set scenarios=base --fail-on fallback --log 
 - [ ] 종료 코드가 위 표대로 나온다(특히 `expect`의 2, `--fail-on`의 2)
 - [ ] `--log` 파일에 단계 줄이 남는다
 - [ ] 작업 스케줄러(또는 cron)에서 돌아도 묻지 않는다
-- [ ] CI에서 `assemble`·`check`가 계산 없이 끝난다
+- [ ] CI에서 `check`가 자료 없이 끝난다(`assemble`은 회차가 있는 PC에서)
 
 처음으로: [가이드 목록](README.md)

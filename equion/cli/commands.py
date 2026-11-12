@@ -111,7 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--json", action="store_true", help="결과를 JSON으로")
     c.add_argument("--strict", action="store_true", help="경고도 실패(종료 코드 3)로 본다")
     c.add_argument("--set", dest="sets", action="append", default=[], metavar="이름=값", help="(.eqs) 매개변수도 검사")
-    c.add_argument("--project", "-p", metavar="폴더", help="(.eqs) 프로젝트 폴더(기본: 스크립트에서 위로)")
+    c.add_argument("--project", "-p", metavar="폴더", help="프로젝트 폴더(기본: 스크립트·지금 폴더에서 위로) — 상대 경로는 지금 폴더에서 없으면 이 폴더에서")
 
     i = sub.add_parser("info", help="데이터·워크파일·방정식 파일·보고서 폴더 요약(경로 없으면 실행 환경)")
     i.add_argument("path", nargs="?", help="경로")
@@ -219,7 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
     bdsub = bd.add_subparsers(dest="bundle_command", metavar="동작")
     bdsub.required = True
     bdm = bdsub.add_parser("make", help="정의·노트·보고서·지금 자료 회차·남길 기록을 zip 하나로(원자료는 --raw일 때만)")
-    bdm.add_argument("--out", metavar="파일", help="zip 경로(기본 exports/<프로젝트>_<날짜>.zip)")
+    bdm.add_argument("--out", metavar="파일", help="zip 경로(기본 exports/<프로젝트>_<날짜>.zip — 상대 경로는 프로젝트 폴더 기준)")
     bdm.add_argument("--raw", action="store_true", help="원자료(DATA/raw/)도 넣는다")
     bdm.add_argument("--records", choices=("keep", "all", "none"), default="keep", help="기록 — keep: 채택·고정·가리키는 것(기본) · all · none")
     bdo = bdsub.add_parser("open", help="묶음을 빈 폴더에 풀어 프로젝트로")
@@ -272,7 +272,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     _common(dsub.add_parser("list", help="자료 회차 목록(* 지금 회차)"))
     dad = _common(dsub.add_parser("add", help="원자료 파일을 DATA/raw/에 넣는다(받은 그대로 — --source로 출처를 그 파일로)"))
-    dad.add_argument("file", help="넣을 파일(csv·xlsx·xls)")
+    dad.add_argument("file", help="넣을 파일(csv·xlsx — 엑셀 97-2003 .xls는 .xlsx로 저장해서)")
     dad.add_argument("--source", metavar="출처", help="series.toml의 [source.출처]가 이 파일을 읽게(틀이 맞을 때만)")
     dad.add_argument("--as", dest="as_name", metavar="이름", help="DATA/raw/에 둘 이름(기본: 파일 이름)")
     dad.add_argument("--note", metavar="메모", help="출처 메모(옆 파일 *.source.toml에)")
@@ -280,6 +280,8 @@ def build_parser() -> argparse.ArgumentParser:
     db.add_argument("--use", action="store_true", help="만든 회차를 지금 회차로")
     db.add_argument("--inbox", choices=("ask", "auto", "no"), help="먼저 받은 원자료(DATA/raw/inbox/)를 출처와 짝지어 넣는다 — "
                     "ask: 터미널이면 파일마다 묻는다(아니면 auto) · auto: 짝이 하나이고 틀이 맞으면 넣는다")
+    db.add_argument("--allow-shorter", action="store_true", help="지금 회차보다 짧은 자료(시리즈의 시작이 늦거나 끝이 이름)도 만든다 — "
+                    "기본은 거절(지난 파일을 다시 받았거나 일부 기간만 든 파일)")
     _common(dsub.add_parser("inbox", help="받은 원자료(DATA/raw/inbox/) — 파일마다 짝지을 출처와 틀 검사(미리보기)"))
 
     def _frame(sp):
@@ -297,7 +299,7 @@ def build_parser() -> argparse.ArgumentParser:
         return sp
 
     dpv = _frame(_common(dsub.add_parser("preview", help="원자료 파일을 미리 본다 — 읽은 그대로의 줄과 그 틀로 읽어 본 결과(쓰지 않는다)")))
-    dpv.add_argument("file", help="원자료 파일(csv·xlsx·xls)")
+    dpv.add_argument("file", help="원자료 파일(csv·xlsx)")
     dpv.add_argument("--rows", type=int, default=12, metavar="줄", help="읽은 그대로 보일 줄 수(기본 12)")
     dpv.add_argument("--column", metavar="열", help="이 열을 변환대로 만들어 본다(--convert·--seas와 함께)")
     dpv.add_argument("--convert", metavar="방법", help="주기 변환(mean·sum·last… · constant·linear·denton)")
@@ -583,14 +585,32 @@ def cmd_check(args) -> int:
         from .scriptcmds import cmd_check_eqs
         return cmd_check_eqs(args)
     from .check import check_path
+    path, data = args.path, args.data
+    root = _project_root(args.project)
+    if root:                      # 프로젝트 안(또는 -p): 상대 경로는 지금 폴더에서 먼저, 없으면 프로젝트 폴더에서
+        from ..projects.project import resolve_path
+        path = path if os.path.exists(path) else resolve_path(root, path, inside_only=False, fallback=True)
+        data = data if not data or os.path.exists(data) else resolve_path(root, data, inside_only=False, fallback=True)
+    elif args.project:
+        fail(f"프로젝트(equion.toml)를 찾지 못했습니다: {args.project}")
+        return EXIT_INPUT
     try:
-        rep = check_path(args.path, data=args.data, freq=args.freq, smpl=args.smpl)
+        rep = check_path(path, data=data, freq=args.freq, smpl=args.smpl)
     except Exception as e:  # noqa: BLE001 — 파일 없음·데이터 읽기 실패
         fail(f"{e}")
         return EXIT_INPUT
     print(json.dumps(rep.to_dict(), ensure_ascii=False, indent=2) if args.json else rep.text())
     failed = not rep.ok or (args.strict and rep.issues)
     return EXIT_INPUT if failed else EXIT_OK
+
+
+def _project_root(project=None, start: str = "."):
+    """-p 폴더, 아니면 지금 폴더에서 위로 찾은 프로젝트 폴더 — 없으면 None."""
+    from ..projects.config import ProjectError, find_config
+    try:
+        return os.path.dirname(find_config(project or start))
+    except ProjectError:
+        return None
 
 
 def cmd_info(args) -> int:
@@ -679,12 +699,12 @@ def _open_project(path):
 
 def _summary_quiet(fn):
     """명령의 결과 글만 보이게 — 실행하는 동안 요약 줄(자료 열기 등)을 감추고 끝나면 되돌린다."""
-    def wrapped(args):
+    def wrapped(*args, **kwargs):
         from ..workfile.output import verbose
         old = verbose()
         verbose(0)
         try:
-            return fn(args)
+            return fn(*args, **kwargs)
         finally:
             verbose(old)
     return wrapped
@@ -740,6 +760,15 @@ def cmd_view(args) -> int:
     return EXIT_OK
 
 
+@_summary_quiet
+def _ms_data_notes(p, name):
+    from ..projects.milestones import data_notes
+    try:
+        return data_notes(p, name)
+    except Exception:  # noqa: BLE001 — 알림을 못 만들어도 되돌리기 결과는 보인다
+        return []
+
+
 def cmd_milestone(args) -> int:
     """equion milestone list · make · show · restore — 이정표."""
     from ..projects import ProjectError
@@ -760,9 +789,11 @@ def cmd_milestone(args) -> int:
             out = d.to_dict() if args.json else d.text() + (("\n" + d.diff) if args.diff and d.diff else "")
         else:
             ch = p.milestone_restore(args.name, files=args.files, who=detect_who("terminal"), command=_cmdline(_ARGV))
-            out = ({"change": ch.id if ch else None} if args.json else
+            notes = (getattr(ch, "notes", None) if ch else None) or _ms_data_notes(p, args.name)   # 자료 회차·원자료를 어떻게 했나
+            out = ({"change": ch.id if ch else None, "data": notes} if args.json else
                    (f"[milestone restore] {args.name} — 정의 파일 {len(ch.files)}개를 그때로\n  바뀜 기록  {ch.id}" if ch else
-                    f"[milestone restore] {args.name} — 지금과 같습니다(바꾼 것 없음)"))
+                    f"[milestone restore] {args.name} — 지금과 같습니다(바꾼 것 없음)")
+                   + "".join(f"\n  자료   {x}" for x in notes))
     except (ProjectError, KeyError, ValueError) as e:
         fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
         return EXIT_INPUT
@@ -770,6 +801,7 @@ def cmd_milestone(args) -> int:
     return EXIT_OK
 
 
+@_summary_quiet
 def cmd_bundle(args) -> int:
     """equion bundle make · open — 프로젝트 묶어 보내기 · 묶음 열기."""
     from ..projects import Project, ProjectError
@@ -777,7 +809,10 @@ def cmd_bundle(args) -> int:
     try:
         if args.bundle_command == "make":
             p = _open_project(args.project)
-            res = p.bundle(out=args.out, raw=args.raw, records=args.records, who=detect_who("terminal"))
+            out = args.out                 # 만드는 파일의 상대 경로는 프로젝트 폴더 기준(export --xlsx와 같다)
+            if out and not os.path.isabs(out):
+                out = os.path.join(p.root, out)
+            res = p.bundle(out=out, raw=args.raw, records=args.records, who=detect_who("terminal"))
             out = res.to_dict() if args.json else res.text()
         else:
             q = Project.from_bundle(args.zip, args.dest)
@@ -790,6 +825,7 @@ def cmd_bundle(args) -> int:
     return EXIT_OK
 
 
+@_summary_quiet
 def cmd_scenario(args) -> int:
     """equion scenario list · show · define · remove — 시나리오(SCENARIOS/*.toml)."""
     from ..projects import ProjectError
@@ -832,6 +868,7 @@ def cmd_scenario(args) -> int:
     return EXIT_OK
 
 
+@_summary_quiet
 def cmd_define(args) -> int:
     """equion model define · equion block define — 설정(equion.toml)의 모형·블록을 쓴다."""
     from ..projects import ProjectError
@@ -914,15 +951,17 @@ def cmd_ident(args) -> int:
     return EXIT_INPUT if (args.strict and not res.ok) else EXIT_OK
 
 
-def _data_list_text(name, rows) -> str:
+def _data_list_text(name, rows, current=None) -> str:
+    gone = (f"\n  ! 지금 회차 {current}의 폴더(work/data/{current}/)가 없습니다 — 다른 회차로 바꾸거나(equion data use <회차>) "
+            "다시 만드세요(equion data build --use — 새 이름의 회차가 된다)") if current and not any(r["current"] for r in rows) else ""
     if not rows:
-        return f"[data list] {name}: 자료 회차 없음 — equion data build"
+        return f"[data list] {name}: 자료 회차 없음 — equion data build" + gone
     L = [f"[data list] {name}: 자료 회차 {len(rows)}"]
     for r in rows:
         span = "~".join(r["span"]) if r.get("span") else ""
         L.append(f"  {'*' if r['current'] else ' '} {r['id']:<12} {r.get('created') or '':<20} {span:<16} "
                  f"시리즈 {r.get('n_series')}")
-    return "\n".join(L)
+    return "\n".join(L) + gone
 
 
 @_summary_quiet
@@ -936,7 +975,7 @@ def cmd_data(args) -> int:
         who, cmdline = detect_who("terminal"), _cmdline(_ARGV)
         if act == "list":
             rows = p.data_list()
-            out = rows if args.json else _data_list_text(p.name, rows)
+            out = rows if args.json else _data_list_text(p.name, rows, p.vintage)
         elif act == "add":
             res = p.data_add(args.file, source=args.source, as_name=args.as_name, note=args.note, who=who,
                              command=cmdline)
@@ -944,7 +983,8 @@ def cmd_data(args) -> int:
             code = EXIT_INPUT if res.problems else EXIT_OK
         elif act == "build":
             tty = args.inbox == "ask" and _interactive()
-            res = p.data_build(use=args.use, inbox=args.inbox, ask=_ask_inbox if tty else None, who=who, command=cmdline)
+            res = p.data_build(use=args.use, inbox=args.inbox, ask=_ask_inbox if tty else None, who=who, command=cmdline,
+                               allow_shorter=args.allow_shorter)
             d = res.to_dict()
             d["current"] = p.vintage
             note = ("\n  (터미널이 아니라 묻지 않았습니다 — 짝이 하나이고 틀이 맞는 파일만 넣음)"
@@ -988,8 +1028,11 @@ def cmd_data(args) -> int:
             out = res.to_dict() if args.json else res.text()
         elif act == "use":
             old = p.data_use(args.vintage, who=who, command=cmdline)
-            out = ({"vintage": p.vintage, "previous": old} if args.json else
-                   f"[data use] 지금 자료 회차 {p.vintage}" + (f" (전: {old})" if old and old != p.vintage else ""))
+            from ..projects.vintage import move_notes
+            warn = move_notes(p.root, old, p.vintage)       # 더 옛 회차·짧은 회차로 — 하라는 대로 하되 알린다
+            out = ({"vintage": p.vintage, "previous": old, "warnings": warn} if args.json else
+                   f"[data use] 지금 자료 회차 {p.vintage}" + (f" (전: {old})" if old and old != p.vintage else "")
+                   + "".join(f"\n  ! {w}" for w in warn))
         elif act == "diff":
             res = p.data_diff(args.a, args.b)
             out = res.to_dict() if args.json else res.text()
@@ -997,6 +1040,10 @@ def cmd_data(args) -> int:
             res = p.data_impact(args.a, args.b)
             out = res.to_dict() if args.json else res.text()
     except (ProjectError, KeyError, ValueError) as e:
+        from ..projects.vintage import ShorterError
+        if isinstance(e, ShorterError):          # 사람이 확인할 일 — 스크립트에서는 그 단계를 '!'로 남기고 이어 간다
+            from .errors import soft
+            soft(str(e).splitlines()[-1].strip(" -") if "\n" in str(e) else str(e))
         fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
         return EXIT_INPUT
     print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else out)
@@ -1067,34 +1114,58 @@ def _scrub_path(t: str) -> str:
     return f"{head}={new}" if eq else new
 
 
+def _chosen_encoding() -> bool:
+    """사람이 출력 인코딩을 정했나 — PYTHONIOENCODING의 인코딩(`:오류 처리`만 준 것은 아님) 또는 UTF-8 모드(PYTHONUTF8=1 · -X utf8)."""
+    return bool(os.environ.get("PYTHONIOENCODING", "").split(":", 1)[0].strip()) or bool(sys.flags.utf8_mode)
+
+
 def _safe_streams():
-    """표준출력·오류가 UTF-8이 아니면(예: Windows 파이프의 cp949·cp1252) 인코딩은 그대로 두고, 그 인코딩에 없는
-    문자(cp949의 '—', cp1252의 한글 등)만 \\uXXXX로 쓴다 — 출력 때문에 실행이 멈추지 않게. Windows 콘솔·UTF-8은 그대로."""
+    """표준출력·오류의 인코딩을 정한다.
+
+    - Windows에서 콘솔이 아닌 곳(파이프·파일 — Claude Code의 셸, 자동화, `> 파일`)으로 나가고 사람이 인코딩을 정하지 않았으면
+      UTF-8로 쓴다. 정하지 않으면 Python이 시스템 코드 페이지(한국어 Windows는 cp949)를 써서 UTF-8로 읽는 쪽에서 글자가 깨진다.
+      Python 3.15부터는 이것이 기본이다(PEP 686). Windows 콘솔은 그대로(이미 유니코드로 쓴다).
+    - 사람이 UTF-8이 아닌 인코딩을 정했으면(PYTHONIOENCODING=cp949 등) 그대로 두고, 그 인코딩에 없는 문자(cp949의 '—',
+      cp1252의 한글 등)만 \\uXXXX로 쓴다 — 출력 때문에 실행이 멈추지 않게."""
     import codecs
+    chosen = _chosen_encoding()
     for stream in (sys.stdout, sys.stderr):
         try:
-            if codecs.lookup(stream.encoding or "ascii").name != "utf-8":
+            if codecs.lookup(stream.encoding or "ascii").name == "utf-8":
+                continue
+            if os.name == "nt" and not chosen and not stream.isatty():
+                stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+            else:
                 stream.reconfigure(errors="backslashreplace")
-        except (AttributeError, LookupError, ValueError):  # 바꿀 수 없는 스트림(테스트용 StringIO 등)
+        except (AttributeError, LookupError, ValueError, OSError):  # 바꿀 수 없는 스트림(테스트용 StringIO 등)
             pass
 
 
 def main(argv=None) -> int:
     """명령줄 진입점 — 종료 코드를 돌려준다. `--json`이면 오류도 JSON 하나(equion.cli.errors)."""
     from . import errors
+    from ..workfile.output import verbose
     argv = list(sys.argv[1:] if argv is None else argv)
-    old = errors.JSON
+    old, old_soft, old_v = errors.JSON, errors.SOFT, verbose()
     errors.JSON = "--json" in (argv[:argv.index("--")] if "--" in argv else argv)
+    errors.SOFT = []
+    if errors.JSON:                     # --json이면 표준출력은 JSON 하나 — 자료를 열 때의 요약 줄([pj] 열기 …)도 감춘다
+        verbose(0)
     try:
         return _main(argv)
     except KeyboardInterrupt:
         return errors.fail("중단했습니다(Ctrl+C)", EXIT_INTERRUPT) if errors.JSON else EXIT_INTERRUPT
     except Exception as e:  # noqa: BLE001 — 예상 못 한 오류: --json이면 JSON으로, 아니면 트레이스백 그대로
+        busy = errors.busy_text(e)          # 다른 프로그램이 파일을 쥐고 있음·다른 명령이 고치는 중 — 버그가 아니라 입력 오류(3)
+        if busy:
+            return errors.fail(busy, EXIT_INPUT)
         if not errors.JSON:
             raise
         return errors.internal(e)
     finally:
-        errors.JSON = old
+        errors.LAST_SOFT = list(errors.SOFT or [])
+        errors.JSON, errors.SOFT = old, old_soft
+        verbose(old_v)
 
 
 def _main(argv) -> int:

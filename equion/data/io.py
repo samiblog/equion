@@ -9,6 +9,7 @@ xlsx/csv 등 포맷 판별·읽기를 담당하며, Data(메모리상 관리)와
 
 import os
 
+import numpy as np
 import pandas as pd
 
 from ..log import engine as _log
@@ -62,10 +63,58 @@ def read_dataframe(file_path: str, index_col: str = None) -> pd.DataFrame:
         raise ValueError(f"인덱스 열 '{index_col}'이(가) 없습니다: {list(df.columns)[:8]}")
     idx = parse_dates(df[col]) if len(df) else None
     if idx is not None:
+        labels = [str(v) for v in df[col]]
         df = df.drop(columns=[col])
+        df = _numeric_columns(df, labels, os.path.basename(file_path))
         df.index = idx.rename(str(col))
         if idx.has_duplicates:
             raise ValueError(f"같은 날짜가 두 번 있습니다: {idx[idx.duplicated()][0].date()} — {file_path}")
         if not idx.is_monotonic_increasing:
             df = df.sort_index()
+    return df
+
+
+MAX_LISTED_CELLS = 3        # 경고에 열마다 하나하나 적는 칸 수(나머지는 수만)
+MAX_LISTED_COLUMNS = 8      # 경고에 적는 열 수
+
+
+def _numeric_columns(df: pd.DataFrame, labels, fname: str) -> pd.DataFrame:
+    """글자 칸이 섞인 열을 숫자 열로 — 숫자가 아닌 칸은 결측으로 읽고 칸(열·시점·값)을 경고로 알린다.
+
+    원자료 불러오기 틀(data/source.py)과 같은 규칙이다. 그대로 두면 열 전체가 글자형으로 열려, 뒤의 추정·genr·검정이
+    칸 위치 없이 'could not convert string to float'로 실패한다(조용히 잘못 읽는 것이 가장 나쁘다 — D62). 빈 칸과
+    공백만 있는 칸은 그냥 결측이다."""
+    from pandas.api.types import is_object_dtype, is_string_dtype
+    mixed, whole = [], []        # 숫자가 섞인 열마다 '열: 칸 · 칸 외 n칸' · 숫자가 하나도 없는 열
+    n_bad = 0
+    out = {}
+    for c in df.columns:
+        s = df[c]
+        if not (is_object_dtype(s.dtype) or is_string_dtype(s.dtype)):
+            continue
+        raw = s.astype(object).map(lambda v: (v.strip() or None) if isinstance(v, str) else v)
+        num = pd.to_numeric(raw, errors="coerce").astype(float).to_numpy()
+        out[c] = num
+        pos = np.flatnonzero(raw.notna().to_numpy() & np.isnan(num))
+        if not pos.size:
+            continue
+        n_bad += pos.size
+        if np.isnan(num).all():
+            whole.append(f"{c}({pos.size}칸)")
+            continue
+        shown = " · ".join(f"{labels[i]} {str(raw.iloc[i])[:20]!r}" for i in pos[:MAX_LISTED_CELLS])
+        more = pos.size - MAX_LISTED_CELLS
+        mixed.append(f"{c}: {shown}" + (f" 외 {more}칸" if more > 0 else ""))
+    if not out:
+        return df
+    df = df.copy()
+    for c, v in out.items():
+        df[c] = v
+    if n_bad:
+        def listed(items):
+            return " / ".join(items[:MAX_LISTED_COLUMNS]) + (f" / 외 {len(items) - MAX_LISTED_COLUMNS}열"
+                                                              if len(items) > MAX_LISTED_COLUMNS else "")
+        parts = ([listed(mixed)] if mixed else []) + (["숫자가 하나도 없는 열(모두 결측) " + listed(whole)] if whole else [])
+        _log.warning(f"[WARN] {fname}: 숫자가 아닌 칸 {n_bad}개를 결측으로 읽었습니다 — " + " | ".join(parts)
+                     + " (값이면 파일에서 숫자로 고치세요)")
     return df

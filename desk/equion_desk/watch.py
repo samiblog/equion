@@ -10,10 +10,13 @@
 
 감시는 두 겹이다. watchdog(운영체제의 변경 알림)이 깨우면 바로, 깨우지 않아도 `POLL` 초마다 **상태를 견줘서** 알림을 만든다 —
 알림이 빠져도(네트워크 드라이브·보안 프로그램) 늦게라도 뜬다. 견주는 것은 로그 파일의 크기, 바뀜 기록의 번호, 정의 파일의 크기·시각뿐이라 싸다.
+정의 파일은 크기·시각이 바뀐 것만 다시 읽어 **내용**을 견준다 — 동기화 프로그램·백신이 시각만 건드린 것으로는 알리지 않는다.
+`defs`·`tree` 알림은 `QUIET` 초에 한 번까지만 낸다(잇달아 건드려도 화면이 쉴 새 없이 다시 읽지 않게 — 그 사이의 바뀜은 묶어서 한 번에).
 """
 from __future__ import annotations
 
 import glob
+import hashlib
 import json
 import os
 import threading
@@ -25,6 +28,7 @@ from . import records
 SHOW_KINDS = frozenset({"record", "proposal", "data", "part", "model", "file", "place"})
 POLL = 2.0          # watchdog 이 깨우지 않아도 이만큼마다 견준다(초)
 SETTLE = 0.25       # 깨운 뒤 잠깐 기다린다 — 명령 하나가 파일 여럿을 잇달아 쓴다
+QUIET = 1.0         # defs·tree 알림 사이의 가장 짧은 틈(초) — 그 안의 바뀜은 묶어서 다음 알림에
 MAX_EVENTS = 2000   # 들고 있는 알림 수
 MAX_LINE = 256 * 1024
 
@@ -34,6 +38,14 @@ DEFINITIONS = ("equion.toml", "EQUATIONS/*.txt", "EQUATIONS/*.toml", "DATA/serie
                "ASSUMPTIONS/*.csv", "ASSUMPTIONS/*.toml", "ADDFACTORS/*.csv", "ADDFACTORS/*.toml",
                "SCENARIOS/*.toml", "VIEWS/*.toml", "notes/*.md", "reports/*.md", "FLOWS/*.eqs")
 IGNORED_DIRS = frozenset({".git", "__pycache__", ".venv", "node_modules", ".ipynb_checkpoints"})
+# 잠깐 생겼다 없어지는 남의 파일 — 오피스·LibreOffice 의 잠금 파일(~$x · .~lock.x#), 쓰는 중인 임시 파일. 정의 파일도 파일 나무의 바뀜도 아니다
+TEMP_PREFIXES = ("~$", ".~")
+TEMP_SUFFIXES = (".tmp", ".tmp-equion", ".part", ".crdownload")
+
+
+def transient(name: str) -> bool:
+    """잠깐 생겼다 없어지는 남의 파일인가(잠금·임시) — 알리지 않는다."""
+    return name.startswith(TEMP_PREFIXES) or name.lower().endswith(TEMP_SUFFIXES)
 
 
 class Feed:
@@ -74,10 +86,12 @@ class Feed:
 
 
 def definitions(root: str) -> dict[str, tuple[int, int]]:
-    """정의 파일마다 (크기, 고친 시각 ns)."""
+    """정의 파일마다 (크기, 고친 시각 ns). 잠금·임시 파일(`~$x.txt`)은 뺀다."""
     out: dict[str, tuple[int, int]] = {}
     for pattern in DEFINITIONS:
         for path in glob.glob(os.path.join(root, pattern)):
+            if transient(os.path.basename(path)):
+                continue
             try:
                 st = os.stat(path)
             except OSError:
@@ -85,6 +99,40 @@ def definitions(root: str) -> dict[str, tuple[int, int]]:
             if os.path.isfile(path):
                 out[os.path.relpath(path, root).replace(os.sep, "/")] = (st.st_size, st.st_mtime_ns)
     return out
+
+
+class DefinitionState:
+    """정의 파일마다 **내용의 지문** — (크기, 시각)이 바뀐 파일만 다시 읽어 해시한다(바뀌지 않은 것은 지난 지문 그대로라 싸다).
+    시각만 바뀐 파일(동기화 프로그램·백신·`touch`)은 바뀌지 않은 것으로 본다. `scan()` → {경로: 지문}.
+
+    예
+        >>> state = DefinitionState(folder)          # doctest: +SKIP
+        >>> state.scan() == state.scan()             # doctest: +SKIP
+        True
+    """
+
+    def __init__(self, root: str) -> None:
+        self.root = root
+        self._stat: dict[str, tuple[int, int]] = {}
+        self._hash: dict[str, str] = {}
+
+    def scan(self) -> dict[str, str]:
+        stat = definitions(self.root)
+        if stat != self._stat:
+            for rel, st in stat.items():
+                if self._stat.get(rel) != st or rel not in self._hash:
+                    self._hash[rel] = self._digest(rel) or f"stat:{st[0]}:{st[1]}"      # 읽지 못하면(잠김) 크기·시각으로 — 다음에 다시 본다
+            for rel in set(self._hash) - set(stat):
+                del self._hash[rel]
+            self._stat = stat
+        return dict(self._hash)
+
+    def _digest(self, rel: str) -> str | None:
+        try:
+            with open(os.path.join(self.root, *rel.split("/")), "rb") as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except OSError:
+            return None
 
 
 def diff_counts(text: str) -> tuple[int, int]:
@@ -140,7 +188,10 @@ class ProjectWatcher:
         self._log = os.path.join(root, "work", "log.jsonl")
         self._offset = self._log_size()
         self._known = set(history_ids(root))
-        self._defs = definitions(root)
+        self._def_state = DefinitionState(root)
+        self._defs = self._def_state.scan()
+        self._last_burst = 0.0           # 마지막 defs·tree 알림을 낸 때(monotonic)
+        self._held = False               # QUIET 안이라 미뤄 둔 견주기가 있다
         self._props = self._proposal_state()
         self._requests = os.path.join(root, *records.REQUESTS)
         self._req_offset = self._size(self._requests)
@@ -184,7 +235,7 @@ class ProjectWatcher:
         class Handler(FileSystemEventHandler):
             def on_any_event(self, event: Any) -> None:
                 parts = os.path.relpath(os.fsdecode(event.src_path), watcher.root).split(os.sep)
-                if IGNORED_DIRS.intersection(parts) or parts[-1].endswith((".tmp", ".tmp-equion")):
+                if IGNORED_DIRS.intersection(parts) or transient(parts[-1]):
                     return
                 if event.event_type in ("created", "deleted", "moved"):
                     watcher._tree_dirty = True
@@ -201,7 +252,8 @@ class ProjectWatcher:
 
     def _loop(self) -> None:
         while not self._stop.is_set():
-            woke = self._wake.wait(POLL)
+            wait = max(0.05, self._last_burst + QUIET - time.monotonic()) if self._held else POLL
+            woke = self._wake.wait(min(wait, POLL))
             if self._stop.is_set():
                 return
             if woke:
@@ -220,12 +272,21 @@ class ProjectWatcher:
         """지금 상태를 지난번과 견줘 알림을 만든다."""
         self._check_log()
         self._check_history()
-        self._check_definitions()
         self._check_proposals()
         self._check_requests()
+        # 정의·나무 알림은 QUIET 초에 한 번까지 — 그 안의 바뀜은 미뤄 두었다가 묶어서
+        now = time.monotonic()
+        if now - self._last_burst < QUIET:
+            self._held = True
+            return
+        self._held = False
+        sent = self._check_definitions()
         if self._tree_dirty:
             self._tree_dirty = False
             self.feed.add("tree", p=self.pid)
+            sent = True
+        if sent:
+            self._last_burst = now
 
     def _check_log(self) -> None:
         size = self._log_size()
@@ -304,15 +365,17 @@ class ProjectWatcher:
             self._known.add(cid)
             self.feed.add("change", p=self.pid, change=change)
 
-    def _check_definitions(self) -> None:
-        now = definitions(self.root)
+    def _check_definitions(self) -> bool:
+        """정의 파일의 내용이 바뀌었으면 `defs` 를 알린다(시각만 바뀐 것은 아니다). 알렸으면 True."""
+        now = self._def_state.scan()
         if now == self._defs:
-            return
+            return False
         changed = sorted(k for k in set(now) | set(self._defs) if now.get(k) != self._defs.get(k))
         self._defs = now
         self.feed.add("defs", p=self.pid, files=changed)
         if self.on_defs:
             self.on_defs()
+        return True
 
     def stop(self) -> None:
         self._stop.set()

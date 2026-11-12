@@ -10,6 +10,7 @@
     [hs]    model · range("S:E") · mode                         HS 기본값
     [criteria] alpha · tests · t_min · [criteria.signs]          판단 기준 — 추정 기록의 '기준'·est --adopt if_pass (D35)
     [forecast] model · range · assume · addfactors · fill · mode  전망 기본값 — equion sim (K4)
+    [hs]·[forecast] mce             선행변수 풀이 — "fair-taylor" · "stacked" · false (전망은 정하지 않으면 fair-taylor)
 
 읽기는 표준 라이브러리 `tomllib`. 이름은 영문·숫자·`_`(첫 글자는 영문). 문제는 모아서 한꺼번에 알린다(ProjectError).
 """
@@ -290,10 +291,15 @@ def load_config(path: str = ".", text: Optional[str] = None, new_files: tuple = 
         for x in spec.exclude:
             if ":" not in x:
                 problems.append(f"[model.{mname}] exclude: '{x}' — 블록:목표변수 꼴(예: finance:RL)")
-    # include 순환
+    # include 순환(같은 고리는 한 번만 — 어느 모형에서 들어가도 같은 고리다)
+    cycles = set()
+
     def visit(m, stack):
         if m in stack:
-            problems.append("모형 include가 돌고 돕니다: " + " → ".join(stack[stack.index(m):] + [m]))
+            ring = stack[stack.index(m):]
+            if frozenset(ring) not in cycles:
+                cycles.add(frozenset(ring))
+                problems.append("모형 include가 돌고 돕니다: " + " → ".join(ring + [m]))
             return
         for inc in models.get(m, ModelSpec(m)).include:
             if inc in models:
@@ -336,8 +342,12 @@ def load_config(path: str = ".", text: Optional[str] = None, new_files: tuple = 
         problems.append("[forecast]는 표여야 합니다")
         fc = {}
     for k in fc:
-        if k not in ("model", "range", "assume", "addfactors", "fill", "mode"):
-            problems.append(f"[forecast] {k}: 알 수 없는 키 — model · range · assume · addfactors · fill · mode")
+        if k not in ("model", "range", "assume", "addfactors", "fill", "mode", "mce"):
+            problems.append(f"[forecast] {k}: 알 수 없는 키 — model · range · assume · addfactors · fill · mode · mce")
+    for sect, tb in (("hs", hs), ("forecast", fc)):          # 선행변수 풀이 — 모형 일관 기대(MCE)
+        v = tb.get("mce")
+        if v is not None and v is not False and str(v).strip().lower() not in ("fair-taylor", "stacked", "false", "true"):
+            problems.append(f"[{sect}] mce = {v!r} — \"fair-taylor\" · \"stacked\" · false")
     if fc.get("model") and fc["model"] not in models and fc["model"] not in blocks:
         problems.append(f"[forecast] model = {fc['model']!r}: 없는 모형·블록")
     if fc.get("mode") and fc["mode"] not in MODES:
@@ -486,9 +496,11 @@ def group_text(cfg_path: str, name: str, series=None, desc: str = None, transfor
     return text, new
 
 
-def model_text(cfg_path: str, name: str, blocks=None, include=None, exclude=None, desc: str = None) -> Tuple[str, bool]:
+def model_text(cfg_path: str, name: str, blocks=None, include=None, exclude=None, desc: str = None,
+               parts_by_block=None) -> Tuple[str, bool]:
     """equion.toml의 `[model.이름]`을 더하거나 고친 **새 내용**과 새 모형인지 — 준 키만 바꾸고(빈 목록·빈 글이면 그 키를 지움) 파일은 쓰지 않는다.
-    새 내용 전체를 검사한다(없는 블록·모형, include 순환, 블록과 같은 이름 … — 문제는 ProjectError)."""
+    새 내용 전체를 검사한다(없는 블록·모형, include 순환, 블록과 같은 이름 … — 문제는 ProjectError). parts_by_block({블록: [부품]})을 주면
+    exclude의 식이 그 모형에 정말 있는지도 본다(없는 식을 빼라고 적어 두면 조립 때에야 드러나므로)."""
     import tomlkit
     problems: List[str] = []
     _check_name(name, "모형", problems)
@@ -516,7 +528,13 @@ def model_text(cfg_path: str, name: str, blocks=None, include=None, exclude=None
     if new:
         models[name] = tb
     text = tomlkit.dumps(doc)
-    load_config(cfg_path, text=text)
+    cfg = load_config(cfg_path, text=text)
+    if parts_by_block is not None and (exclude or blocks is not None or include is not None):
+        from .assembly import resolve
+        _, _, bad = resolve(cfg, parts_by_block, name)
+        bad = [x for x in bad if x.startswith(f"[model.{name}] exclude")]
+        if bad:
+            raise ProjectError(bad)
     return text, new
 
 

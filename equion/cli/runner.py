@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 
-from ..formula.parser import DSLError
+from ..formula.parser import DSLError, UnknownVariableError
 from ..system.analyzer import StructureError
 from ..workfile import output as _output
 from ..workfile import runtime as _runtime
@@ -35,8 +35,9 @@ FAIL_ON = {"never": (), "failed": ("failed",), "fallback": ("fallback", "failed"
            "partial": ("partial", "fallback", "failed")}
 PERIOD_KO = {"ok": "정상", "partial": "일부식 제외", "fallback": "실패대체", "failed": "실패"}
 
-# 입력 문제로 보는 예외(파일 없음·방정식 문법·모델 구조·merge 실패)
-INPUT_ERRORS = (FileNotFoundError, NotADirectoryError, IsADirectoryError, DSLError, StructureError, MergeError)
+# 입력 문제로 보는 예외(파일 없음·방정식 문법·자료에 없는 변수·모델 구조·merge 실패·--set 값의 형)
+INPUT_ERRORS = (FileNotFoundError, NotADirectoryError, IsADirectoryError, DSLError, StructureError, MergeError,
+                UnknownVariableError, _runtime.ParamError)
 
 
 @dataclass

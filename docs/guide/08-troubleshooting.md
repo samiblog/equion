@@ -7,7 +7,7 @@
 | 0 | 성공(스크립트면 `!` 표시가 있을 수 있다 — 읽고 판단) |
 | 1 | 스크립트 오류(Python 예외, 스크립트의 모르는 지표) |
 | 2 | 풀이 실패 조건(`--fail-on`) · 스크립트의 `expect --stop` · 재연에 다른 단계 |
-| 3 | 입력 오류 — 없는 파일·부품·모형, 문법, 틀이 맞지 않음, 손으로 고친 구역, 허용 안 된 명령, 프로젝트 밖 경로 |
+| 3 | 입력 오류 — 없는 파일·부품·모형, 문법, 식이 쓴 변수가 자료에 없음, `--set` 값의 형, 틀이 맞지 않음, 손으로 고친 구역, 허용 안 된 명령, 프로젝트 밖 경로 |
 
 ```console
 $ equion new trouble --template desk
@@ -97,7 +97,8 @@ Path("DATA/raw/inbox/새자료.csv").unlink()
 
 ## 3. 보고서의 숫자를 손으로 고쳤을 때
 
-보고서·노트의 결과 구역은 명령이 다시 만듭니다. 손으로 고친 구역은 덮지 않고 고친 곳을 보입니다.
+보고서·노트의 결과 구역은 명령이 다시 만듭니다. 손으로 고친 구역은 덮지 않고 고친 곳을 보입니다 — 덮을지는 사람이 정할 일이라
+`report update`·`note run`은 그 구역을 건너뛰고 종료 코드 3으로 끝납니다(다른 구역·블록은 바뀐다, `--dry-run`은 0). 스크립트 안에서는 멈추지 않고 그 단계에 `!`와 까닭이 남습니다.
 
 ```console
 $ equion sim base --as s1
@@ -129,6 +130,7 @@ r = Path("reports/r1.md")
 r.write_text(r.read_text(encoding="utf-8").replace("| Y |", "| Y(손으로) |", 1), encoding="utf-8")
 ```
 
+<!-- error -->
 ```console
 $ equion report check r1
 $ equion report update r1
@@ -153,6 +155,8 @@ $ equion report update r1
      | CN | 0.9 | 1.7 |
 
      자료: Equion sim:s1(자료 회차 d2026-11a)
+  손으로 고친 구역(#1)은 바꾸지 않았습니다 — 사람에게 묻고, 덮으려면 equion report update reports/r1.md --force (종료 코드 3)
+(종료 코드 3)
 ```
 
 글로 남기려면 구역 밖에 쓰고, 구역은 `equion report update r1 --force`로 다시 만듭니다.
@@ -189,7 +193,9 @@ $ equion work show run:strict_0001
 ## 5. 되돌리기
 
 정의 파일의 바뀜은 모두 `work/history/`에 남습니다 — 명령이 바꾼 것도, 편집기로 고친 것('바깥' — 위에서 보고서의 숫자를 고치고 스크립트를 새로
-쓴 것)도. 채택을 하나 해 보고 되돌립니다. 되돌리기는 그 앞의 내용으로 다시 쓰는 것이고, 그것도 기록에 남습니다(다시 되돌릴 수 있다).
+쓴 것)도. 채택을 하나 해 보고 되돌립니다. 되돌리기는 **그 바뀜 하나만** 물리는 것이고(뒤의 바뀜은 그대로), 그것도 기록에 남습니다(다시 되돌릴 수 있다).
+뒤의 바뀜이 같은 줄(TOML이면 같은 키)을 고쳤으면 아무것도 쓰지 않고 겹친 파일과 뒤의 바뀜을 알리며 멈춥니다(종료 코드 3) — 뒤의 바뀜을
+먼저 되돌리거나(새것부터), 그 파일을 그 바뀜 앞 내용으로 통째로 되돌리려면 `--force`(뒤의 바뀜도 그 파일에서 함께 물린다).
 
 ```console
 $ equion est "CN c Y Y(-1) CN(-1)" --for demand:CN --as cn3
@@ -216,15 +222,15 @@ $ equion adopt est:cn3
 
 $ equion history list --limit 2
 [history list] trouble: 바뀜 2
-[h0004] 2026-11-09T14:13:23 · 바깥 · 명령 밖에서 고침(편집기·직접 편집)
+[h0004] 2026-11-13T05:18:04 · 바깥 · 명령 밖에서 고침(편집기·직접 편집)
   파일   FLOWS/strict.eqs(새로) · reports/r1.md(고침)
-[h0005] 2026-11-09T14:13:28 · 터미널 · equion adopt est:cn3
+[h0005] 2026-11-13T05:18:09 · 터미널 · equion adopt est:cn3
   파일   EQUATIONS/adopted.toml(새로) · EQUATIONS/demand.txt(고침)
   메모   demand:CN ← est:cn3
 
 $ equion history revert h0005
 [history revert] h0005 되돌림
-[h0006] 2026-11-09T14:13:31 · 터미널 · equion history revert h0005
+[h0006] 2026-11-13T05:18:12 · 터미널 · equion history revert h0005
   파일   EQUATIONS/adopted.toml(지움) · EQUATIONS/demand.txt(고침)
   메모   h0005 되돌리기
 ```
@@ -249,6 +255,6 @@ $ equion history revert h0005
 - [ ] 받은 파일이 맞지 않으면 아무것도 넣지 않고 까닭(짝 없음·틀이 맞지 않음)
 - [ ] 손으로 고친 구역은 `report update`가 덮지 않고, `--force`로만
 - [ ] `expect --stop`에 걸리면 2, `work show run:…`에 멈춘 단계와 까닭
-- [ ] `history revert`가 되돌리고 그것도 기록에 남는다
+- [ ] `history revert`가 그 바뀜만 되돌리고 그것도 기록에 남는다(뒤의 바뀜과 겹치면 3 — `--force`로만 통째로)
 
 다음: [9. 자동으로 돌리기](09-automation.md)

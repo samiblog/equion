@@ -59,4 +59,4 @@ equion("run", "FLOWS/monthly.eqs")
 equion("run", "--replay", "run:monthly_0001", "-q")
 
 # %% 9.6 Claude와 함께
-print("\n".join(eqn.help.guide_text().splitlines()[4:15]))
+print("\n".join(eqn.help.guide_text().splitlines()[4:19]))

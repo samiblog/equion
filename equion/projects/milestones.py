@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from ..work.store import now_iso
+from ..work.lock import locked
 from .config import NAME_RE, ProjectError
 
 FOLDER = os.path.join("work", "milestones")
@@ -184,6 +185,7 @@ def list_all(p) -> List[Milestone]:
     return sorted(out, key=lambda m: m.created)
 
 
+@locked
 def make(p, name: str, note: str = None, who: str = None) -> Milestone:
     """이정표를 만든다 — 정의 파일의 사본과 자료 회차·고정한 기록. 같은 이름은 거절한다."""
     from ..work.store import detect_who, move_into_place
@@ -196,7 +198,8 @@ def make(p, name: str, note: str = None, who: str = None) -> Milestone:
     store = store_of(p)
     pinned = sorted(k for k, v in store.marks().items() if v.get("pinned"))
     files: Dict[str, str] = {}
-    tmp = dest + ".tmp-equion"
+    from ..work.lock import tmp_path
+    tmp = tmp_path(dest)                          # 프로세스마다 다른 임시 이름
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(os.path.join(tmp, "defs"))
     for rel in _defs(p):
@@ -244,6 +247,7 @@ def diff(p, name: str) -> MilestoneDiff:
     return MilestoneDiff(name, rows, m.vintage, p.vintage, "".join(chunks))
 
 
+@locked
 def restore(p, name: str, files: List[str] = None, who: str = None, command: str = None):
     """정의를 이정표 때로 되돌린다 — 그때 있던 파일은 그때 내용으로, 그 뒤에 생긴 정의 파일은 지운다(files를 주면 그 파일만).
     바뀜 기록 하나로 남는다(그것도 되돌릴 수 있다). 바뀐 것이 없으면 None."""
@@ -272,5 +276,43 @@ def restore(p, name: str, files: List[str] = None, who: str = None, command: str
         new[rel] = None if status == "added" else _read(os.path.join(base, *rel.split("/")))
         if rel == "equion.toml" and new[rel] is not None:
             new[rel] = _with_vintage(new[rel], p.vintage)      # 지금 회차는 그대로
-    return history_of(p).write_files(new, who or "python", command or f"milestone restore {name}",
-                                      note=f"이정표 {name}로 — 파일 {len(new)}")
+    before = _source_files(p)
+    ch = history_of(p).write_files(new, who or "python", command or f"milestone restore {name}",
+                                    note=f"이정표 {name}로 — 파일 {len(new)}")
+    if ch is not None:
+        try:
+            ch.notes = data_notes(p, name, before, ch.id)
+        except Exception:  # noqa: BLE001 — 알림을 못 만들어도 되돌리기는 끝났다
+            ch.notes = []
+    return ch
+
+
+def _source_files(p) -> Dict[str, str]:
+    """자료 정의(series.toml)의 출처마다 지금 읽는 원자료 파일 {출처: 파일}. 자료 정의를 쓰지 않으면 {}."""
+    import tomllib
+    c = p.config
+    if not getattr(c, "uses_vintages", False) or not c.series_file:
+        return {}
+    try:
+        with open(os.path.join(p.root, c.series_file), "rb") as f:
+            raw = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    return {k: str(v.get("file")) for k, v in (raw.get("source") or {}).items() if isinstance(v, dict)}
+
+
+def data_notes(p, name: str, before: Optional[Dict[str, str]] = None, change: Optional[str] = None) -> List[str]:
+    """이정표로 되돌린 뒤 자료에 대해 알릴 것 — 회차는 그대로(이정표 때 회차와 다르면 그 회차와 바꾸는 법), 자료 정의가 그때의 원자료를
+    가리키게 되었으면 다음 자료 만들기가 무엇을 읽는지와 지금 원자료를 계속 쓰는 법."""
+    m = load(p, name)
+    out = []
+    if m.vintage and m.vintage != p.vintage:
+        out.append(f"자료 회차는 그대로 {p.vintage}입니다(이정표 때 {m.vintage}) — 이정표 때 자료로 계산하려면 equion data use {m.vintage}")
+    if before is not None:
+        after = _source_files(p)
+        moved = [(k, before.get(k), after.get(k)) for k in dict.fromkeys([*before, *after]) if before.get(k) != after.get(k)]
+        if moved:
+            out.append("자료 정의도 그때로 — 원자료 " + " · ".join(f"[source.{k}] {a or '없음'} → {b or '없음'}" for k, a, b in moved)
+                       + ". 다음 자료 만들기(equion data build — 월간 스크립트의 자료 단계)는 그때의 원자료를 읽습니다(지금 회차보다 짧으면 거절)"
+                       + (f". 지금 원자료를 계속 쓰려면 equion history revert {change} --file {p.config.series_file}" if change else ""))
+    return out

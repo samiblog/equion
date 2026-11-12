@@ -240,6 +240,16 @@ export class TermDeck {
     this.stuckBand = h('div', { class: 'term-stuck', role: 'alert', hidden: true }, icon('alert'), this.stuckText,
       h('button', { class: 'btn small', type: 'button', 'data-act': 'term-stuck-restart', onclick: () => this.current?.restart() }, icon('refresh'), '다시 시작'));
     this.tabsBox.addEventListener('wheel', (e) => { if (e.deltaY) { this.tabsBox.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
+    this.tabsBox.addEventListener('scroll', () => this.edges(), { passive: true });
+    if (typeof ResizeObserver === 'function') new ResizeObserver(() => this.edges()).observe(this.tabsBox);
+  }
+
+  /** 탭 줄이 넘치면 가려진 쪽 가장자리를 흐린다 — 잘린 글자 조각만 보이지 않게 */
+  edges() {
+    const b = this.tabsBox;
+    const over = b.scrollWidth > b.clientWidth + 1;
+    b.classList.toggle('fade-l', over && b.scrollLeft > 1);
+    b.classList.toggle('fade-r', over && b.scrollLeft + b.clientWidth < b.scrollWidth - 1);
   }
 
   /** 처음 보일 때 — 서버에 이미 돌고 있는 셸(화면을 다시 불러온 뒤)이 있으면 그것을, 없으면 1번을 띄운다 */
@@ -303,6 +313,7 @@ export class TermDeck {
 
   render() {
     const tabs = clear(this.tabsBox);
+    tabs.classList.toggle('compact', this.terms.length > 2);       // 셋 이상이면 고르지 않은 탭은 번호만
     for (const term of this.terms) {
       const on = term === this.current;
       tabs.append(h('button', {
@@ -318,6 +329,7 @@ export class TermDeck {
     this.addBtn.title = this.terms.length >= MAX_TERMS ? `터미널은 프로젝트마다 ${MAX_TERMS}개까지입니다` : `새 터미널 — 이 프로젝트 폴더에서 (프로젝트마다 ${MAX_TERMS}개까지)`;
     this.restartBtn.disabled = !this.current;
     this.tabsBox.querySelector('.term-tab.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    this.edges();
     const stuck = this.current?.alive ? this.current.stuck : [];
     this.stuckBand.hidden = !stuck.length;
     this.restartBtn.classList.toggle('attention', stuck.length > 0);

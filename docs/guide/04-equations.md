@@ -124,13 +124,13 @@ $ equion hs main --as h_now
   알아서 한 것  구간 [hs] range = 2005Q1:last → 2005Q1~2019Q4 · 채택 기록 없이 지금 자료로 추정: demand:CN, demand:I, price:P, finance:RL, finance:M2
   기록   hs:h_now (work/hs/h_now/)
 
-$ equion hs main --swap demand:CN=est:cn2 --vs hs:h_now --as h_cn2
-[hs:h_cn2] main dynamic 2005Q1~2019Q4 · 정상 60 · 일부식 제외 0 · 실패대체 0 · 실패 0
+$ equion hs main --swap demand:CN=est:cn3 --vs hs:h_now --as h_cn3
+[hs:h_cn3] main dynamic 2005Q1~2019Q4 · 정상 60 · 일부식 제외 0 · 실패대체 0 · 실패 0
   RMSPE  Y 0.46% · CN 0.49% · I 0.84% · P 1.44% · M2 2.25% · RL 9.68%
   비교   vs hs:h_now — Y 0.47% → 0.46% · CN 0.51% → 0.49% · I 0.86% → 0.84% · P 1.43% → 1.44% · M2 2.24% → 2.25% (나머지 그대로)
-  바꿔 끼움  demand:CN ← est:cn2 (파일은 그대로)
-  알아서 한 것  구간 [hs] range = 2005Q1:last → 2005Q1~2019Q4 · 채택 기록 없이 지금 자료로 추정: demand:I, price:P, finance:RL, finance:M2 · 바꿔 끼움: demand:CN ← est:cn2
-  기록   hs:h_cn2 (work/hs/h_cn2/)
+  바꿔 끼움  demand:CN ← est:cn3 (파일은 그대로)
+  알아서 한 것  구간 [hs] range = 2005Q1:last → 2005Q1~2019Q4 · 채택 기록 없이 지금 자료로 추정: demand:I, price:P, finance:RL, finance:M2 · 바꿔 끼움: demand:CN ← est:cn3
+  기록   hs:h_cn3 (work/hs/h_cn3/)
 ```
 
 ## 4. 채택과 되돌리기
@@ -143,8 +143,8 @@ $ equion history list
 ```
 <!-- out -->
 ```text
-$ equion adopt est:cn2
-[adopt] demand:CN ← est:cn2
+$ equion adopt est:cn3
+[adopt] demand:CN ← est:cn3
   블록 파일  그 줄을 이 식으로 바꿈
   채택표   EQUATIONS/adopted.toml
   바뀜 기록  h0002 (EQUATIONS/adopted.toml, EQUATIONS/demand.txt)
@@ -152,12 +152,12 @@ $ equion adopt est:cn2
 
 $ equion history list
 [history list] eqs: 바뀜 2
-[h0001] 2026-11-09T14:04:04 · 터미널 · data use d2026-11a
+[h0001] 2026-11-13T05:16:28 · 터미널 · data use d2026-11a
   파일   equion.toml(고침)
   메모   자료 회차 d2026-11a
-[h0002] 2026-11-09T14:04:15 · 터미널 · equion adopt est:cn2
+[h0002] 2026-11-13T05:16:39 · 터미널 · equion adopt est:cn3
   파일   EQUATIONS/adopted.toml(새로) · EQUATIONS/demand.txt(고침)
-  메모   demand:CN ← est:cn2
+  메모   demand:CN ← est:cn3
 ```
 
 채택은 블록 파일의 그 줄(설명은 그대로)과 채택표 `EQUATIONS/adopted.toml`을 고치고 바뀜 기록(`h0002`)에 남깁니다. 마음이 바뀌면:
@@ -171,7 +171,7 @@ $ equion compare hs:h_now hs:h_back
 ```text
 $ equion history revert h0002
 [history revert] h0002 되돌림
-[h0003] 2026-11-09T14:04:18 · 터미널 · equion history revert h0002
+[h0003] 2026-11-13T05:16:42 · 터미널 · equion history revert h0002
   파일   EQUATIONS/adopted.toml(지움) · EQUATIONS/demand.txt(고침)
   메모   h0002 되돌리기
 
@@ -193,7 +193,8 @@ M2        2.243     2.243
 RL        9.682     9.682
 ```
 
-되돌린 뒤의 과거 재현이 채택 전과 같습니다(되돌리기도 바뀜 기록에 남는다 — 지우지 않는다).
+되돌린 뒤의 과거 재현이 채택 전과 같습니다(되돌리기도 바뀜 기록에 남는다 — 지우지 않는다). 되돌리기는 그 바뀜 하나만 물립니다 — 그 뒤에
+같은 파일을 고친 바뀜이 있어도 그것은 그대로 두고, 같은 줄을 고쳤으면 멈춥니다(종료 코드 3, 통째로 되돌리려면 `--force`).
 
 ## 5. 새 자료가 오면 — 다시 추정 정책
 

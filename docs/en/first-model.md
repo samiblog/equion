@@ -176,7 +176,7 @@ print(wf.to_pandas(["Y_0", "CN_0", "I_0"], labels=True).loc["2020Q1":"2021Q4"].r
 
 ```python
 g = wf.graph("g_y", "Y Y_0 Y_1", start="2010Q1", end="2021Q4", title="Income: actual, baseline, scenario")
-g.save("y.html")                          # opens offline; plotly is not required
+g.save("y.html")                          # html, plotly not required; loads plotly.js from a CDN. Offline: g.output().save("y.html", include_js="inline")
 wf.save("toy")                            # toy.eqw/ — data, estimates, model and scenarios
 wf2 = eqn.wfopen("toy.eqw")               # reopens without re-estimating
 print(wf2.obj("eq_i").coefs.round(3).to_dict())

@@ -258,17 +258,18 @@ class Model:
     # ------------------------------------------------------------------
     # 입력 변환 유틸
     # ------------------------------------------------------------------
-    def _to_index(self, p) -> int:
+    def _to_index(self, p, end: bool = False) -> int:
+        """시점 → 자료 위치. 정수는 위치 그대로. 구간의 끝이면 end=True — 해만 적은 표기('2019')가 그 해의 마지막 기(D66)."""
         if p is None:
             raise ValueError("시점이 필요합니다")
         if isinstance(p, (int, np.integer)):
             return int(p)
         wt = getattr(self, "wt", None)
         if wt is not None:
-            return wt.index_of(p)
+            return wt.index_of(p, end=end)
         if isinstance(p, (pd.Timestamp, np.datetime64)):
             return int(self.data.data.index.get_loc(pd.Timestamp(p)))
-        return locate(self.data.data.index, p, self.data.freq)    # '2010Q1' 등 — 기간 연산은 periods로
+        return locate(self.data.data.index, p, self.data.freq, end=end)    # '2010Q1' 등 — 기간 연산은 periods로
 
     def _series_to_array(self, spec, T) -> np.ndarray:
         """Series(날짜)/dict(시점→값)/스칼라/배열 → 길이 T 배열(NaN=미지정)."""
@@ -340,7 +341,7 @@ class Model:
             mask[start:end + 1] = True
         elif isinstance(spec, (tuple, list)) and len(spec) == 2:
             a = self._to_index(spec[0]) if spec[0] is not None else start
-            b = self._to_index(spec[1]) if spec[1] is not None else end
+            b = self._to_index(spec[1], end=True) if spec[1] is not None else end
             mask[a:b + 1] = True
         else:
             raise ValueError("exclude 구간은 True 또는 (시작, 끝)")
@@ -377,7 +378,7 @@ class Model:
             coefficients: 전역 계수 벡터 대체(확률 시뮬 등).
         """
         T = len(self.data.data)
-        s, e = self._to_index(start), self._to_index(end)
+        s, e = self._to_index(start), self._to_index(end, end=True)
         if s > e:
             raise ValueError(f"시작({s})이 끝({e})보다 뒤입니다")
         system = self.system
@@ -456,7 +457,7 @@ class Model:
         df = self.data.data
         T = len(df)
         s = 0 if start is None else self._to_index(start)
-        e = T - 1 if end is None else self._to_index(end)
+        e = T - 1 if end is None else self._to_index(end, end=True)
         endo = set(system.endogenous)
         cols = {n: df[n].to_numpy(dtype=float) for n in system.var_names if n in df.columns}
         rows = []
@@ -479,7 +480,7 @@ class Model:
         """start 이후, 그 시점부터 end까지 모든 식의 입력이 갖춰지는 첫 위치(없으면 None)."""
         gaps = self.input_gaps(start, end)
         s = 0 if start is None else self._to_index(start)
-        e = len(self.data.data) - 1 if end is None else self._to_index(end)
+        e = len(self.data.data) - 1 if end is None else self._to_index(end, end=True)
         if gaps.empty:
             return s
         last_gap = int(gaps["t"].max())
@@ -546,7 +547,7 @@ class Model:
             mode: 'dynamic'(기본) | 'static' | 'fit'.
             kw: simulate()의 나머지 옵션(method, on_missing, on_fail, overrides, ...).
         """
-        s, e = self._to_index(start_index), self._to_index(end_index)
+        s, e = self._to_index(start_index), self._to_index(end_index, end=True)
         idx = self.data.data.index
         _log.info(f"\n{'='*100}")
         _log.info(f"Historical Simulation 시작")

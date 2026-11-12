@@ -10,13 +10,16 @@ import { clear, cmdText, copyText, flash, h, icon, kindPill, put, seconds, when,
 
 const MARK = { ok: ['✓', 'ok', '통과'], flag: ['!', 'warn', '표시하고 계속'], stop: ['✗', 'bad', '멈춤'], error: ['✗', 'bad', '오류'], denied: ['✗', 'bad', '할 수 없는 줄'],
   skip: ['–', 'none', '건너뜀'], interrupted: ['✗', 'bad', '끊김'] };
+// 작업 줄로 오는 단계 한 줄의 표시 — 패키지는 ✓ ! × – 를 쓴다(× 멈춤·오류, – 건너뜀)
+const LIVE = (mark) => (mark === '✓' ? ['✓', 'ok', '통과'] : mark === '!' ? ['!', 'warn', '표시하고 계속'] : mark === '–' || mark === '-' ? ['–', 'none', '건너뜀'] : ['✗', 'bad', '멈춤']);
 const RUN = { ok: '끝까지 통과', flag: '표시한 단계가 있습니다', stop: '멈췄습니다', error: '오류로 멈췄습니다', denied: '할 수 없는 줄에서 멈췄습니다', interrupted: '끊겼습니다' };
 
 export function flowView(project, desc) {
   const path = desc.path;
   const name = path.split('/').pop().replace(/\.eqs$/i, '');
   const el = h('div', { class: 'view flow-view' });
-  const st = { plan: null, error: null, sets: { ...(desc.sets || {}) }, shown: desc.shown || null, run: null, running: false, lines: [], from: null };
+  // cut: 끝까지 돌지 못한 실행(취소·끊김) — 그때까지 끝난 단계와 남긴 기록. 실행 기록(run:)이 없어도 단계 줄에 보인다
+  const st = { plan: null, error: null, sets: { ...(desc.sets || {}) }, shown: desc.shown || null, run: null, running: false, lines: [], from: null, made: [], cut: null };
   let loaded = false;
   const save = () => project.saveView();
 
@@ -45,7 +48,7 @@ export function flowView(project, desc) {
 
   async function start(from = null) {
     if (!st.plan?.ok) return;
-    st.running = true; st.lines = []; st.from = from; st.run = null;
+    st.running = true; st.lines = []; st.from = from; st.run = null; st.made = []; st.cut = null; st.error = null;
     render();
     try {
       const res = await project.compute('script/run', { path, sets: st.sets, ...(from != null ? { from: String(from) } : {}) }, { quiet: true });
@@ -54,9 +57,19 @@ export function flowView(project, desc) {
       await showRun(res.result.id);
     } catch (err) {
       st.running = false;
-      if (err.kind !== 'busy') st.error = err.message;
+      if (err.kind === 'cancelled' || err.kind === 'gone') {
+        // 끝난 단계는 그대로 남는다(기록·채택·바뀜) — 무엇이 끝났고 어디서 멈췄는지를 단계 줄에 그대로 둔다
+        st.cut = { kind: err.kind, lines: st.lines.slice(), at: nextStep(), made: st.made.slice() };
+      } else if (err.kind !== 'busy') st.error = err.message;
       render();
     }
+  }
+
+  /** 지금 도는(또는 멈춘) 단계의 번호 — 마지막으로 끝난 단계 다음 */
+  function nextStep() {
+    const steps = st.plan?.steps || [];
+    const after = st.lines.length ? st.lines[st.lines.length - 1].n : (Number(st.from) || 1) - 1;
+    return steps.find((x) => x.n > after)?.n ?? null;
   }
 
   // ---- 그리기 -----------------------------------------------------------------------------------
@@ -76,7 +89,9 @@ export function flowView(project, desc) {
   function stepRows() {
     const steps = st.plan?.steps || [];
     const done = Object.fromEntries((st.run?.steps || []).map((s) => [s.n, s]));
-    const live = st.running ? Object.fromEntries(st.lines.map((l) => [l.n, l])) : {};
+    const cut = !st.running && !st.run ? st.cut : null;
+    const live = st.running ? Object.fromEntries(st.lines.map((l) => [l.n, l])) : cut ? Object.fromEntries(cut.lines.map((l) => [l.n, l])) : {};
+    const at = st.running ? nextStep() : null;
     const out = [];
     let section = null;
     for (const s of steps) {
@@ -86,7 +101,10 @@ export function flowView(project, desc) {
       }
       const r = st.running ? null : done[s.n];
       const l = live[s.n];
-      const mark = r ? MARK[r.status] || ['?', 'none', r.status] : l ? [l.mark, l.mark === '✓' ? 'ok' : l.mark === '!' ? 'warn' : 'bad', ''] : st.running && s.n === (st.lines.length ? st.lines[st.lines.length - 1].n + 1 : (Number(st.from) || 1)) ? ['…', 'busy', '도는 중'] : ['', 'none', ''];
+      const stopped = cut && s.n === cut.at;
+      const mark = r ? MARK[r.status] || ['?', 'none', r.status] : l ? LIVE(l.mark)
+        : st.running && s.n === at ? ['…', 'busy', '도는 중']
+          : stopped ? ['✗', 'bad', cut.kind === 'cancelled' ? '취소함' : '끊김'] : ['', 'none', ''];
       const changing = (s.effects || []).length;
       out.push(h('div', { class: `step-row ${mark[1]} ${s.skip ? 'skipped' : ''}`.trim(), 'data-step': s.n },
         h('span', { class: `mark ${mark[1]}`, title: mark[2] }, mark[0]), h('span', { class: 'n' }, s.n),
@@ -95,11 +113,29 @@ export function flowView(project, desc) {
           r ? h('div', { class: 'what' }, r.detail || MARK[r.status]?.[2] || '', (r.records || []).map((id) => h('button', { class: 'link mono', type: 'button', onclick: () => project.openRecord(id) }, id)),
             r.elapsed != null ? h('span', { class: 'muted' }, seconds(r.elapsed)) : null)
             : l ? h('div', { class: 'what' }, l.text)
+              : stopped ? h('div', { class: 'what' }, cut.kind === 'cancelled' ? '이 단계를 하던 중에 취소했습니다' : '이 단계를 하던 중에 작업 프로세스가 끝났습니다')
               : h('div', { class: 'what muted' }, s.kind === 'py' ? 'Python 단계 — 앱은 돌리지 않습니다(터미널에서 equion run 으로)' : changing ? ['바꾸는 것: ', s.effects.join(' · ')] : s.kind === 'expect' ? '앞 단계의 결과를 견준다' : '기록만 남긴다')),
         changing && !r ? h('span', { class: 'tag warn', title: '정의 파일이나 지금 회차를 바꾸는 단계입니다 — 바뀜 기록에 남습니다' }, '바꿈') : null,
         !st.running && s.n > 1 ? h('button', { class: 'btn small quiet from', type: 'button', disabled: project.busy || !st.plan.ok, title: `equion run ${path} --from ${s.n} — 앞 단계는 건너뛰고 여기서부터 다시`, onclick: () => start(s.n) }, '여기부터') : null));
     }
     return out;
+  }
+
+  /** 끝까지 돌지 못한 실행 — 어디까지 끝났고 무엇이 남았는지, 멈춘 단계부터 다시 */
+  function cutHead() {
+    const c = st.cut;
+    if (!c || st.running || st.run) return null;
+    const step = (st.plan?.steps || []).find((x) => x.n === c.at);
+    const line = step ? (step.line.length > 40 ? `${step.line.slice(0, 39)}…` : step.line) : '';
+    const left = c.lines.length || c.made.length;
+    return h('div', { class: 'banner warn flow-cut' }, icon('alert'),
+      h('div', { class: 'grow' }, h('b', {}, c.kind === 'cancelled' ? '취소했습니다' : '작업 프로세스가 끝나 멈췄습니다'),
+        ` — ${c.lines.length ? `${c.lines.length}단계가 끝났고` : '끝난 단계가 없고'}${c.at ? ` ${c.at}단계${line ? `(${line})` : ''}에서 멈췄습니다` : ''}.`,
+        h('div', { class: 'muted' }, left
+          ? ['끝난 단계가 남긴 것(기록 · 채택 · 정의 바뀜)은 그대로입니다 — 되돌리려면 바뀜 기록에서.', c.made.length ? ' 남긴 기록 ' : null,
+            c.made.slice(0, 8).map((id) => h('button', { class: 'link mono', type: 'button', onclick: () => project.openRecord(id) }, id)), c.made.length > 8 ? ` 외 ${c.made.length - 8}` : null]
+          : '아무것도 바뀌지 않았습니다.')),
+      c.at && c.at > 1 ? h('button', { class: 'btn small', type: 'button', 'data-act': 'resume', disabled: project.busy || !st.plan?.ok, title: `equion run ${path} --from ${c.at} — 멈춘 단계부터 다시`, onclick: () => start(c.at) }, `${c.at}단계부터 다시`) : null);
   }
 
   function runHead() {
@@ -139,7 +175,7 @@ export function flowView(project, desc) {
         h('button', { class: 'btn small', type: 'button', onclick: () => project.openTab({ type: 'file', path, edit: true }) }, '글 고치기')));
     }
     if (p.python.length) el.append(h('div', { class: 'banner info' }, icon('info'), h('div', {}, `Python 단계가 ${p.python.length}개 있습니다(${p.python.join(' · ')}단계) — 앱은 이 단계를 돌리지 않습니다. 모두 돌리려면 터미널에서 `, h('code', {}, command), '.')));
-    put(el, runHead(),
+    put(el, runHead(), cutHead(),
       h('div', { class: 'an-form flow-form' }, params(),
         h('div', { class: 'steps' }, stepRows()),
         h('button', { class: 'cmdline', type: 'button', title: '같은 일을 터미널에서 하는 명령 — 누르면 복사합니다', onclick: () => copyText(command, '명령을 복사했습니다') }, h('span', { class: 'prompt' }, '>'), h('span', { class: 'cmd' }, command), icon('copy'))),
@@ -156,11 +192,13 @@ export function flowView(project, desc) {
       if (e.type === 'job') {
         const job = project.job;
         if (st.running && job?.op === 'script_run' && job.state === 'progress' && job.line) {
-          const m = /^\[(\d+)\/\d+\]\s+(.*?)\s+([✓!✗x])\s+(.*)$/.exec(job.line);
-          if (m && !st.lines.some((l) => l.n === Number(m[1]))) { st.lines.push({ n: Number(m[1]), mark: m[3], text: m[4] }); render(); }
+          const m = /^\[(\d+)\/[\d?]+\]\s+(.*?)\s+([✓!✗×x–-])(?:\s+(.*))?$/.exec(job.line);
+          if (m && !st.lines.some((l) => l.n === Number(m[1]))) { st.lines.push({ n: Number(m[1]), mark: m[3], text: m[4] || '' }); render(); }
         } else {
-          for (const b of el.querySelectorAll('[data-act="run"], .step-row .from')) b.disabled = project.busy || st.running || !st.plan?.ok;
+          for (const b of el.querySelectorAll('[data-act="run"], [data-act="resume"], .step-row .from')) b.disabled = project.busy || st.running || !st.plan?.ok;
         }
+      } else if (e.type === 'record' && st.running && e.record?.id && e.record.kind !== 'run') {
+        if (!st.made.includes(e.record.id)) st.made.push(e.record.id);         // 단계가 남긴 기록 — 끝까지 못 돌아도 무엇이 남았는지 알린다
       } else if (e.type === 'defs' && loaded && !st.running) plan();
       else if ((e.type === 'record' || e.type === 'records') && !st.running) render();
     },

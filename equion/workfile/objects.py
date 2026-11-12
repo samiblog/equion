@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from ..estimation.equation import Equation
+from ..formula.parser import has_instruments
 from ..stats import diagnostics as _diag
 from ..stats.result import TestResult
 from ..scenario import (Scenario, control_simulation, missing_exogenous, missing_history, multipliers,
@@ -110,7 +111,7 @@ class EquationObject:
 
         관련: tsls · nls · fixed · set_cov
         """
-        if " @inst" in f" {spec}" or " @ " in f" {spec} ":
+        if has_instruments(spec):
             raise ValueError("도구변수가 있는 식은 .tsls(...)로 추정하세요.")
         return self._adopt(self._make(spec, cov=cov, lags=lags), spec)
 
@@ -137,7 +138,7 @@ class EquationObject:
         """
         if isinstance(inst, str):
             inst = inst.split()
-        if inst is None and "@inst" not in spec and " @ " not in f" {spec} ":
+        if inst is None and not has_instruments(spec):
             raise ValueError("tsls에는 도구변수가 필요합니다 (inst=[...] 또는 '@inst …').")
         return self._adopt(self._make(spec, method="tsls", instruments=inst, cov=cov, lags=lags), spec)
 
@@ -182,7 +183,7 @@ class EquationObject:
         """
         if isinstance(inst, str):
             inst = inst.split()
-        if inst is None and "@inst" not in spec and " @ " not in f" {spec} ":
+        if inst is None and not has_instruments(spec):
             raise ValueError("gmm에는 도구변수가 필요합니다 (inst=[...] 또는 '@inst …').")
         return self._adopt(self._make(spec, method="gmm", instruments=inst, lags=lags, gmm_weight=weight,
                                       iterate=iterate), spec)
@@ -198,7 +199,7 @@ class EquationObject:
         """
         if isinstance(inst, str):
             inst = inst.split()
-        if inst is None and "@inst" not in spec and " @ " not in f" {spec} ":
+        if inst is None and not has_instruments(spec):
             raise ValueError("liml에는 도구변수가 필요합니다 (inst=[...] 또는 '@inst …').")
         return self._adopt(self._make(spec, method="liml", instruments=inst, cov=cov, lags=lags), spec)
 
@@ -267,10 +268,18 @@ class EquationObject:
             raise ValueError(f"{test}: 잔차가 사실상 0입니다(완전 적합) — 잔차 검정을 할 수 없습니다")
         return eq
 
+    @staticmethod
+    def _regressor_tests_ok(eq) -> bool:
+        """회귀변수로 보조 회귀를 하는 검정(계열상관 LM·White·Breusch-Pagan·RESET)을 할 수 있는 식인가 — AR 오차가 없는 OLS.
+        AR 오차식의 잔차(혁신)는 원래 회귀변수만으로 하는 보조 회귀와 맞지 않고, WLS·도구변수·NLS는 보조 회귀가 다르다."""
+        return eq.method == "ols" and not eq.ar_lags
+
     def _linear(self, test: str):
         eq = self._residuals_ok(self._ensure_fit(), test)
-        if eq.method != "ols" or eq.ar_lags:
-            raise ValueError(f"{test}은(는) OLS 식에만 쓸 수 있습니다({self.name}: {eq.method.upper()}). "
+        if not self._regressor_tests_ok(eq):
+            what = (f"OLS + AR 오차 {', '.join(f'ar({p})' for p in eq.ar_lags)}" if eq.ar_lags
+                    else eq.method.upper())
+            raise ValueError(f"{test}은(는) AR 오차가 없는 OLS 식에만 쓸 수 있습니다({self.name}: {what}). "
                              "잔차 검정(ljungbox·arch·normality)과 wald는 모든 추정법에 쓸 수 있습니다.")
         return eq, eq._results
 
@@ -279,7 +288,7 @@ class EquationObject:
         return r
 
     def serial_lm(self, lags: int = 2) -> TestResult:
-        """계열상관 LM 검정(Breusch-Godfrey). 귀무가설: 시차 lags까지 잔차에 계열상관이 없다. OLS·WLS 식.
+        """계열상관 LM 검정(Breusch-Godfrey). 귀무가설: 시차 lags까지 잔차에 계열상관이 없다. AR 오차가 없는 OLS 식.
 
         예
             >>> wf = eqn.datasets.load("toy_q")
@@ -563,7 +572,8 @@ class EquationObject:
     def diagnostics(self, lags: int = 2) -> TableOutput:
         """표준 진단 한 표 — 계열상관 LM·White·Breusch-Pagan·Ljung-Box·ARCH·Jarque-Bera·RESET.
 
-        OLS가 아니면 잔차 검정(Ljung-Box·ARCH·Jarque-Bera)만. 잔차가 사실상 0이면(완전 적합) 오류다.
+        AR 오차가 없는 OLS가 아니면(WLS·도구변수·NLS·AR 오차식) 잔차 검정(Ljung-Box·ARCH·Jarque-Bera)만 — 낱개 검정
+        (serial_lm·white·breusch_pagan·reset)과 같은 기준이다. 잔차가 사실상 0이면(완전 적합) 오류다.
 
         예
             >>> wf = eqn.datasets.load("toy_q")
@@ -575,18 +585,19 @@ class EquationObject:
         eq = self._residuals_ok(self._ensure_fit(), "진단")
         e = eq._results.resid.to_numpy()
         tests = []
-        if eq.method == "ols":
+        full = self._regressor_tests_ok(eq)
+        if full:
             X, y, f = eq._X.to_numpy(), eq._y.to_numpy(), eq._results.fittedvalues.to_numpy()
             tests += [(f"계열상관 LM({lags})", _diag.breusch_godfrey(e, X, lags)),
                       ("White(교차항)", _diag.white(e, X)), ("Breusch-Pagan-Godfrey", _diag.breusch_pagan(e, X))]
         tests += [(f"Ljung-Box Q({max(lags, 4)})", _diag.ljung_box(e, max(lags, 4))), ("ARCH LM(1)", _diag.arch_lm(e, 1)),
                   ("Jarque-Bera", _diag.jarque_bera(e))]
-        if eq.method == "ols":
+        if full:
             tests.append(("RESET(1)", _diag.reset(y, X, f, 1)))
         df = pd.DataFrame({"통계량": [t.statistic for _, t in tests], "p값": [t.pvalue for _, t in tests],
                            "5%에서": ["기각" if t.reject() else "기각 못 함" for _, t in tests],
                            "귀무가설": [t.null for _, t in tests]}, index=pd.Index([n for n, _ in tests], name="검정"))
-        foot = [] if eq.method == "ols" else [f"{eq.method.upper()} 식이라 잔차 검정만 했습니다"]
+        foot = [] if full else [("AR 오차식" if eq.ar_lags else f"{eq.method.upper()} 식") + "이라 잔차 검정만 했습니다"]
         return TableOutput(df, title=f"방정식 {self.name} 진단", foot=foot, name=f"{self.name}_diag")
 
     # ---- 결과 접근 (pandas) ---------------------------------------------
@@ -655,9 +666,11 @@ class EquationObject:
 
     @property
     def fitted(self) -> pd.Series:
-        """적합값(표본 기간 Series)."""
+        """적합값(표본 기간 Series) = 추정에 쓴 종속변수 − 잔차 — 추정한 뒤 자료를 바꿔도 달라지지 않는다."""
+        eq = self._require()
         r = self.resid
-        return (self.actual.loc[r.index] - r).rename("fitted")
+        y = eq._y if (eq._y is not None and r.index.isin(eq._y.index).all()) else self.actual   # 복원한 식은 지금 자료
+        return (y.loc[r.index] - r).rename("fitted")
 
     @property
     def results(self):
@@ -1521,7 +1534,8 @@ class ModelObject:
             SolveResult — .counts() · .status() · .statistics() · .summary() · .save()
 
         오류
-            ValueError: 옵션 값이 틀림 · StructureError: 모델 구조(같은 변수를 두 식이 결정 등)
+            ValueError: 옵션 값이 틀림 · 별칭 이름의 시리즈(예: 사용자가 만든 I_1)가 이미 있는데 풀이 결과가 아님(덮어쓰지 않는다)
+            StructureError: 모델 구조(같은 변수를 두 식이 결정 등)
 
         예
             >>> wf = eqn.datasets.load("toy_q")
@@ -1546,7 +1560,10 @@ class ModelObject:
                           "실측·시나리오 경로로 고정됩니다. 모형 일관 기대는 mode='dynamic', mce=True")
         res = quiet(lambda: sc._sc.run(model, s, e, mode=mode, store=False, verbose=False, **opts))
         sim = res.sim
-        wf._write_block({f"{v}{sc.alias}": sim.values[v].to_numpy(dtype=float) for v in sim.values.columns}, s, e)
+        wf._write_results({f"{v}{sc.alias}": sim.values[v].to_numpy(dtype=float) for v in sim.values.columns}, s, e,
+                          f"모델 {self.name}·시나리오 {sc.name}({sc.alias})",
+                          "그 시리즈를 다른 이름으로 옮기거나(wf['새 이름'] = wf['…']; wf.delete('…')), 별칭을 정해 새 시나리오를 "
+                          "만드세요(m.scenario('새 이름', alias='_a')).")
         self.last = SolveResult(self.name, sc.name, sc.alias, sim,
                                 wf._label(wf.data.index[s]), wf._label(wf.data.index[e]), engine=model)
         record_solve(self.last)
@@ -1578,7 +1595,9 @@ class ModelObject:
         """
         wf = self._wf
         from ..data.periods import parse_period, to_period
-        if parse_period(end, wf.freq) > to_period(wf.index[-1], wf.freq):
+        if isinstance(start, str) and isinstance(end, str) and parse_period(start, wf.freq) > parse_period(end, wf.freq, end=True):
+            raise ValueError(f"전망 구간이 비었습니다: 시작 {start}이(가) 끝 {end}보다 뒤입니다")
+        if parse_period(end, wf.freq, end=True) > to_period(wf.index[-1], wf.freq):
             wf.extend(end)
         model = self._build()
         if exog_fill:
@@ -1586,7 +1605,7 @@ class ModelObject:
             cols = [v for v in model.get_exogenous_variables() if v in wf.data.columns and v not in ind]
             quiet(wf._data.fill_series, cols, method=exog_fill)
         sc = self._sc(scenario)
-        miss = missing_exogenous(model, wf._index_of(start), wf._index_of(end), sc._sc)
+        miss = missing_exogenous(model, wf._index_of(start), wf._index_of(end, end=True), sc._sc)
         if miss:
             lines = [f"{k}: {v[0]}~{v[-1]} ({len(v)}기)" for k, v in list(miss.items())[:12]]
             raise ValueError("전망 구간에 외생변수 값이 없습니다 — 시나리오 override, wf.fill(...), 또는 "
@@ -1626,10 +1645,11 @@ class ModelObject:
                 scenario=None, **kw) -> pd.Series:
         """목표 추적 — target(내생)이 path를 따르도록 instrument(외생)를 거꾸로 풀어 시리즈(기본 이름 instrument + '_C')로 쓴다.
 
-        path는 Series·{기간: 값}·스칼라 — start~end 구간에만 쓰인다.
+        path는 Series·{기간: 값}·스칼라 — start~end 구간에만 쓰인다. 결과 시리즈는 구간 밖이 빈 칸이다.
 
         오류
             SimulationError: instrument가 내생이거나 target이 instrument에 반응하지 않음
+            ValueError: 결과 이름의 시리즈가 이미 있는데 풀이 결과가 아님(사용자 시리즈 — 덮어쓰지 않는다)
 
         예
             >>> wf = eqn.datasets.load("toy_q")
@@ -1646,7 +1666,8 @@ class ModelObject:
         sim = quiet(control_simulation, self._build(), target, instrument, path, s, e,
                     scenario=self._sc(scenario)._sc, verbose=False, **kw)
         out = name or f"{instrument}_C"
-        wf._write_range(out, sim.values[instrument].to_numpy(dtype=float), s, e)
+        wf._write_results({out: sim.values[instrument].to_numpy(dtype=float)}, s, e, f"모델 {self.name}·control",
+                          "다른 이름을 주세요(name='…').")
         say(f"[{self.name}] control {target} ← {instrument} → {out}")
         return wf[out]
 

@@ -14,6 +14,7 @@ test_project.py — 프로젝트(부품·조립 층, D32 — 개발 계획 E1) �
   G. 자료 정의·회차(D34, E2): 불러오기 틀(엑셀 머리줄·단위줄·시점 꼴·결측 표시·천 단위·괄호 음수·cp949), 정의 문제(모아서),
      만들기(값의 종류·주기 변환·배율·채움·계절조정·파생), 같은 내용, 이 회차로 바꾸기(주석 유지), 차이·영향, 원자료 넣기(틀 검사)
   H. 상대 기간(last·last-N·next:N)과 자료 회차 명령줄(equion data list·add·build·use·diff·impact)
+  P. 메시지(거꾸로 된 구간·빈 외생의 처방·돌고 도는 include 한 줄·.xls)와 상대 경로(지금 폴더 → 프로젝트 폴더)·스킬 설치 자리
 자료는 예제 자료 toy_q·toy_m(예제 프로젝트의 DATA/raw/)과 코드로 만든 합성 표만 쓴다.
 """
 
@@ -255,7 +256,13 @@ def _main(tmp, t0):
     df.loc[df.index[-4:], "POIL"] = np.nan
     df.to_csv(os.path.join(pe, "DATA", "raw", "toy_q.csv"), index=False)
     pq = quiet(Project.open, pe)
-    quiet(pq.data_build, use=True)
+    from equion.projects.vintage import ShorterError
+    v_before = pq.vintage
+    check("자료 만들기: 지금 회차보다 짧아진 시리즈(POIL 끝이 이름)는 거절 — 아무것도 바꾸지 않는다(fixF)",
+          raises(lambda: pq.data_build(use=True), ShorterError, "POIL 1970Q1~2019Q4 → 1970Q1~2018Q4") and pq.vintage == v_before)
+    rb = quiet(pq.data_build, use=True, allow_shorter=True)
+    check("자료 만들기 --allow-shorter: 만들고 바꾸되 '!'로 남긴다", rb.created and pq.vintage == rb.id
+          and any("POIL" in w for w in rb.warnings) and "  ! " in rb.text(), rb.text()[:300])
     r = quiet(pq.assemble, "main")
     check("조립: 일찍 끝나는 외생은 주의", r.ok and any("POIL(~2018Q4)" in w for w in r.warnings), "; ".join(r.warnings))
 
@@ -371,12 +378,42 @@ def _main(tmp, t0):
     _group_part_tests(tmp)
     _scenario_tests(tmp)
     _wide_milestone_tests(tmp)
+    _message_path_tests(tmp)
+    _inbox_shape_tests(tmp)
+    _single_block_tests(tmp)
 
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:
         print("실패:", ", ".join(FAIL))
     return len(FAIL)
+
+
+def _single_block_tests(tmp):
+    print("=" * 80)
+    print("개별 식 블록 single — block add가 처음 쓸 때 만든다(Desk와 같게, 모형에는 넣지 않음)")
+    print("=" * 80)
+    p, d = new_project(tmp, "single_new")
+    cf = os.path.join(d, "equion.toml")
+    models = dict(p.config.models)
+    code, out, err = run(["block", "add", "single", "IPQ c IPQ(-1)"], d)
+    q = Project.open(d)
+    check("새 프로젝트에서 equion block add single \"식\" — 블록 single을 만들고(설명 '개별 식') 식을 더한다, 어느 모형도 쓰지 않는다",
+          code == 0 and "single" in q.config.blocks and q.part("single:IPQ").text == "IPQ c IPQ(-1)" and q.used_by("single") == []
+          and {k: v.blocks for k, v in q.config.models.items()} == {k: v.blocks for k, v in models.items()}
+          and "새 블록  single" in out, err[-300:] + out[-300:])
+    hist = [c.how for c in q.history.list()]
+    check("바뀜 기록 둘 — block define single · block add single(Desk가 남기는 것과 같은 차례)",
+          hist[-2].endswith("block define single") and "block add single" in hist[-1],
+          str(hist[-3:]))
+    p2, d2 = new_project(tmp, "single_bad")
+    text = read(os.path.join(d2, "equion.toml"))
+    code2, _, err2 = run(["block", "add", "single", "ZZQ c ZZQ(-1)"], d2)
+    code3, _, err3 = run(["block", "add", "other", "IPQ c IPQ(-1)"], d2)
+    check("틀린 식이면 블록도 만들지 않는다(3) · single이 아닌 없는 블록은 그대로 '먼저 block define'(3)",
+          code2 == 3 and "ZZQ" in err2 and read(os.path.join(d2, "equion.toml")) == text
+          and not os.path.exists(os.path.join(d2, "EQUATIONS", "single.txt"))
+          and code3 == 3 and "block define other" in err3, err2[-200:] + err3[-200:])
 
 
 def problems_of(fn):
@@ -834,6 +871,13 @@ def _config_define_tests(tmp):
           and any("돌고 돕니다" in x for x in probs[3]) and "없는 모형 'nope'" in probs[4][0]
           and raises(lambda: P.model_define("9x", blocks=["price"]), ProjectError, "영문으로 시작") and read(cf) == text and len(P.history.list()) == n,
           str([x[:1] for x in probs]))
+    check("모형 정의: exclude의 식이 그 모형에 없으면 쓰기 전에 거절(조립 때가 아니라) — 아무것도 쓰지 않는다 · 있는 식은 된다",
+          raises(lambda: P.model_define("mx3", blocks=["demand", "price"], exclude=["demand:NOPE"]), ProjectError, "exclude 'demand:NOPE'")
+          and raises(lambda: P.model_define("dp", exclude=["finance:RL"]), ProjectError, "이 모형에 그런 식이 없습니다")
+          and read(cf) == text and len(P.history.list()) == n and "mx3" not in P.models
+          and P.model_define("mx3", blocks="demand price", exclude="demand:I").new and P.assemble("mx3").ok)
+    code, _, err = run(["model", "define", "m4", "--blocks", "demand", "--exclude", "demand:NOPE"], d)
+    check("명령줄 model define: 없는 식을 빼라면 3", code == 3 and "demand:NOPE" in err, err[:200])
     b = P.block_define("labor", desc="노동")
     bf = os.path.join(d, "EQUATIONS", "labor.txt")
     ch = P.history.get(b.change)
@@ -896,7 +940,10 @@ def _view_tests(tmp):
           and raises(lambda: P.view_define("fresh", show="yoy"), ProjectError, "series")
           and raises(lambda: P.view_define("9x", series=["Y"]), ProjectError, "영문으로 시작")
           and raises(lambda: P.view_define("core", range="2015Q1"), ProjectError, "시작:끝")
-          and read(vf) == text and len(P.history.list()) == n and not os.path.exists(os.path.join(d, "VIEWS", "fresh.toml")))
+          and raises(lambda: P.view_define("core", range="2015Q1:zzz"), ProjectError, "풀 수 없는 구간")
+          and raises(lambda: P.view_define("v9", series=["Y"], range="2019Q4:2015Q1"), ProjectError, "풀 수 없는 구간")
+          and read(vf) == text and len(P.history.list()) == n and not os.path.exists(os.path.join(d, "VIEWS", "fresh.toml"))
+          and not os.path.exists(os.path.join(d, "VIEWS", "v9.toml")))
     check("보기: 시리즈 이름은 대소문자를 가리지 않고 받는다(적은 그대로 둔다)", P.view_define("lower", series=["y", "cn"]).series == ["y", "cn"])
     write(os.path.join(d, "VIEWS", "broken.toml"), 'series = "Y"\nshape = 1\n')
     probs = problems_of(lambda: P.views())
@@ -1003,18 +1050,28 @@ def _group_part_tests(tmp):
           mv.part == "finance:M2" and mv.moved_from == "single:M2" and "M2 c Y RL" not in read(sf) and "M2 c Y RL   # 통화수요" in read(ff)
           and sorted(ch.files) == ["EQUATIONS/adopted.toml", "EQUATIONS/finance.txt", "EQUATIONS/single.txt"]
           and "single:M2" not in P.adopted and "main" in P.used_by("finance:M2"), str(sorted(ch.files)))
-    check("식 옮기기: 같은 블록에서는 안 된다 · 없는 부품", raises(lambda: P.part_add("finance", "M3 c Y", from_part="finance:RL"), ProjectError, "이미 블록")
-          and raises(lambda: P.part_add("single", "M3 c Y", from_part="nope:X"), ProjectError, "없는 부품"))
+    check("식 옮기기: 같은 블록에서는 안 된다 · 없는 부품", raises(lambda: P.part_add("finance", "G c Y", from_part="finance:RL"), ProjectError, "이미 블록")
+          and raises(lambda: P.part_add("single", "G c Y", from_part="nope:X"), ProjectError, "없는 부품"))
+    n_hist = len(P.history.list())
+    check("식 더하기: 자료에 없는 시리즈는 거절(목표·우변 — 쓰기 전에, 파일 그대로) · 항등식의 새 목표는 된다",
+          raises(lambda: P.part_add("single", "ZZQ c G(-1)"), ProjectError, "자료에 없는 시리즈: ZZQ")
+          and raises(lambda: P.part_add("single", "G c ZZX(-1)"), ProjectError, "ZZX")
+          and raises(lambda: P.part_add("single", "GAP = Y - ZZY"), ProjectError, "ZZY")
+          and len(P.history.list()) == n_hist and P.part_add("single", "GAP = Y - CN - I").part == "single:GAP")
+    P.part_remove("single:GAP")
     code, out, _ = run(["group", "define", "rates", "--series", "R,RL", "--desc", "금리"], d)
     code2, out2, _ = run(["group", "list", "--json"], d)
-    code3, out3, _ = run(["block", "add", "single", "Q c Y", "--json"], d)
-    code4, _, err4 = run(["block", "add", "single", "Q c Y"], d)
-    code5, out5, _ = run(["block", "remove", "single:Q"], d)
+    code3, out3, _ = run(["block", "add", "single", "G c Y", "--json"], d)
+    code4, _, err4 = run(["block", "add", "single", "G c Y"], d)
+    code5, out5, _ = run(["block", "remove", "single:G"], d)
     code6, _, err6 = run(["group", "define", "bad", "--series", "NOPE"], d)
     check("명령줄: group define·list · block add(--json)·remove · 같은 목표(3) · 없는 시리즈(3)",
           code == 0 and "새 묶음" in out and code2 == 0 and [g["name"] for g in json.loads(out2)] == ["core", "rates"]
-          and code3 == 0 and json.loads(out3)["part"] == "single:Q" and code4 == 3 and "이미 목표" in err4
-          and code5 == 0 and "[block remove] single:Q" in out5 and code6 == 3 and "자료에 없는" in err6, out + err4)
+          and code3 == 0 and json.loads(out3)["part"] == "single:G" and code4 == 3 and "이미 목표" in err4
+          and code5 == 0 and "[block remove] single:G" in out5 and code6 == 3 and "자료에 없는" in err6, out + err4)
+    code7, out7, err7 = run(["block", "add", "single", "ZZQ c G(-1)", "--json"], d)
+    check("명령줄: block add — 자료에 없는 시리즈(3) · --json이면 JSON 하나(자료를 여는 줄 없이)", code7 == 3
+          and "ZZQ" in json.loads(out7)["error"]["message"] and not err7.strip(), out7[:200])
 
 
 def _scenario_tests(tmp):
@@ -1054,6 +1111,21 @@ def _scenario_tests(tmp):
           and raises(lambda: P.scenario_define("risk", base="nope"), ProjectError, "없는 가정 세트")
           and raises(lambda: P.scenario_define("risk", shocks=["R=1@2020X9"]), ProjectError, "기간 라벨")
           and raises(lambda: P.scenario_define("base", shocks=["R=1"]), ProjectError, "기준선") and read(sf) == before)
+    check("거절(모형·전망 구간에 대어): 항등식에 식 보정 · 항등식이 정하는 내생변수에 충격 · 전망 구간 밖 · 거꾸로인 기간",
+          raises(lambda: P.scenario_define("risk", addfactor=["demand:Y=5"]), ProjectError, "demand:Y는 항등식입니다")
+          and raises(lambda: P.scenario_define("risk", shocks=["Y=+1"]), ProjectError, "항등식(demand:Y)이 정하는 내생변수")
+          and raises(lambda: P.scenario_define("risk", shocks=["POIL=+10%@2030Q1:2030Q4"]), ProjectError, "효과가 없습니다")
+          and raises(lambda: P.scenario_define("risk", shocks=["POIL=+10%@start+3:start"]), ProjectError, "시작이 끝보다 뒤")
+          and read(sf) == before)
+    w1 = P.scenario_define("risk", shocks=["CN=+2"])
+    w2 = P.scenario_define("risk", shocks=["POIL=+10%@2019Q1:start+1"])
+    check("알림(쓰기는 한다): 추정식의 내생변수에 준 충격은 그 식의 보정항으로 · 기간 일부가 전망 구간 밖이면 잘린다",
+          any("내생변수(demand:CN)" in w and "보정항" in w for w in w1.warnings) and "! 충격 CN" in w1.text()
+          and w1.to_dict()["warnings"] == w1.warnings and any("밖은 풀 때 뺍니다" in w for w in w2.warnings)
+          and P.scenario_define("risk", shocks=["POIL=+10%"]).warnings == [], str(w1.warnings + w2.warnings))
+    code, _, err = run(["scenario", "define", "idf", "--addfactor", "demand:Y=5"], d)
+    check("명령줄: 항등식에 식 보정이면 3(파일을 쓰지 않는다)", code == 3 and "항등식" in err
+          and not os.path.exists(os.path.join(d, "SCENARIOS", "idf.toml")), err[:200])
     sim = quiet(P.sim, "risk")
     check("쓴 시나리오를 그대로 푼다(sim)", sim.meta.get("scenario") == "risk" and "POIL +10%" in sim.text(), sim.text()[:300])
     rm = P.scenario_remove("risk")
@@ -1071,6 +1143,13 @@ def _scenario_tests(tmp):
           code == 0 and "새 시나리오" in out and code2 == 0 and "rate1" in [x["name"] for x in json.loads(out2)]
           and code3 == 0 and "R +1 · start~start+3" in out3 and code4 == 3 and "변수=크기" in err4
           and code5 == 0 and "충격 1" in out5 and code6 == 0 and json.loads(out6)["removed"] is True, out + out3 + err4)
+    write(os.path.join(d, "SCENARIOS", "bad.toml"), '[[addfactor]]\neq = "demand:CN"\nvalue = "abc"\n')
+    rows = {x["name"]: x for x in P.scenarios()}
+    code, out, _ = run(["scenario", "list"], d)
+    check("목록: 값이 숫자가 아닌 파일 하나가 목록을 막지 않는다 — 그 파일만 파일 이름과 함께 '읽지 못함'",
+          "SCENARIOS/bad.toml" in rows["bad"].get("error", "") and "value는 숫자" in rows["bad"]["error"] and "error" not in rows["oil20"]
+          and code == 0 and "읽지 못함 — SCENARIOS/bad.toml" in out and "oil20" in out, out)
+    os.remove(os.path.join(d, "SCENARIOS", "bad.toml"))
 
 
 def _wide_milestone_tests(tmp):
@@ -1291,6 +1370,178 @@ def _wide_milestone_tests(tmp):
     dest2 = os.path.join(tmp, "nullver_out")
     check("묶음 열기: 이상한 명세(format_version null)는 3 — 반쯤 푼 것이 남지 않는다(QA)",
           raises(lambda: Project.from_bundle(bad2, dest2), ProjectError, "format_version") and not os.path.exists(dest2))
+
+
+def _message_path_tests(tmp):
+    print("=" * 80)
+    print("P. 메시지(거꾸로 된 구간·빈 외생·돌고 도는 include·.xls)와 상대 경로(지금 폴더 → 프로젝트 폴더)")
+    print("=" * 80)
+    P, d = new_project(tmp, "msgs")
+    code, _, err = run(["hs", "core", "--range", "2019Q4:2019Q1"], d)
+    code2, _, err2 = run(["ident", "demand:Y", "--check", "--range", "1990Q1:1980Q1"], d)
+    check("거꾸로 된 구간: 기간 라벨로 말한다(3) — hs·ident(엔진의 '199 > 196'이 아니라)", code == 3 and "2019Q4" in err and "2019Q1" in err
+          and "보다 뒤" in err and code2 == 3 and "1990Q1" in err2 and "1980Q1" in err2 and "> " not in err + err2, err + err2)
+    cfg = os.path.join(d, "equion.toml")
+    text = read(cfg)
+    write(cfg, text.replace('fill = "last"', 'fill = "none"', 1))           # [forecast] fill — 빈 외생을 채우지 않는다
+    code, _, err = run(["sim", "base"], d)
+    check("빈 외생: 명령줄의 처방(가정 세트 ASSUMPTIONS/ · [forecast] fill)을 말한다 — 워크파일 API의 wf.fill·exog_fill이 아니라(3)",
+          code == 3 and "ASSUMPTIONS/" in err and "[forecast] fill" in err and "wf.fill" not in err and "exog_fill" not in err
+          and "R: " in err, err[-400:])
+    write(cfg, text.replace('blocks = ["demand"]', 'blocks = ["demand"]\ninclude = ["main"]', 1))
+    code, _, err = run(["assemble", "main"], d)
+    check("돌고 도는 include: 고리 하나는 한 줄로(같은 고리를 여러 번 말하지 않는다)", code == 3 and err.count("돌고 돕니다") == 1, err)
+    write(cfg, text)
+    xls = os.path.join(d, "DATA", "raw", "old.xls")
+    with open(xls, "wb") as f:
+        f.write(b"\xd0\xcf\x11\xe0" + b"\0" * 64)
+    try:
+        import xlrd  # noqa: F401
+        has_xlrd = True
+    except ImportError:
+        has_xlrd = False
+    code, _, err = run(["data", "preview", "DATA/raw/old.xls"], d)
+    code2, _, err2 = run(["data", "add", xls], d)
+    code3, _, err3 = run(["data", "define", "oldx", "--file", "DATA/raw/old.xls", "--series", "ZQ=Y"], d)
+    check("엑셀 97-2003(.xls): xlrd가 없으면 알기 쉬운 글로 거절(3) — .xlsx·.csv로 저장하라고", has_xlrd or (
+          code == code2 == code3 == 3 and all("엑셀 97-2003" in e and ".xlsx" in e for e in (err, err2, err3))), err + err2 + err3)
+    os.remove(xls)
+    raw = os.path.join(d, "DATA", "raw")
+    code, out, err = run(["data", "define", "na", "--file", "toy_q.csv", "--desc", "국민계정"], raw)
+    check("상대 경로: 자료 정의의 --file도 지금 폴더(DATA/raw/)에서 먼저 — 정의에는 프로젝트 기준 경로", code == 0
+          and 'file = "DATA/raw/toy_q.csv"' in read(os.path.join(d, "DATA", "series.toml")), (out + err)[-300:])
+    sub = os.path.join(d, "EQUATIONS")
+    code, out, err = run(["guide", "skill", "--install", "project"], sub)
+    check("guide skill --install project: 하위 폴더(EQUATIONS/)에서 쳐도 프로젝트 폴더의 .claude/에", code == 0
+          and os.path.isfile(os.path.join(d, ".claude", "skills", "equion", "SKILL.md"))
+          and not os.path.exists(os.path.join(sub, ".claude")), out + err)
+
+
+def _na_csv(path, rows=None, unit=True, extra=None, grow=None):
+    """toy_q의 CN·I·G·Y·R로 원자료 파일(단위 줄 있음·없음, 기간 일부, 새 열, 끝에 한 기 더)."""
+    q = eqn.datasets.load("toy_q")[["CN", "I", "G", "Y", "R"]]
+    lab = [str(x) for x in pd.PeriodIndex(q.index, freq="Q")]
+    cols = list(q.columns) + list(extra or [])
+    lines = ["period," + ",".join(cols)]
+    if unit:
+        lines.append("," + ",".join("%" if c == "R" else "조원" for c in cols))
+    idx = list(range(len(q))) if rows is None else list(rows)
+    vals = [[float(q[c].iloc[i]) for c in q.columns] for i in idx]
+    if grow:                                   # 끝에 기간을 더 붙인다(값은 끝 값 × 1.005^k)
+        last, per = vals[-1], pd.Period(lab[idx[-1]], freq="Q")
+        for k in range(1, grow + 1):
+            vals.append([v * 1.005 ** k for v in last])
+            lab.append(str(per + k))
+            idx.append(len(lab) - 1)
+    for i, row in zip(idx, vals):
+        lines.append(lab[i] + "," + ",".join(f"{v:.3f}" for v in row) + "".join(",1.0" for _ in (extra or [])))
+    write(path, "\n".join(lines) + "\n")
+    return path
+
+
+def _inbox_shape_tests(tmp):
+    print("=" * 80)
+    print("Q. 받은 원자료의 모양 — 단위 줄이 빠진 파일 · 기간이 줄어든 파일 · 지난 파일 · 회차 이름을 다시 쓰지 않음 · 새 열 · 미리보기 줄 수 (fixF)")
+    print("=" * 80)
+    from equion.projects.vintage import ShorterError, used_ids
+    P, d = new_project(tmp, "shapes")
+    raw, inbox = os.path.join(d, "DATA", "raw"), os.path.join(d, "DATA", "raw", "inbox")
+    _na_csv(os.path.join(raw, "na.csv"))
+    write(os.path.join(d, "DATA", "series.toml"), '[source.na]\nfile = "DATA/raw/na.csv"\nunit_row = 2\n\n'
+          + "".join(f'[series.{c}]\nfrom = "na:{c}"\n' for c in ("CN", "I", "G", "Y", "R")))
+    write(os.path.join(d, "DATA", "derived.txt"), "")
+    P = quiet(Project.open, d)
+    va = P.vintage
+    b = quiet(P.data_build, use=True)
+    vb = P.vintage
+    check("준비: 단위 줄이 있는 원자료 — 시리즈가 줄어도(없어진 시리즈) 기간이 그대로면 거절하지 않는다", b.created and vb != va and not b.warnings,
+          b.text()[:200])
+
+    # 1. 단위 줄이 빠진 파일
+    _na_csv(os.path.join(inbox, "na_2020Q1.csv"), unit=False, grow=1)
+    items = quiet(P.data_inbox)
+    code, _, err = run(["data", "build", "--inbox", "auto", "--use"], d)
+    check("단위 줄이 빠진 받은 파일: 틀 검사에서 거절 — 단위 줄 자리와 값으로 보이는 칸(A2 '1970Q1')을 말하고 아무것도 넣지 않는다(3)",
+          items[0].status == "bad" and "단위 줄(2줄" in items[0].problems[0] and "A2 '1970Q1'" in items[0].problems[0]
+          and code == 3 and "단위" in err and quiet(Project.open, d).vintage == vb and os.path.isfile(os.path.join(inbox, "na_2020Q1.csv")),
+          (items[0].problems[:1], err[-300:]))
+    v = quiet(P.data_preview, "DATA/raw/inbox/na_2020Q1.csv", unit_row=2)
+    check("미리보기도 같은 까닭(.error) — unit_row 없이 읽으면 읽힌다", not v.ok and "단위 줄" in v.error
+          and quiet(P.data_preview, "DATA/raw/inbox/na_2020Q1.csv").ok)
+    os.remove(os.path.join(inbox, "na_2020Q1.csv"))
+
+    # 2. 최근 몇 기만 든 파일(기간이 줄어듦)
+    _na_csv(os.path.join(inbox, "na_2019Q4.csv"), rows=range(192, 200))
+    items = quiet(P.data_inbox)
+    code, out, err = run(["data", "build", "--inbox", "auto", "--use"], d)
+    check("최근 8기만 든 받은 파일: 'shorter'로 거절(3) — 지금 파일과 견준 기간, --allow-shorter를 말하고 넣지 않는다",
+          items[0].status == "shorter" and "1970Q1~2019Q4 → 2018Q1~2019Q4" in items[0].problems[0] and code == 3
+          and "--allow-shorter" in err and quiet(Project.open, d).vintage == vb and os.path.isfile(os.path.join(inbox, "na_2019Q4.csv"))
+          and 'file = "DATA/raw/na.csv"' in read(os.path.join(d, "DATA", "series.toml")), err[-300:])
+    write(os.path.join(d, "FLOWS", "inb.eqs"), "data build --inbox auto --use\ndata list\n")
+    code, out, err = run(["run", "FLOWS/inb.eqs"], d)
+    rr = json.loads(read(os.path.join(d, "work", "run", "inb_0001", "record.json")))
+    check("스크립트에서는 그 단계를 '!'로 남기고 이어 간다(종료 코드 0, 지금 회차 그대로) — 사람이 정할 일(D66)",
+          code == 0 and rr["steps"][0]["status"] == "flag" and "짧" in rr["steps"][0]["detail"] and rr["steps"][1]["status"] == "ok"
+          and quiet(Project.open, d).vintage == vb, (out + err)[-400:])
+    code, out, err = run(["data", "build", "--inbox", "auto", "--use", "--allow-shorter"], d)
+    P = quiet(Project.open, d)
+    vs = P.vintage
+    check("--allow-shorter: 넣고 회차를 만들되 '!'로 — 받은 파일의 줄에도 남긴다", code == 0 and vs != vb and "  ! " in out
+          and "--allow-shorter로 넣음" in out, out[-500:])
+    code, _, err = run(["hs", "core"], d)
+    check("짧은 회차에서 hs의 구간이 자료 밖: 명령줄의 처방(--range · [hs] range · data list)으로 — 파이썬 API의 'extend'가 아니라(3)",
+          code == 3 and "자료 밖" in err and "--range" in err and "extend" not in err, err)
+
+    # 3. 지난 파일 — 옛 회차로 돌아가기
+    code, out, _ = run(["data", "use", vb], d)
+    check("data use: 더 옛 회차로 가면(짧지는 않음) 그렇다고만 '!'(0)", code == 0 and "더 옛 회차" in out and "짧습니다" not in out, out)
+    code, out, _ = run(["data", "use", vs], d)
+    check("data use: 더 짧은 회차로 가면 하라는 대로 하되 '!'로 알린다(0)", code == 0 and "  ! " in out and "짧습니다" in out, out)
+    run(["data", "use", vb], d)
+    _na_csv(os.path.join(inbox, "na_2020Q1.csv"), grow=1, extra=["EXPO"])
+    items = quiet(P.data_inbox)
+    code, out, err = run(["data", "build", "--inbox", "auto", "--use"], d)
+    P = quiet(Project.open, d)
+    vc = P.vintage
+    check("새 열(EXPO)이 든 받은 파일: 넣되 정의에 없어 읽지 않는다고 — equion data define na --series EXPO=EXPO를 권한다",
+          items[0].status == "ready" and any("EXPO" in x and "data define na --series EXPO=EXPO" in x for x in items[0].notes)
+          and code == 0 and "EXPO" in out and vc not in (vb, vs), (items[0].notes, out[-300:]))
+    _na_csv(os.path.join(inbox, "na_old.csv"))                # 지난달 파일을 잘못 다시 넣음(끝이 한 기 이르다)
+    code, out, err = run(["data", "build", "--inbox", "auto", "--use"], d)
+    check("지난 파일(끝이 이른 파일)이 다시 오면 거절 — '바뀐 것 없음 ✓'으로 옛 회차로 돌아가지 않는다(3)",
+          code == 3 and "짧습니다" in err and quiet(Project.open, d).vintage == vc, err[-300:])
+    code, out, err = run(["data", "build", "--inbox", "auto", "--use", "--allow-shorter"], d)
+    check("그래도 넣으면(--allow-shorter) 옛 회차와 같은 내용 — 옛 회차로 돌아간다고 '!'로", code == 0 and quiet(Project.open, d).vintage == vb
+          and "옛 회차" in out and "  ! " in out, out[-400:])
+    run(["data", "use", vc], d)
+
+    # 4. 회차 이름을 다시 쓰지 않는다
+    shutil.rmtree(os.path.join(d, "work", "data", vc))
+    code, out, _ = run(["data", "list"], d)
+    check("data list: 지금 회차의 폴더가 없으면 그렇다고(! — data use · data build --use)", code == 0 and f"! 지금 회차 {vc}의 폴더" in out, out)
+    _na_csv(os.path.join(inbox, "na_2020Q2.csv"), grow=2, extra=["EXPO"])
+    code, out, err = run(["data", "build", "--inbox", "auto", "--use"], d)
+    vd = quiet(Project.open, d).vintage
+    check("손으로 지운 회차의 이름은 다시 쓰지 않는다 — 새 회차는 새 이름(장부 work/data/ids.txt · 기록이 가리키는 이름)",
+          code == 0 and vd not in (va, vb, vs, vc) and vc in used_ids(d) and vc in read(os.path.join(d, "work", "data", "ids.txt")),
+          (vd, out[-200:], err[-200:]))
+
+    # 5. 미리보기 줄 수
+    code, out, _ = run(["data", "preview", "DATA/raw/na.csv", "--unit-row", "2", "--rows", "3"], d)
+    code2, out2, _ = run(["data", "preview", "DATA/raw/na.csv", "--unit-row", "2"], d)
+    nrow = lambda t: sum(1 for x in t.splitlines() if x[:6].strip().isdigit() and "|" in x)
+    check("data preview --rows: 글 출력도 그 줄 수만큼(기본 12)", code == 0 and nrow(out) == 3 and nrow(out2) == 12, (nrow(out), nrow(out2)))
+
+    # 6. 이정표 되돌리기 — 자료를 어떻게 했는지
+    run(["milestone", "make", "m0"], d)
+    _na_csv(os.path.join(inbox, "na_2020Q3.csv"), grow=3, extra=["EXPO"])
+    run(["data", "build", "--inbox", "auto", "--use"], d)
+    code, out, _ = run(["milestone", "restore", "m0"], d)
+    check("milestone restore: 회차는 그대로라고 · 자료 정의가 그때의 원자료를 가리키게 됐다고 · 지금 원자료를 계속 쓰는 법(history revert --file)",
+          code == 0 and "자료 회차는 그대로" in out and "[source.na]" in out and "history revert" in out and "--file DATA/series.toml" in out, out)
+    code, _, err = run(["data", "build", "--use"], d)
+    check("되돌린 뒤의 자료 만들기는 짧아진 자료라 거절(3) — 말없이 이정표 때 자료로 돌아가지 않는다", code == 3 and "짧습니다" in err, err[-200:])
 
 
 def test_suite():

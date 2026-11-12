@@ -14,7 +14,7 @@ import sys
 
 from .. import registry as reg
 from .runner import EXIT_INPUT, EXIT_OK, EXIT_SCRIPT
-from .errors import fail
+from .errors import fail, soft
 
 PROG = "equion"
 COMMANDS = ("an", "note", "report")
@@ -68,7 +68,8 @@ def add_parsers(sub):
         sp.add_argument("target", metavar="대상", help=" · ".join(reg.TARGET_KO[t] for t in x.targets))
         for o in x.options:
             _add_option(sp, o)
-        sp.add_argument("--smpl", metavar="S:E", help="표본(상대 기간 가능 — 1990Q1:last)")
+        if x.smpl:
+            sp.add_argument("--smpl", metavar="S:E", help="표본(상대 기간 가능 — 1990Q1:last)")
         sp.add_argument("--as", dest="as_name", metavar="이름", help=f"기록 이름(기본 {x.name}_0001 …)")
         sp.add_argument("--note", metavar="노트", help="그 노트 끝에 명령 블록과 결과 구역을 더한다")
 
@@ -127,30 +128,65 @@ def dispatch(args, cmdline: str) -> int:
     who = detect_who("terminal")
     code = EXIT_OK
     try:
-        p = Project.open(args.project)
-        if args.command == "an":
-            out, code = _an(p, args, who, cmdline)
-        elif args.command == "note":
-            if args.note_command == "run":
-                r = p.note_run(args.note, block=args.block, stale=args.stale, force=args.force, who=who, command=cmdline)
-                out = r.to_dict() if args.json else r.text()
-                code = EXIT_OK if r.ok else EXIT_SCRIPT
-            elif args.note_command == "add":
-                r = p.note_add(args.note, lines=args.line, record=args.record, title=args.title, who=who, command=cmdline)
-                out = r.to_dict() if args.json else r.text()
-            else:
-                rs = [p.note_check(nm) for nm in args.notes]
-                out = [r.to_dict() for r in rs] if args.json else "\n".join(r.text() for r in rs)
-                code = EXIT_OK if all(r.ok for r in rs) else EXIT_INPUT
+        if args.command == "an" and args.an_command == "list":     # 등록부만 본다 — 프로젝트 밖에서도
+            out, code = _an(None, args, who, cmdline)
         else:
-            out = _report(p, args, who, cmdline)
+            p = Project.open(args.project)
+            if args.command == "an":
+                out, code = _an(p, args, who, cmdline)
+            elif args.command == "note":
+                if args.note_command == "run":
+                    r = p.note_run(args.note, block=args.block, stale=args.stale, force=args.force, who=who, command=cmdline)
+                    out, code = _note_run_out(r, args.json)
+                elif args.note_command == "add":
+                    r = p.note_add(args.note, lines=args.line, record=args.record, title=args.title, who=who, command=cmdline)
+                    out = r.to_dict() if args.json else r.text()
+                else:
+                    rs = [p.note_check(nm) for nm in args.notes]
+                    out = [r.to_dict() for r in rs] if args.json else "\n".join(r.text() for r in rs)
+                    code = EXIT_OK if all(r.ok for r in rs) else EXIT_INPUT
+            else:
+                out, code = _report(p, args, who, cmdline)
     except (ProjectError, RecordError, KeyError, ValueError) as e:
-        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
+        msg = f"{e.args[0] if isinstance(e, KeyError) else e}"
+        if HAND_EDITED in msg:                   # report add --key: 손으로 고친 구역 — 사람이 정할 것(스크립트에서는 '!')
+            soft(msg.splitlines()[0])
+        fail(msg)
         return EXIT_INPUT
     finally:
         verbose(old)
     print(json.dumps(out, ensure_ascii=False, indent=2, default=str) if args.json else out)
     return code
+
+
+HAND_EDITED = "손으로 고쳤습니다"
+
+
+def _with_error(out: dict, message: str, code: int) -> dict:
+    """--json 결과에 오류(error)를 붙인다 — 종료 코드가 0이 아니면 자동화는 error를 읽는다(D15)."""
+    from .errors import payload
+    return {**out, **payload(message, code)}
+
+
+def _note_run_out(r, as_json: bool):
+    """note run의 결과와 종료 코드 — 블록 명령 오류 1 · 허용 안 된 줄 3 · 손으로 고친 구역을 건너뜀 3(사람이 정할 것)."""
+    edited = [b for b in r.blocks if b.status == "edited"]
+    denied = [b for b in r.blocks if b.status == "denied"]
+    errored = [b for b in r.blocks if b.status == "error"]
+    code, why = EXIT_OK, ""
+    if errored:
+        code, why = EXIT_SCRIPT, "블록의 명령이 실패했습니다: " + "; ".join(f"블록 {b.n} — {b.detail}" for b in errored)[:300]
+    elif denied:
+        code, why = EXIT_INPUT, "노트에서 부를 수 없는 줄이 있어 그 블록을 돌리지 않았습니다: " + "; ".join(f"블록 {b.n} — {b.detail}" for b in denied)[:300]
+    elif edited:
+        code = EXIT_INPUT
+        why = (f"손으로 고친 결과 구역(블록 {', '.join(str(b.n) for b in edited)})은 덮지 않았습니다 — 사람에게 묻고, 덮으려면 "
+               f"equion note run {r.note} --force")
+        soft(why)
+    if as_json:
+        out = r.to_dict()
+        return (_with_error(out, why, code) if code else out), code
+    return r.text() + (f"\n  {why} (종료 코드 {code})" if code else ""), code
 
 
 def _an(p, args, who, cmdline):
@@ -170,23 +206,33 @@ def _an(p, args, who, cmdline):
         return (r.to_dict() if args.json else r.text()), EXIT_OK
     a = reg.get(act)
     opts = {o.name: getattr(args, o.name) for o in a.options}
-    r = p.an(act, args.target, smpl=args.smpl, as_name=args.as_name, note=args.note, who=who, command=cmdline, **opts)
+    r = p.an(act, args.target, smpl=getattr(args, "smpl", None), as_name=args.as_name, note=args.note, who=who, command=cmdline, **opts)
     return (r.to_dict() if args.json else r.text()), EXIT_OK
 
 
 def _report(p, args, who, cmdline):
+    from ..projects.project import resolve_path
     act = args.report_command
     if act == "new":
         r = p.report_new(args.name, title=args.title, from_report=args.from_report, exist_ok=args.exist_ok, who=who,
                          command=cmdline)
-    elif act == "add":
+        return (r.to_dict() if args.json else r.text()), EXIT_OK
+    report = resolve_path(p.root, args.report)                # 있는 보고서는 지금 폴더에서 먼저(프로젝트 안일 때)
+    if act == "add":
         rows = [x.strip() for x in args.rows.split(",") if x.strip()] if args.rows else None
-        r = p.report_add(args.report, args.record, rows=rows, show=args.show, annual=args.annual, digits=args.digits,
+        r = p.report_add(report, args.record, rows=rows, show=args.show, annual=args.annual, digits=args.digits,
                          title=args.title, chart=args.chart, under=args.under, key=args.key, force=args.force, who=who,
                          command=cmdline)
     elif act == "check":
-        r = p.report_check(args.report)
+        r = p.report_check(report)
     else:
-        r = p.report_update(args.report, region=args.region, to=args.to, dry_run=args.dry_run, force=args.force, who=who,
+        r = p.report_update(report, region=args.region, to=args.to, dry_run=args.dry_run, force=args.force, who=who,
                             command=cmdline)
-    return r.to_dict() if args.json else r.text()
+        kept = [it for it in r.items if str(it.get("status", "")).startswith("손으로 고침")]
+        if kept and not args.dry_run:            # 손으로 고친 구역을 덮지 않고 건너뜀 — note run과 같이 3(사람이 정할 것)
+            why = (f"손으로 고친 구역({', '.join('#' + str(it['n']) for it in kept)})은 바꾸지 않았습니다 — 사람에게 묻고, 덮으려면 "
+                   f"equion report update {r.report} --force")
+            soft(why)
+            return ((_with_error(r.to_dict(), why, EXIT_INPUT) if args.json else r.text() + f"\n  {why} (종료 코드 3)"),
+                    EXIT_INPUT)
+    return (r.to_dict() if args.json else r.text()), EXIT_OK

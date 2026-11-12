@@ -31,7 +31,8 @@ from ..data.store import read_frame, write_frame
 from ..estimation.equation import Equation, expand_indicators
 from ..formula import ir
 from ..formula.ast_formula import canonicalize_columns
-from ..formula.parser import DSLError, convert_at_functions, normalize, reserved_name_error, split_equation
+from ..formula.parser import (DSLError, UnknownVariableError, convert_at_functions, normalize, reserved_name_error,
+                              split_equation)
 from ..version import ENGINE_VERSION
 from ..data.periods import FREQ_LABEL as _FREQ_LABEL
 from ..data.periods import (PERIODS_PER_YEAR, format_period, infer_freq_code, normalize_freq, parse_period,
@@ -62,6 +63,7 @@ class Workfile:
         self._smpl: Optional[Tuple[Optional[pd.Period], Optional[pd.Period]]] = None
         self._meta: Dict[str, Dict[str, Any]] = {}      # 시리즈 → 메타데이터(desc·unit·source·notes·agg …)
         self._pages: Dict[str, "Workfile"] = {}          # 다른 주기 페이지(이름 → 워크파일)
+        self._results: Dict[str, str] = {}               # 풀이가 쓴 결과 시리즈(소문자 이름 → 누가: '모델·시나리오(_1)')
 
     # ------------------------------------------------------------------
     # 기본 정보
@@ -132,7 +134,7 @@ class Workfile:
             if len(parts) == 2:
                 start, end = parts
         p0 = None if start is None or str(start).lower() == "@first" else parse_period(start, self.freq)
-        p1 = None if end is None or str(end).lower() == "@last" else parse_period(end, self.freq)
+        p1 = None if end is None or str(end).lower() == "@last" else parse_period(end, self.freq, end=True)
         if p0 is not None and p1 is not None and p0 > p1:
             raise ValueError(f"표본 시작이 끝보다 뒤입니다: {start} > {end}")
         self._smpl = (p0, p1)
@@ -140,10 +142,10 @@ class Workfile:
         say(f"[{self.name}] smpl {self._label(self.index[s])} ~ {self._label(self.index[e])}")
         return self
 
-    def _index_of(self, p) -> int:
+    def _index_of(self, p, end: bool = False) -> int:
         if isinstance(p, (int, np.integer)):
             return int(p)
-        return self._wt.index_of(p)
+        return self._wt.index_of(p, end=end)
 
     def _bounds(self, start=None, end=None) -> Tuple[int, int]:
         """(start, end) 인자 → 정수 위치. 없으면 표본, 그것도 없으면 데이터 전체."""
@@ -157,13 +159,16 @@ class Workfile:
         else:
             s = 0
         if end is not None:
-            e = self._index_of(end)
+            e = self._index_of(end, end=True)
         elif self._smpl and self._smpl[1] is not None:
             e = self._wt._period_to_index(self._smpl[1], side="end")
         else:
             e = T - 1
         if s > e:
-            raise ValueError(f"구간이 비었습니다: {s} > {e}")
+            if 0 <= s < T and 0 <= e < T:
+                raise ValueError(f"구간이 비었습니다: 시작 {self._label(self.index[s])}이(가) 끝 {self._label(self.index[e])}보다 "
+                                 "뒤입니다")
+            raise ValueError(f"구간이 비었습니다: 시작 위치 {s} > 끝 위치 {e}")
         return s, e
 
     def _smpl_tokens(self) -> Tuple[Optional[str], Optional[str]]:
@@ -205,7 +210,7 @@ class Workfile:
         """시리즈 전체를 쓴다(Python 대입 — 표본과 무관). 표본 안만 바꾸려면 genr."""
         self._check_series_name(name)
         col = self._col(name) or name
-        self._data._set_columns({col: self._as_array(value)})
+        self._data.set_user_columns({col: self._as_array(value)})
 
     def __delitem__(self, name: str):
         self.delete(name)
@@ -273,6 +278,7 @@ class Workfile:
             self._wt.data.data = self.data.drop(columns=[col])
             self._data.indicators.pop(col, None)
             self._meta.pop(col, None)
+            self._results.pop(col.lower(), None)
         return self
 
     # ------------------------------------------------------------------
@@ -356,7 +362,7 @@ class Workfile:
             raise KeyError(f"페이지 '{name}'이(가) 없습니다 — 만들려면 freq를 주세요: wf.page('{name}', 'A')")
         f = normalize_freq(freq)
         p0 = to_period(self.index[0], f) if start is None else parse_period(start, f)
-        p1 = to_period(to_period(self.index[-1], self.freq).end_time, f) if end is None else parse_period(end, f)
+        p1 = to_period(to_period(self.index[-1], self.freq).end_time, f) if end is None else parse_period(end, f, end=True)
         pg = quiet(wfcreate, name, f, p0, p1)
         pg._parent = self
         self._pages[key] = pg
@@ -437,7 +443,7 @@ class Workfile:
         ser = self[col]
         if start is not None or end is not None:
             a, b = self._index_of(start) if start is not None else 0, \
-                self._index_of(end) if end is not None else len(self.index) - 1
+                self._index_of(end, end=True) if end is not None else len(self.index) - 1
             if a > b:
                 raise ValueError(f"구간이 비었습니다: {start} > {end}")
             ser = ser.iloc[a:b + 1]
@@ -617,7 +623,7 @@ class Workfile:
             target = self._col(name) or name
             unknown = sorted(v for v in ir.variables(node) if self._col(v) is None and v != target)
             if unknown:
-                raise ValueError(f"워크파일에 없는 시리즈 {unknown}: {expr}")
+                raise UnknownVariableError(f"워크파일에 없는 시리즈 {unknown}: {expr}")
             node = _rename_vars(node, {v: self._col(v) or v for v in ir.variables(node)})
             recursive = any(n == target and lag < 0 for n, lag in ir.leaves(node))
             if recursive:
@@ -627,7 +633,7 @@ class Workfile:
         col = self._col(name) or name
         mask = self._smpl_mask() if smpl else np.ones(len(self.data), dtype=bool)
         old = self.data[col].to_numpy(dtype=float) if col in self.data.columns else np.full(len(self.data), np.nan)
-        self._data._set_columns({col: np.where(mask, vals, old)})
+        self._data.set_user_columns({col: np.where(mask, vals, old)})
         return self[col]
 
     def _genr_sequential(self, node, target, smpl) -> np.ndarray:
@@ -667,7 +673,7 @@ class Workfile:
         node = ir.build(convert_at_functions(text), ctx)
         unknown = sorted(v for v in ir.variables(node) if self._col(v) is None)
         if unknown:
-            raise ValueError(f"워크파일에 없는 시리즈 {unknown}: {expr}")
+            raise UnknownVariableError(f"워크파일에 없는 시리즈 {unknown}: {expr}")
         node = _rename_vars(node, {v: self._col(v) for v in ir.variables(node)})
         vals = ir.evaluate(node, lambda n: self.data[n].to_numpy(dtype=float), length=len(self.data))
         return pd.Series(vals, index=self.index, name=expr)
@@ -943,7 +949,11 @@ class Workfile:
         """
         t = self._index_of(period)
         if not 0 <= t < len(self.data):
-            raise IndexError(f"{period!r}은(는) 워크파일 기간({self._label(self.index[0])}~{self._label(self.index[-1])}) 밖입니다")
+            hint = ""
+            if isinstance(period, (int, np.integer)) and self.freq == "A" and str(int(period)) in {self._label(i) for i in self.index}:
+                hint = f" — 정수는 위치입니다. 해 {int(period)}은(는) 글자로: wf.elem({name!r}, '{int(period)}')"
+            raise IndexError(f"{period!r}은(는) 워크파일 기간({self._label(self.index[0])}~{self._label(self.index[-1])}) 밖입니다"
+                             + hint)
         return float(self[name].iloc[t])
 
     def to_pandas(self, names: Sequence[str] = None, smpl: bool = False, labels: bool = False) -> pd.DataFrame:
@@ -986,7 +996,29 @@ class Workfile:
             arr = self.data[col].to_numpy(dtype=float).copy() if col in self.data.columns else np.full(T, np.nan)
             arr[s:e + 1] = np.asarray(vals, dtype=float)
             out[col] = arr
-        self._data._set_columns(out)
+        self._data.set_user_columns(out)
+
+    def _write_results(self, columns: Dict[str, np.ndarray], s: int, e: int, owner: str, hint: str):
+        """풀이 결과 시리즈(별칭 X_0 · control의 G_C)를 쓴다 — 구간 밖은 빈 칸(앞 풀이의 값이 남지 않게).
+
+        같은 이름(대소문자 무시)의 시리즈가 있는데 풀이가 쓴 결과가 아니면(사용자 시리즈) 아무것도 쓰지 않고 멈춘다 —
+        사용자 자료를 결과로 몰래 덮어쓰지 않는다. hint는 그때 알려 줄 피하는 법."""
+        T = len(self.data)
+        clash = [c for c in (self._col(n) for n in columns) if c is not None and c.lower() not in self._results]
+        if clash:
+            names = ", ".join(clash[:6]) + (f" 외 {len(clash) - 6}개" if len(clash) > 6 else "")
+            raise ValueError(f"시리즈 {names}이(가) 이미 있어 {owner}의 결과를 쓸 수 없습니다 — 풀이가 쓴 결과가 아니라 "
+                             f"덮어쓰지 않습니다. {hint}")
+        out = {}
+        for name, vals in columns.items():
+            if name.lower() in self._objects:
+                raise ValueError(f"'{name}'은(는) 객체 이름이라 시리즈로 쓸 수 없습니다.")
+            arr = np.full(T, np.nan)
+            arr[s:e + 1] = np.asarray(vals, dtype=float)
+            out[self._col(name) or name] = arr
+        self._data.set_user_columns(out)
+        for c in out:
+            self._results[c.lower()] = owner
 
     # ------------------------------------------------------------------
     # 데이터 입출력·기간
@@ -1044,7 +1076,7 @@ class Workfile:
             for r, i in rows:
                 vals[i] = src[r]
             out[self._col(c) or c] = vals
-        self._data._set_columns(out)
+        self._data.set_user_columns(out)
         say(f"[{self.name}] read {os.path.basename(path)} — 시리즈 {len(out)}")
         if skipped:
             from ..log import workfile as _wlog
@@ -1429,6 +1461,7 @@ class Workfile:
             "indicators": dict(self._data.indicators),
             "objects": objs,
             "metadata": {k: dict(v) for k, v in self._meta.items()},
+            "results": dict(sorted(self._results.items())),
             "pages": sorted(self._pages),
         }
         for key, pg in self._pages.items():
@@ -1463,7 +1496,7 @@ class Workfile:
         wf._data._indicators = dict(man.get("indicators") or {})
         if man.get("smpl"):
             a, b = man["smpl"]
-            wf._smpl = (parse_period(a, wf.freq) if a else None, parse_period(b, wf.freq) if b else None)
+            wf._smpl = (parse_period(a, wf.freq) if a else None, parse_period(b, wf.freq, end=True) if b else None)
         resid = read_frame(path, "residuals")
         models, skipped = [], []
         for d in man.get("objects", []):
@@ -1486,6 +1519,10 @@ class Workfile:
                 m._scenarios["baseline"] = ScenarioObject(m, "baseline", "_0")
             m._active = d.get("active", "baseline")
         wf._meta = {k: dict(v) for k, v in (man.get("metadata") or {}).items()}
+        if "results" in man:
+            wf._results = {str(k).lower(): str(v) for k, v in (man.get("results") or {}).items()}
+        else:                       # 결과 시리즈를 적어 두기 전(0.9.0까지)의 워크파일 — 그 판이 쓸 수 있던 이름을 결과로 본다
+            wf._results = _legacy_results(wf)
         for key in man.get("pages") or []:
             pg = quiet(Workfile.load, os.path.join(path, "pages", key + EXT))
             pg._parent = wf
@@ -1526,6 +1563,23 @@ class SeasonalResult:
 # ---------------------------------------------------------------------------
 # 만들기 / 열기
 # ---------------------------------------------------------------------------
+def _legacy_results(wf: Workfile) -> Dict[str, str]:
+    """옛 워크파일에서 풀이 결과로 볼 시리즈 — 시리즈 X가 있고 X + 시나리오 별칭(또는 control의 '_C')인 이름."""
+    suffixes = {"_C"}
+    for o in wf._objects.values():
+        if isinstance(o, ModelObject):
+            suffixes.update(sc.alias for sc in o._scenarios.values())
+    cols = {str(c).lower() for c in wf.data.columns}
+    out = {}
+    for c in wf.data.columns:
+        low = str(c).lower()
+        for suf in suffixes:
+            if low.endswith(suf.lower()) and len(low) > len(suf) and low[:-len(suf)] in cols:
+                out[low] = "옛 워크파일의 풀이 결과"
+                break
+    return out
+
+
 def _from_frame(df: pd.DataFrame, freq: str, name: str, check: bool = True) -> Workfile:
     def build():
         wt = WorkTable(name=name, freq=freq, register=False)
@@ -1562,7 +1616,7 @@ def wfcreate(name: str, freq: str, start, end) -> Workfile:
     관련: wfopen · datasets.load
     """
     f = normalize_freq(freq)
-    p0, p1 = parse_period(start, f), parse_period(end, f)
+    p0, p1 = parse_period(start, f), parse_period(end, f, end=True)
     if p0 > p1:
         raise ValueError(f"시작({start})이 끝({end})보다 뒤입니다")
     idx = period_starts(p0, p1, f)

@@ -12,6 +12,32 @@ const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 const root = document.documentElement;
 const dark = window.matchMedia('(prefers-color-scheme: dark)');
 
+/**
+ * 이름이 같은 프로젝트 탭(묶음을 원본 옆에 연 것 등)에 붙일 구별 글 — 폴더 경로의 끝을 겹치지 않을 만큼만(이름과 같은 마지막 폴더는 뺀다).
+ * 예: D:/work/p1 · Documents/Equion/p1 → 'work' · 'Equion'. 이름이 겹치지 않는 탭은 붙이지 않는다. 돌려주는 것: Map(id → 글)
+ */
+export function tabHints(projects) {
+  const out = new Map();
+  const byName = new Map();
+  for (const p of projects) {
+    const key = String(p.name || '').toLowerCase();
+    byName.set(key, [...(byName.get(key) || []), p]);
+  }
+  for (const group of byName.values()) {
+    if (group.length < 2) continue;
+    const segs = group.map((p) => {
+      const s = String(p.root || '').split(/[\\/]+/).filter(Boolean);
+      return s.length > 1 && s[s.length - 1].toLowerCase() === String(p.name).toLowerCase() ? s.slice(0, -1) : s;
+    });
+    const most = Math.max(...segs.map((s) => s.length));
+    for (let d = 1; d <= most; d++) {
+      const hints = segs.map((s) => s.slice(-d).join('/'));
+      if (new Set(hints.map((x) => x.toLowerCase())).size === hints.length || d === most) { group.forEach((p, i) => out.set(p.id, hints[i] || p.root)); break; }
+    }
+  }
+  return out;
+}
+
 const app = {
   state: null,
   settings: { theme: 'auto', font_scale: 100, side_width: null, term_width: null, side_visible: true, term_visible: true, term_follow: true, right_split: 0.62, cmd_top: false, term_font_size: TERM_FONT.base },
@@ -138,13 +164,16 @@ const app = {
 
   renderTabs() {
     const bar = clear($('ptabs'));
+    const hints = tabHints([...this.projects.values()]);
     for (const p of this.projects.values()) {
+      const hint = hints.get(p.id);
       bar.append(h('div', {
-        class: 'ptab', role: 'tab', tabindex: '0', 'aria-selected': String(p === this.current), title: p.root,
+        class: 'ptab', role: 'tab', tabindex: '0', 'aria-selected': String(p === this.current), title: p.root, 'data-root': p.root,
         onclick: () => this.select(p.id),
         onauxclick: (e) => { if (e.button === 1) { e.preventDefault(); this.closeProject(p.id); } },
         onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.select(p.id); } },
       }, p.job?.state === 'start' || p.job?.state === 'progress' ? h('span', { class: 'busy-dot', title: '계산 중' }) : null, h('span', { class: 'name' }, p.name),
+      hint ? h('span', { class: 'hint' }, hint) : null,
       h('button', { class: 'x', type: 'button', title: '프로젝트 탭 닫기', 'aria-label': '닫기', onclick: (e) => { e.stopPropagation(); this.closeProject(p.id); } }, icon('x'))));
     }
   },
@@ -213,6 +242,9 @@ const app = {
     } else if (job?.state === 'done') {
       jobBox.append(h('div', { class: 'job done', role: 'status' }, icon('check'), h('span', {}, job.label), h('span', { class: 'time' }, seconds(job.seconds)),
         job.record ? h('button', { class: 'link', type: 'button', onclick: () => p.openRecord(job.record) }, job.record) : null));
+    } else if (job?.state === 'error' && (job.kind === 'conflict' || job.kind === 'shorter')) {     // 사람이 확인할 일로 멈춤 — 실패가 아니라 화면이 묻는 중
+      jobBox.append(h('div', { class: 'job', role: 'status', title: job.error || '' }, icon('alert'),
+        h('span', {}, `${job.label} — ${job.kind === 'shorter' ? '지금 회차보다 짧아 멈춤' : '밖에서 바뀌어 쓰지 않음'}`)));
     } else if (job?.state === 'error') {
       jobBox.append(h('div', { class: 'job failed', role: 'status', title: job.error || '' }, icon('alert'), h('span', {}, `${job.label} — 실패`)));
     } else if (job?.state === 'cancelled') {
@@ -262,7 +294,7 @@ const app = {
     const version = root.dataset.version;
     if (!p) { bar.append(h('span', { class: 'grow' }), h('span', { class: 'item' }, `Equion Desk ${version}`)); return; }
     const o = p.overview;
-    bar.append(h('span', { class: 'item path', title: p.root }, icon('folder'), p.root));
+    bar.append(h('span', { class: 'item path', title: p.root }, icon('folder'), h('span', { class: 'txt' }, p.root)));
     if (o?.vintage?.id) bar.append(h('button', { class: 'item', type: 'button', title: '지금 자료 회차 — 누르면 자료 작업대(원자료 · 시리즈 · 회차)', onclick: () => p.openTab({ type: 'data' }) }, '자료 ', h('b', {}, o.vintage.id)));
     if (o?.freq) bar.append(h('span', { class: 'item' }, { Q: '분기', M: '월', A: '연' }[o.freq] || o.freq));
     bar.append(h('span', { class: 'grow' }));
@@ -271,7 +303,8 @@ const app = {
     else {
       bar.append(h('span', { class: 'item', title: `${o.executable}\n작업 프로세스가 뜨는 데 ${p.worker?.started_seconds?.toFixed(1) ?? '?'}초` + (p.worker?.watch ? '' : '\n폴더 변경 알림을 쓰지 못해 2초마다 견줍니다') },
         h('span', { class: `dot ${p.error ? 'warn' : 'ok'}` }), p.error ? '정의 파일에 문제' : '작업 프로세스 준비됨'));
-      bar.append(h('span', { class: 'item' }, `Desk ${version} · equion ${o.equion} · Python ${o.python}`));
+      const ver = `Desk ${version} · equion ${o.equion} · Python ${o.python}`;
+      bar.append(h('span', { class: 'item ver', title: ver }, h('span', { class: 'txt' }, ver)));
     }
   },
 

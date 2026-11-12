@@ -13,7 +13,8 @@
 이 블록만 풀기) · 블록 파일 고치기 · 흐름 화면(**스크립트를 화면에서 실행** — D3) → **터미널에서 친 명령의 기록이
 띠에 뜨고 카드로 열린다** → 전망과 작업 줄 → 밖에서 고친 정의 파일의 바뀜 알림과 차이 → **닫았다 열면 이어진다** → 어두운 바탕 →
 DESK_V2(세 열 1/3 · **변수에서 출발** — 여럿 고르기 · 메뉴 · 묶음 · 변수 창 · 분석 탭과 개별 식 · **명령 창** · 터미널 여러 개 · 기록 탭) →
-2차판 폼(**후보 묶음** · **시나리오 폼** · **노트 화면** · 같은 분석의 두 기록) → 자료 쪽 셋(**요인 나누기** · 시점이 열로 가는 표 · **이정표** · 묶어 보내기).
+2차판 폼(**후보 묶음** · **시나리오 폼** · **노트 화면** · 같은 분석의 두 기록) → 자료 쪽 셋(**요인 나누기** · 시점이 열로 가는 표 · **이정표** · 묶어 보내기) →
+밖에서 바뀐 것(**껐다 켜서 되살린 글의 바뀜 알림과 차이** · 서버가 막는 덮어쓰기 · **가정 표는 친 칸만** · 이름이 같은 프로젝트 탭 · 문서의 표).
 서버·작업 프로세스 시험은 `test_app.py`, 이 파일은 화면까지 이어 본다(pytest 가 모으지 않는다 — 브라우저가 있어야 한다).
 """
 from __future__ import annotations
@@ -25,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.request
 
 RESULTS: list[tuple[str, bool, str]] = []
@@ -604,7 +606,7 @@ def run(shots: str | None) -> int:
                 check("T2 가정 표 — 외생 × 전망 구간의 칸에 적는다. 값 사이의 빈칸은 붉게 알리고(채우기는 마지막 값 뒤만), 적으면 '저장' 이 살아난다",
                       n_cells == 24 and gap == 2 and "값 사이의 빈칸" in said and page.locator(f"{pane} .asm-grid .cell.gap").count() == 0
                       and page.locator(f"{pane} .asm-grid .cell.typed").count() >= 3 and page.is_enabled(f"{pane} [data-act='save-assume']")
-                      and page.is_visible(f"{pane} .asm-note:not(.bad)"), said)
+                      and page.is_visible(f"{pane} .asm-note[data-note='unsaved']"), said)
                 page.wait_for_timeout(250)
                 shot(page, "03k-assume")
                 page.click(f"{pane} [data-scenario='oil20']")
@@ -1224,6 +1226,7 @@ def run(shots: str | None) -> int:
                 page.click(f"{active} .side .wb[data-key='forecast']")
                 page.wait_for_selector(f"{pane} [data-act='solve']", timeout=20000)
                 RID = "() => document.querySelector('.project:not([hidden]) .pane:not([hidden]) .fc-result .result-head .rid')?.textContent || ''"
+                page.wait_for_function(f"() => ({RID})() !== ''", timeout=20000)      # 보던 결과가 다 그려진 뒤에 — 빈 것과 견주면 풀기가 끝나기 전에 넘어간다
                 before = page.evaluate(RID)
                 page.click(f"{pane} [data-act='solve']")
                 # 앞 절의 전망 기록이 이미 있으므로 줄이 보이는 것만으로는 풀기가 끝난 것이 아니다 — 새 기록이 보일 때까지(풀기가 끝나면 견줄 것을 비운다)
@@ -1247,6 +1250,408 @@ def run(shots: str | None) -> int:
                 page.wait_for_selector(f"{active} .notice[data-key='bundle']", timeout=30000)
                 zips = [f for f in os.listdir(os.path.join(folder, "exports")) if f.endswith(".zip")]
                 check("Q4 묶어 보내기 — 고르고 묶으면 exports/ 에 zip, 알림에 경로", len(zips) >= 1 and ".zip" in page.inner_text(f"{active} .notice[data-key='bundle']"), str(zips))
+                page.close()
+            finally:
+                server.terminate()
+                server.wait(10)
+
+            print("P. 화면 점검에서 찾은 것 — 숫자 표기 · 여럿 고른 우클릭 · 저장하지 않은 글 · 폼의 칸 검사 · 이름 상자 · 흐름 취소 · 좁은 창")
+            server = start_server(env)
+            try:
+                page = open_page(browser)
+                page.wait_for_selector("#status .dot.ok", timeout=30000)
+                fmt = page.evaluate("() => import('/web/js/views/candidates.js').then((m) => [m.r4(0.99996), m.r4(0.98712), m.r4(1), m.p3(0.9996), m.p3(0.5), m.p3(0.0004)])")
+                check("P1 후보 목록의 숫자 — 반올림해 1 이 되는 R²adj 는 1.0000, p 는 1.000(앞의 0 만 뗀다 — '.0000' 이 되지 않는다)",
+                      fmt == ["1.0000", ".9871", "1.0000", "1.000", ".500", "<.001"], str(fmt))
+
+                page.click(f"{active} .side-tabs [data-side='vars']")
+                page.wait_for_selector(f"{active} .var-row[data-var='CN']")
+                page.click(f"{active} .var-row[data-var='Y']")
+                page.click(f"{active} .var-row[data-var='CN']", modifiers=["Control"])
+                page.click(f"{active} .var-row[data-var='CN']", button="right")
+                page.wait_for_selector(".var-menu")
+                head = page.inner_text(".var-menu .menu-head")
+                acts = page.evaluate("() => [...document.querySelectorAll('.var-menu [data-act]')].map((n) => n.dataset.act)")
+                menus = page.locator(".var-menu").count()
+                page.keyboard.press("Escape")
+                check("P2 여럿 고른 채 고른 줄을 우클릭하면 고른 것 모두의 메뉴('할 수 있는 일 ▾'과 같다) — 변수 하나의 메뉴로 바뀌지 않는다",
+                      head.strip() == "Y · CN" and "save-group" in acts and menus == 1, f"{head} {acts}")
+                page.click(f"{active} .var-row[data-var='CN']")
+                f1 = page.evaluate("() => document.activeElement?.dataset?.var || ''")
+                page.keyboard.press("ArrowDown")
+                f2 = page.evaluate("() => document.activeElement?.dataset?.var || ''")
+                page.keyboard.press(" ")
+                picked = page.locator(f"{active} .var-row.on").count()
+                check("P3 변수 줄을 마우스로 누른 뒤에도 ↓·Space 가 이어진다(목록을 다시 그려도 누른 줄을 가리킨다)", f1 == "CN" and f2 not in ("", "CN") and picked == 2, f"{f1} {f2} {picked}")
+
+                page.evaluate("() => window.equionDesk.current.openTab({ type: 'file', path: 'EQUATIONS/price.txt', edit: true })")
+                page.wait_for_selector(f"{pane} textarea", timeout=20000)
+                page.click(f"{pane} textarea")
+                page.keyboard.press("Control+End")
+                page.keyboard.type("\n# 저장하지 않은 줄")
+                page.keyboard.press("Control+w")
+                page.wait_for_selector(".dialog", timeout=5000)
+                asked = page.inner_text(".dialog")
+                shot(page, "28-close-unsaved")
+                page.click(".dialog .btn:has-text('취소')")
+                page.wait_for_timeout(200)
+                kept = page.locator(f"{active} .tabbar .tab[aria-selected='true'] .title:has-text('price.txt')").count() == 1 and "저장하지 않은 줄" in page.input_value(f"{pane} textarea")
+                page.click(f"{active} .tabbar .tab[aria-selected='true'] .x")
+                page.wait_for_selector(".dialog .btn.danger", timeout=5000)
+                page.click(".dialog .btn.danger")
+                page.wait_for_timeout(300)
+                gone = page.locator(f"{active} .tabbar .tab .title:has-text('price.txt')").count() == 0
+                check("P4 고치던 정의 파일의 탭을 닫으면(Ctrl+W · ×) 버릴지 먼저 묻는다 — 취소하면 쓰던 글 그대로, '버리고 닫기'면 닫힌다(파일은 그대로)",
+                      "저장하지 않고 닫을까요" in asked and "price.txt" in asked and kept and gone
+                      and "저장하지 않은 줄" not in open(os.path.join(folder, "EQUATIONS", "price.txt"), encoding="utf-8").read(), asked[:160])
+
+                page.evaluate("() => window.equionDesk.current.openTab({ type: 'scenario' })")
+                page.wait_for_selector(f"{pane} .sc-box [data-field='name']", timeout=20000)
+                shock = f"{pane} .sc-table[data-table='shock']"
+                page.fill(f"{pane} [data-field='name']", "chk")
+                page.fill(f"{shock} tr[data-row='0'] [aria-label='변수']", "POIL")
+                page.fill(f"{shock} tr[data-row='0'] [aria-label='크기']", "abc")
+                page.wait_for_timeout(500)
+                size_bad = "bad" in (page.get_attribute(f"{shock} tr[data-row='0'] [aria-label='크기']", "class") or "") and "숫자가 아닙니다" in page.inner_text(f"{shock} tr[data-msg='0']")
+                blocked1 = page.is_disabled(f"{pane} [data-act='save-scenario']") and page.is_visible(f"{pane} .sc-blocked")
+                page.fill(f"{shock} tr[data-row='0'] [aria-label='크기']", "10")
+                page.fill(f"{shock} tr[data-row='0'] [aria-label='처음']", "end")
+                page.fill(f"{shock} tr[data-row='0'] [aria-label='끝']", "start")
+                page.wait_for_timeout(500)
+                late = "늦습니다" in page.inner_text(f"{shock} tr[data-msg='0']") and page.is_disabled(f"{pane} [data-act='save-scenario']")
+                page.fill(f"{shock} tr[data-row='0'] [aria-label='처음']", "start")
+                page.fill(f"{shock} tr[data-row='0'] [aria-label='끝']", "end")
+                page.click(f"{pane} [data-act='add-shock']")
+                page.fill(f"{shock} tr[data-row='1'] [aria-label='변수']", "CN")
+                page.fill(f"{shock} tr[data-row='1'] [aria-label='크기']", "1")
+                page.wait_for_function("() => { const b = document.querySelector('.project:not([hidden]) .pane:not([hidden]) [data-act=\"save-scenario\"]'); return b && !b.disabled; }", timeout=15000)
+                endo = page.inner_text(f"{shock} tr[data-msg='1']")
+                shot(page, "29-scenario-checks")
+                check("P5 시나리오 폼 — 숫자가 아닌 크기 · 끝보다 늦은 처음은 그 칸을 붉게 하고 까닭을 줄 아래에 적으며 저장을 막는다. 모형이 푸는 변수(CN)의 충격은 막지 않고 무엇이 되는지 알린다",
+                      size_bad and blocked1 and late and "내생 변수" in endo and page.locator(f"{shock} input.bad").count() == 0, endo[:160])
+                page.wait_for_timeout(700)              # 화면 상태를 적는 늦춤(0.5초)
+                page.reload()
+                page.wait_for_selector("#status .dot.ok", timeout=30000)
+                page.wait_for_selector(f"{shock} tr[data-row='1'] [aria-label='변수']", timeout=20000)
+                kept = [page.input_value(f"{shock} tr[data-row='{i}'] [aria-label='변수']") for i in (0, 1)] + [page.input_value(f"{pane} [data-field='name']")]
+                page.click(f"{active} .tabbar .tab[aria-selected='true'] .x")
+                page.wait_for_selector(".dialog .btn.danger", timeout=5000)
+                asked = page.inner_text(".dialog")
+                page.click(".dialog .btn.danger")
+                check("P6 시나리오 폼의 쓰던 충격 표는 다시 열어도 그대로(식 작업대의 쓰던 식처럼) — 탭을 닫을 때는 버릴지 묻는다",
+                      kept == ["POIL", "CN", "chk"] and "새 시나리오" in asked and not os.path.exists(os.path.join(folder, "SCENARIOS", "chk.toml")), str(kept))
+
+                page.click(f"{active} .side-tabs [data-side='vars']")
+                page.click(f"{active} .var-row[data-var='Y']")
+                page.click(f"{active} .var-row[data-var='P']", modifiers=["Control"])
+                page.click(f"{active} [data-act='save-group']")
+                page.wait_for_selector(".dialog input")
+                empty = page.is_disabled(".dialog .btn.primary") and "묶음 이름을 적으세요" in page.inner_text(".dialog .dialog-why")
+                page.fill(".dialog input >> nth=0", "한글")
+                korean = page.is_disabled(".dialog .btn.primary") and "영문" in page.inner_text(".dialog .dialog-why")
+                page.fill(".dialog input >> nth=0", "trio")
+                page.wait_for_selector(".dialog .banner.warn:not([hidden])", timeout=5000)
+                same = "이미 있습니다" in page.inner_text(".dialog .banner.warn") and page.inner_text(".dialog .btn.primary").strip() == "바꿔 저장"
+                shot(page, "30-group-name")
+                page.fill(".dialog input >> nth=0", "duo")
+                page.wait_for_timeout(400)
+                page.press(".dialog input >> nth=0", "Enter")
+                page.wait_for_selector(f"{active} .var-row.group[data-group='duo']", timeout=20000)
+                check("P7 묶음 이름 상자 — 비었거나 영문이 아니면 '저장'이 꺼지고 까닭을 단추 옆에, 이미 있는 이름이면 바꾼다고 알리고('바꿔 저장'), Enter 로 저장",
+                      empty and korean and same and re.search(r"^duo\s*=", open(os.path.join(folder, "equion.toml"), encoding="utf-8").read(), re.M), f"{empty} {korean} {same}")
+
+                with open(os.path.join(folder, "DATA", "series.toml"), "rb") as f:          # 받은 상자로 넣은 뒤라 출처가 읽는 파일 이름이 바뀌었을 수 있다
+                    src_file = next(iter(tomllib.load(f)["source"].values()))["file"]
+                page.evaluate("(file) => window.equionDesk.current.openTab({ type: 'import', file })", src_file)
+                # 앞 절(Q1)의 '열로 가는 표'가 아직 그려져 있을 수 있다 — 이 파일(이미 읽는 출처)의 틀이 그려질 때까지
+                page.wait_for_selector(f"{pane} .src-fixed", timeout=20000)
+                page.wait_for_selector(f"{pane} .raw-grid.by-row", state="detached", timeout=20000)
+                page.wait_for_selector(f"{pane} select[data-frame='time_axis']", timeout=20000)
+                axis = page.evaluate("() => [...document.querySelectorAll('.project:not([hidden]) .pane:not([hidden]) select[data-frame=\"time_axis\"] option')].map((o) => o.value)")
+                check("P8 불러오기의 '시점' — 서버의 기본값(rows)이 따로 한 줄로 보이지 않고 '행으로 내려감'으로", axis == ["", "columns"]
+                      and page.input_value(f"{pane} select[data-frame='time_axis']") == "", str(axis))
+
+                page.click(f"{active} .side .wb[data-key='forecast']")
+                page.wait_for_selector(f"{pane} [data-act='solve']", timeout=20000)
+                if page.locator(f"{pane} .asm-grid").count() == 0:
+                    page.click(f"{pane} [data-act='fold-assume']")
+                cell = f"{pane} .asm-grid input.cell >> nth=0"
+                page.wait_for_selector(cell)
+                was = page.input_value(cell)
+                page.fill(cell, "abc")
+                wrong = ("bad" in (page.get_attribute(cell, "class") or "") and page.is_disabled(f"{pane} [data-act='save-assume']")
+                         and page.is_visible(f"{pane} .asm-note[data-note='num']") and not page.is_disabled(f"{pane} [data-act='solve']"))
+                shot(page, "31-assume-bad")
+                page.fill(cell, was)
+                fixed = ("bad" not in (page.get_attribute(cell, "class") or "") and not page.is_disabled(f"{pane} [data-act='save-assume']")
+                         and not page.is_visible(f"{pane} .asm-note[data-note='num']"))
+                page.click(f"{pane} [data-act='save-assume']")
+                page.wait_for_timeout(600)
+                check("P9 가정 표 — 숫자가 아닌 칸은 붉게 하고 까닭을 표 아래에, 저장을 막는다(풀기는 그대로 — 누르면 그 칸으로). 고치면 바로 풀린다",
+                      wrong and fixed, f"{wrong} {fixed}")
+
+                page.evaluate("() => window.equionDesk.current.openTab({ type: 'batch', part: 'demand:I' })")
+                page.wait_for_selector(f"{pane} .batch-form [data-slot='0']")
+                page.fill(f"{pane} [data-slot='0']", "A | B | C | D | E")
+                page.fill(f"{pane} [data-slot='1']", "F | G | H | J | K")
+                if page.locator(f"{pane} [data-slot='2']").count() == 0:
+                    page.click(f"{pane} [data-act='add-slot']")
+                page.fill(f"{pane} [data-slot='2']", "L | M | N")
+                page.wait_for_selector(f"{pane} .batch-list .banner.warn, {pane} .banner.warn", timeout=5000)
+                over1 = page.is_disabled(f"{pane} [data-act='run-batch']")
+                page.evaluate("() => window.equionDesk.current.emit({ type: 'job' })")       # 다른 계산이 끝났다는 알림
+                over2 = page.is_disabled(f"{pane} [data-act='run-batch']")
+                check("P10 후보 묶음 — 한도(64)를 넘으면 '모두 추정'이 꺼지고, 다른 계산이 끝나도 다시 켜지지 않는다", over1 and over2, f"{over1} {over2}")
+
+                page.click(f"{active} .side-tabs [data-side='models']")
+                page.click(f"{active} .side .row-item[data-key='flow:FLOWS/monthly.eqs']")
+                page.wait_for_selector(f"{pane} .step-row")
+                # 끝나기 전에 취소한 실행을 흉내 낸다: 실행 요청을 붙잡아 두고, 두 단계가 끝났다는 알림 뒤에 '취소했습니다'로 돌려준다
+                page.evaluate("""() => { const orig = window.fetch; window.__origFetch = orig;
+                    window.fetch = (url, opts) => (String(url).includes('/script/run') ? new Promise((resolve) => { window.__endRun = () => resolve(new Response(
+                      JSON.stringify({ error: '취소했습니다', kind: 'cancelled' }), { status: 409, headers: { 'Content-Type': 'application/json' } })); }) : orig(url, opts)); }""")
+                page.click(f"{pane} [data-act='run']")
+                page.wait_for_function("() => typeof window.__endRun === 'function'", timeout=5000)
+                page.evaluate("""() => { const p = window.equionDesk.current;
+                    for (const line of ['[1/11] data inbox                                   ✓ 받은 파일 없음', '[2/11] data build --use                             ! 바뀐 시리즈 2'])
+                      p.onEvent({ type: 'job', op: 'script_run', state: 'progress', job: 'j-check', label: '스크립트 monthly', line }); }""")
+                page.evaluate("() => { window.__endRun(); window.fetch = window.__origFetch; window.equionDesk.current.onEvent({ type: 'job', op: 'script_run', state: 'cancelled', job: 'j-check', label: '스크립트 monthly' }); }")
+                page.wait_for_selector(f"{pane} .flow-cut", timeout=10000)
+                cut = page.inner_text(f"{pane} .flow-cut")
+                marks = page.evaluate("() => [...document.querySelectorAll('.project:not([hidden]) .pane:not([hidden]) .step-row .mark')].slice(0, 4).map((m) => m.className.replace('mark ', ''))")
+                shot(page, "32-flow-cancelled")
+                check("P11 흐름을 하다가 취소하면 끝난 단계의 표시는 남고 멈춘 단계에 ✗ — '2단계가 끝났고 3단계(…)에서 멈췄습니다', 멈춘 단계부터 다시",
+                      marks[:4] == ["ok", "warn", "bad", "none"] and "2단계가 끝났고" in cut and "3단계" in cut and page.locator(f"{pane} [data-act='resume']").count() == 1, f"{marks} {cut[:160]}")
+
+                page.set_viewport_size({"width": 900, "height": 800})
+                page.click(f"{active} .side .wb[data-key='home']")
+                page.wait_for_timeout(400)
+                if page.locator(f"{active} .term-tab").count() and page.locator(f"{active} .term-tab").count() < 3:
+                    for n in range(page.locator(f"{active} .term-tab").count(), 3):
+                        page.click(f"{active} [data-act='term-add']")
+                        page.wait_for_selector(f"{active} .term-tab[data-n='{n}']", timeout=20000)
+                page.wait_for_timeout(300)
+                look = page.evaluate("""() => {
+                    const items = [...document.querySelectorAll('#status > *')].filter((n) => !n.classList.contains('grow') && n.getBoundingClientRect().width > 0);
+                    const r = items.map((n) => n.getBoundingClientRect());
+                    const p = document.querySelector('.project:not([hidden])');
+                    const pane = p.querySelector('.pane:not([hidden])');
+                    const edge = pane.getBoundingClientRect().left + pane.clientWidth;
+                    const tabs = p.querySelector('.term-tabs');
+                    return { overlap: r.some((a, i) => i > 0 && a.left < r[i - 1].right - 1),
+                      label: Math.max(...[...p.querySelectorAll('.side-tabs button > span:first-child')].map((s) => s.getBoundingClientRect().height)),
+                      cut: [...pane.querySelectorAll('.view-head .tools .btn, .card .foot .btn')].filter((b) => b.getBoundingClientRect().right > edge + 1).map((b) => b.textContent.trim()),
+                      terms: tabs.children.length, compact: tabs.classList.contains('compact'),
+                      names: [...tabs.querySelectorAll('.term-tab:not(.on) .name')].filter((n) => n.getBoundingClientRect().width > 0).length,
+                      over: tabs.scrollWidth > tabs.clientWidth + 1, faded: tabs.classList.contains('fade-r') || tabs.classList.contains('fade-l') };
+                }""")
+                shot(page, "33-narrow-900")
+                check("P12 좁은 창(900px) — 상태줄 글이 겹치지 않고, 왼쪽 탭 이름이 한 줄, 개요의 단추가 잘리지 않고(줄을 바꾼다), 터미널이 셋 이상이면 고르지 않은 탭은 번호만(넘치면 가장자리를 흐린다)",
+                      not look["overlap"] and look["label"] < 26 and not look["cut"] and (look["terms"] < 3 or (look["compact"] and look["names"] == 0 and (not look["over"] or look["faded"]))), str(look))
+                for n in (2, 1):
+                    if page.locator(f"{active} .term-tab[data-n='{n}']").count():
+                        page.click(f"{active} .term-tab[data-n='{n}'] .x")
+                        page.wait_for_timeout(300)
+                page.set_viewport_size({"width": 1480, "height": 900})
+                page.close()
+            finally:
+                server.terminate()
+                server.wait(10)
+            print("F. 밖에서 바뀐 것 — 되살린 글 · 그만두기 · 가정 표는 친 칸만 · 이름이 같은 프로젝트 탭 · 문서의 표")
+            demand = os.path.join(folder, "EQUATIONS", "demand.txt")
+            base_csv = os.path.join(folder, "ASSUMPTIONS", "base.csv")
+
+            def read(path: str) -> str:
+                with open(path, encoding="utf-8") as f:
+                    return f.read()
+
+            def append(path: str, line: str) -> None:
+                with open(path, "a", encoding="utf-8", newline="\n") as f:
+                    f.write(line)
+
+            def csv_cell(period: str, col: str) -> str:
+                rows = [ln.split(",") for ln in read(base_csv).lstrip("\ufeff").strip().split("\n")]
+                return next(r[rows[0].index(col)] for r in rows[1:] if r[0] == period)
+
+            def excel(period: str, col: str, value: str) -> None:
+                """엑셀이 저장하듯 — 그 칸만 바꿔 파일을 통째로 다시 쓴다."""
+                rows = [ln.split(",") for ln in read(base_csv).strip().split("\n")]
+                for r in rows[1:]:
+                    if r[0] == period:
+                        r[rows[0].index(col)] = value
+                with open(base_csv, "w", encoding="utf-8", newline="") as f:
+                    f.write("\n".join(",".join(r) for r in rows) + "\n")
+
+            server = start_server(env)
+            try:
+                page = open_page(browser)
+                page.wait_for_selector("#status .dot.ok", timeout=30000)
+                page.evaluate("() => window.equionDesk.current.openTab({ type: 'file', path: 'EQUATIONS/demand.txt', edit: true })")
+                page.wait_for_selector(f"{pane} textarea.edit-area", timeout=20000)
+                page.click(f"{pane} textarea.edit-area")
+                page.keyboard.press("Control+End")
+                page.keyboard.type("\n# 끄기 전에 쓰던 줄")
+                page.wait_for_timeout(900)               # 화면 상태를 적을 틈
+                page.close()
+            finally:
+                server.terminate()
+                server.wait(10)
+            append(demand, "# 앱이 꺼진 동안 밖(Claude)에서 더한 줄\n")
+            server = start_server(env)
+            try:
+                page = open_page(browser)
+                page.wait_for_selector("#status .dot.ok", timeout=30000)
+                page.click(f"{active} .tabbar .tab:has-text('demand.txt')")
+                page.wait_for_selector(f"{pane} .edit-note [data-note='moved']", timeout=20000)
+                why = page.inner_text(f"{pane} .edit-note [data-note='moved']")
+                page.click(f"{pane} [data-act='moved-diff']")
+                page.wait_for_selector(f"{pane} .edit-diff .dl.del")
+                dels = page.locator(f"{pane} .edit-diff .dl.del").all_inner_texts()
+                adds = page.locator(f"{pane} .edit-diff .dl.add").all_inner_texts()
+                shot(page, "34-restored-moved")
+                check("F1 껐다 켜서 되살린 글 — 앱이 꺼진 동안 파일이 밖에서 바뀌었으면 알리고, 차이(저장하면 사라질 밖의 줄 · 쓰던 줄)를 보인다",
+                      "앱을 닫았던 동안" in why and any("밖(Claude)에서 더한 줄" in x for x in dels) and any("끄기 전에 쓰던 줄" in x for x in adds), f"{why} {dels} {adds}")
+                page.click(f"{pane} [data-act='save']")
+                page.wait_for_selector(".dialog .edit-diff", timeout=5000)
+                asked = page.inner_text(".dialog h2")
+                page.wait_for_timeout(350)              # 상자가 다 떠오른 뒤에 그린다
+                shot(page, "35-restored-ask")
+                append(demand, "# 묻는 동안 더한 줄\n")      # 묻는 동안 또 바뀐다 — 화면이 본 내용과 다르다
+                page.wait_for_timeout(300)
+                n_err = len(errors)
+                page.click(".dialog [data-act='confirm']")
+                page.wait_for_timeout(2500)
+                errors[n_err:] = [e for e in errors[n_err:] if "status of 409" not in e]      # 일부러 낸 겹침(409) — 브라우저가 콘솔에 적는다
+                now = read(demand)
+                check("F2 덮기 전에 차이와 함께 묻고, 묻는 동안 또 바뀌었으면 서버가 쓰지 않는다(409) — 밖의 줄이 모두 남고 화면은 고치는 중 그대로(알림 줄 유지)",
+                      "밖에서 바뀐" in asked and "묻는 동안 더한 줄" in now and "밖(Claude)에서 더한 줄" in now and "끄기 전에 쓰던 줄" not in now
+                      and page.locator(f"{pane} textarea.edit-area").count() == 1 and page.locator(f"{pane} .edit-note [data-note='moved']").count() == 1, now[-160:])
+                page.click(f"{pane} [data-act='reload']")
+                page.wait_for_selector(f"{pane} [data-act='edit']", timeout=10000)
+                page.click(f"{pane} [data-act='edit']")
+                page.wait_for_selector(f"{pane} textarea.edit-area")
+                page.click(f"{pane} textarea.edit-area")
+                page.keyboard.press("Control+End")
+                page.keyboard.type("\n# 그만둘 줄")
+                page.wait_for_timeout(900)               # 쓰던 글이 화면 상태에 적힌다
+                page.click(f"{pane} [data-act='stop']")
+                page.close()                             # 곧바로 닫는다
+            finally:
+                server.terminate()
+                server.wait(10)
+
+            server = start_server(env)
+            try:
+                page = open_page(browser)
+                page.wait_for_selector("#status .dot.ok", timeout=30000)
+                page.click(f"{active} .tabbar .tab:has-text('demand.txt')")
+                page.wait_for_selector(f"{pane} [data-act='edit']", timeout=10000)
+                check("F3 ‘그만두기’ 뒤 곧바로 창을 닫아도 버린 글이 되살아나지 않는다(보기로 열린다)",
+                      page.locator(f"{pane} textarea.edit-area").count() == 0 and "그만둘 줄" not in read(demand))
+
+                page.click(f"{active} .side .wb[data-key='forecast']")
+                page.wait_for_selector(f"{pane} [data-act='solve']", timeout=30000)
+                if page.locator(f"{pane} .asm-grid .cell").count() == 0:
+                    page.click(f"{pane} [data-act='fold-assume']")
+                page.wait_for_selector(f"{pane} .asm-grid .cell")
+                cells = page.locator(f"{pane} .asm-grid .cell").evaluate_all("(es) => es.map((e) => e.dataset.cell)")
+                g_cell = next(x for x in cells if x.endswith("|G"))
+                p_cell = next(x for x in cells if x.endswith("|POIL") and x.split("|")[0] != g_cell.split("|")[0])
+                at = lambda key: f"{pane} .asm-grid .cell[data-cell='{key}']"      # noqa: E731
+                page.fill(at(g_cell), "77.7")
+                excel(p_cell.split("|")[0], "POIL", "99.9")     # 화면에서 고치는 동안 엑셀이 다른 칸을 고쳐 저장
+                try:
+                    page.wait_for_function("(sel) => document.querySelector(sel)?.value === '99.9'", arg=at(p_cell), timeout=12000)
+                except Timeout:
+                    pass
+                shown = page.input_value(at(p_cell))
+                kept = page.input_value(at(g_cell))
+                fresh = page.is_visible(f"{pane} .asm-note[data-note='fresh']")
+                shot(page, "36-assume-outside")
+                page.click(f"{pane} [data-act='save-assume']")
+                page.wait_for_timeout(1500)
+                check("F4 가정 표 — 고치는 동안 밖(엑셀)에서 바뀐 칸은 표에 새 값으로(친 칸은 그대로), 저장해도 그 칸이 되돌아가지 않는다(친 칸만 쓴다)",
+                      shown == "99.9" and kept == "77.7" and fresh and csv_cell(g_cell.split("|")[0], "G") == "77.7" and csv_cell(p_cell.split("|")[0], "POIL") == "99.9"
+                      and page.locator(".dialog").count() == 0, f"{shown} {kept} {fresh} {csv_cell(p_cell.split('|')[0], 'POIL')}")
+                g2 = next(x for x in cells if x.endswith("|G") and x != g_cell)
+                page.fill(at(g2), "66.6")
+                excel(g2.split("|")[0], "G", "55.5")             # 이번에는 친 칸을 밖에서도 고쳤다
+                try:
+                    page.wait_for_selector(f"{pane} .asm-grid .cell.clash", timeout=12000)
+                except Timeout:
+                    pass
+                marked = page.locator(f"{pane} .asm-grid .cell.clash").count() == 1 and page.is_visible(f"{pane} .asm-note[data-note='clash']")
+                n_err = len(errors)
+                page.click(f"{pane} [data-act='save-assume']")
+                page.wait_for_selector(".dialog .choice-table", timeout=10000)
+                errors[n_err:] = [e for e in errors[n_err:] if "status of 409" not in e]
+                row = page.inner_text(".dialog .choice-table tbody tr")
+                page.wait_for_timeout(350)
+                shot(page, "37-assume-clash")
+                page.click(".dialog [data-act='alt']")
+                page.wait_for_timeout(1200)
+                check("F5 친 칸을 밖에서도 고쳤으면 표에 표시하고, 저장할 때 칸마다 읽었던 값·밖의 값·친 값을 보이고 묻는다 — ‘밖의 값 쓰기’면 밖의 값이 남는다",
+                      marked and "55.5" in row and "66.6" in row and csv_cell(g2.split("|")[0], "G") == "55.5" and page.input_value(at(g2)) == "55.5"
+                      and page.is_disabled(f"{pane} [data-act='save-assume']"), f"{marked} {row!r} {csv_cell(g2.split('|')[0], 'G')}")
+
+                hints = page.evaluate("""(cases) => import('/web/js/main.js').then((m) => cases.map((list) => Object.fromEntries(m.tabHints(list))))""", [
+                    [{"id": "a", "name": "p1", "root": "D:\\work\\R3\\p1"}, {"id": "b", "name": "p1", "root": "C:\\Users\\x\\Documents\\Equion\\p1"}, {"id": "c", "name": "other", "root": "D:\\x\\other"}],
+                    [{"id": "a", "name": "p1", "root": "D:/a/x/p1"}, {"id": "b", "name": "p1", "root": "D:/b/x/p1"}],
+                    [{"id": "a", "name": "p1", "root": "D:/x/R3/p1"}, {"id": "b", "name": "p1", "root": "D:/x/Equion/p1_2"}]])
+                other_root = os.path.join(tmp, "b")
+                os.makedirs(other_root, exist_ok=True)
+                assert equion(other_root, env, "new", "demo", "--template", "desk").returncode == 0
+                first_id = page.evaluate("() => window.equionDesk.current.id")
+                page.evaluate("(r) => window.equionDesk.openProject('/api/open', { root: r })", os.path.join(other_root, "demo"))
+                page.wait_for_function("() => document.querySelectorAll('.ptab').length === 2", timeout=20000)
+                # 새 탭이 다 열린 뒤에(작업 프로세스가 뜨고 개요를 받은 뒤) 닫는다 — 여는 중에 닫으면 받던 요청이 503 으로 끝난다
+                page.wait_for_function("(id) => { const p = window.equionDesk.current; return !!p && p.id !== id && !!p.overview; }", arg=first_id, timeout=60000)
+                page.wait_for_timeout(600)
+                labels = page.locator(".ptab").evaluate_all("(es) => es.map((e) => [e.querySelector('.name').textContent, e.querySelector('.hint')?.textContent || '', e.title])")
+                shot(page, "38-same-name-tabs")
+                check("F6 이름이 같은 프로젝트 탭 — 폴더를 덧붙여 가른다(겹치지 않을 만큼만), 풍선 글은 전체 경로 · 이름이 다르면 붙이지 않는다",
+                      hints == [{"a": "R3", "b": "Equion"}, {"a": "a/x", "b": "b/x"}, {"a": "R3", "b": "p1_2"}]
+                      and len(labels) == 2 and labels[0][0] == labels[1][0] and labels[0][1] and labels[1][1] and labels[0][1] != labels[1][1]
+                      and labels[1][1] == "b" and labels[1][2].endswith(os.path.join("b", "demo")), f"{hints} {labels}")
+                page.locator(".ptab").nth(next(i for i, x in enumerate(labels) if x[1] == "b")).locator(".x").click()
+                page.wait_for_function("() => document.querySelectorAll('.ptab').length === 1", timeout=20000)
+
+                look = page.evaluate("""() => import('/web/js/md.js').then(async (m) => {
+                    const box = document.createElement('div');
+                    box.style.width = '320px';
+                    document.querySelector('.project:not([hidden]) .pane:not([hidden])').append(box);
+                    await m.renderDoc(box, '| 시리즈 | 처음 | 끝 | 단위 | 설명 | 값의 종류 |\\n|---|---|---|---|---|---|\\n| Y | 1970Q1 | 2019Q4 | 조원(가상) | 국민소득 | actual |\\n', {});
+                    const wrap = box.querySelector('.table-wrap');
+                    const lines = (td) => { const r = document.createRange(); r.selectNodeContents(td); return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size; };
+                    const out = { tall: [...box.querySelectorAll('td')].filter((td) => lines(td) > 1).map((td) => td.textContent), scroll: wrap.scrollWidth > wrap.clientWidth };
+                    box.remove();
+                    return out;
+                })""")
+                check("F7 문서(노트·결과 카드)의 표 — 짧은 칸을 한 글자씩 끊지 않는다(1970Q1 · 조원(가상)), 넓은 표는 옆으로 밀어 본다",
+                      look["tall"] == [] and look["scroll"], str(look))
+
+                with open(os.path.join(folder, "DATA", "series.toml"), "rb") as f:
+                    raw_rel = tomllib.load(f)["source"]["na"]["file"]
+                raw_path = os.path.join(folder, *raw_rel.split("/"))
+                kept_raw = read(raw_path)
+                with open(raw_path, "w", encoding="utf-8", newline="\n") as f:     # 끝 두 분기가 빠진 지난 파일을 다시 받았다
+                    f.write("\n".join(kept_raw.rstrip("\n").split("\n")[:-2]) + "\n")
+                vintages = sorted(os.listdir(os.path.join(folder, "work", "data")))
+                page.click(f"{active} .side .wb[data-key='data']")
+                page.wait_for_selector(f"{pane} .view.data .view-head .tools .btn", timeout=20000)
+                n_err = len(errors)
+                page.click(f"{pane} .view.data .view-head .tools .btn")
+                page.wait_for_selector(".dialog .choice-table", timeout=60000)
+                errors[n_err:] = [e for e in errors[n_err:] if "status of 409" not in e]
+                asked = page.inner_text(".dialog")
+                page.wait_for_timeout(350)
+                shot(page, "39-data-shorter")
+                page.click(".dialog [data-act='cancel']")
+                page.wait_for_timeout(500)
+                check("F8 자료 만들기 — 지금 회차보다 짧은 자료면 만들지 않고 시리즈마다 지금 회차·새 자료의 구간을 보이고 묻는다(취소하면 회차가 그대로)",
+                      "짧은 자료" in asked and "그래도 만들기" in asked and "CN" in asked and sorted(os.listdir(os.path.join(folder, "work", "data"))) == vintages, asked[:200])
+                with open(raw_path, "w", encoding="utf-8", newline="") as f:
+                    f.write(kept_raw)
                 page.close()
             finally:
                 server.terminate()

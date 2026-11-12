@@ -35,6 +35,33 @@ def pinv_svd(X: np.ndarray, rcond: float = RCOND):
     return np.dot(np.transpose(vt), np.multiply(s[:, np.newaxis], np.transpose(u))), s_orig
 
 
+def pinv_cols(X: np.ndarray, rcond: float = RCOND):
+    """(유사역행렬, 특이값, 열 크기를 맞췄는가) — 보통은 pinv_svd 그대로다(0.5.0까지와 같은 계산 순서, 바이트까지 같다).
+
+    pinv_svd가 방향을 잘라 냈는데(최소 특잇값 ≤ 최댓값×rcond) 열마다 길이를 1로 맞추면 완전 순위일 때만(원 단위 수준
+    변수와 % 금리를 함께 회귀하는 것처럼 열의 크기가 크게 다를 때 — 공선이 아니라 단위 탓) 맞춘 X로 풀어 되돌린다.
+    그대로 두면 잘린 방향 탓에 계수가 경고 없이 틀린다. 맞춰도 순위가 모자라면(진짜 공선) 원래 결과를 그대로 돌려준다.
+
+    예
+        >>> X = np.column_stack([np.ones(6), np.arange(6.0) * 1e16, np.array([1.0, 3, 2, 5, 4, 6])])
+        >>> _, _, scaled = eqn.stats.pinv_cols(X)
+        >>> scaled
+        True
+    """
+    P, sv = pinv_svd(X, rcond)
+    if not sv.size or sv.min() > rcond * sv.max() or X.shape[0] < X.shape[1] or not np.all(np.isfinite(X)):
+        return P, sv, False
+    norm = np.linalg.norm(X, axis=0)
+    if not np.all(norm > 0):
+        return P, sv, False
+    Xs = X / norm
+    ss = np.linalg.svd(Xs, compute_uv=False)
+    if not ss[-1] > ss[0] * 1e-10:                      # 맞춰도 공선(collinear_terms와 같은 기준) — 그대로
+        return P, sv, False
+    Ps, svs = pinv_svd(Xs, rcond)
+    return Ps / norm[:, np.newaxis], svs, True
+
+
 def constant_info(X: np.ndarray):
     """(상수항 수 0|1, 상수열 위치 또는 None). 명시 상수열이 없으면 암묵적 상수(예: 계절 더미 합 = 1)도 찾는다.
 
@@ -201,7 +228,7 @@ def ols(y: pd.Series, X: pd.DataFrame) -> Results:
     """
     yv = np.asarray(y, dtype=float)
     Xv = np.asarray(X, dtype=float)
-    P, sv = pinv_svd(Xv)
+    P, sv, scaled = pinv_cols(Xv)
     ncov = np.dot(P, np.transpose(P))
     rank = int(np.linalg.matrix_rank(np.diag(sv)))
     kc, _ = constant_info(Xv)
@@ -226,6 +253,8 @@ def ols(y: pd.Series, X: pd.DataFrame) -> Results:
     dfwc = df_model + kc
     r.aic = float(-2 * r.llf + 2 * dfwc)
     r.bic = float(-2 * r.llf + np.log(n) * dfwc)
+    if scaled:
+        r.extra["column_scaled"] = True
     return r
 
 
@@ -248,7 +277,7 @@ def wls(y: pd.Series, X: pd.DataFrame, w) -> Results:
         raise ValueError("WLS 가중치는 관측치마다 하나씩, 모두 양수·유한값이어야 합니다")
     sw = np.sqrt(wv)
     Xw, yw = Xv * sw[:, None], yv * sw
-    P, sv = pinv_svd(Xw)
+    P, sv, scaled = pinv_cols(Xw)
     ncov = np.dot(P, np.transpose(P))
     rank = int(np.linalg.matrix_rank(np.diag(sv)))
     kc, _ = constant_info(Xv)                          # 상수항은 가중 전 X로 판단
@@ -270,6 +299,8 @@ def wls(y: pd.Series, X: pd.DataFrame, w) -> Results:
     dfwc = df_model + kc
     r.aic = float(-2 * r.llf + 2 * dfwc)
     r.bic = float(-2 * r.llf + np.log(n) * dfwc)
+    if scaled:
+        r.extra["column_scaled"] = True
     return r
 
 
@@ -289,9 +320,9 @@ def tsls(y: pd.Series, X: pd.DataFrame, Z: pd.DataFrame) -> Results:
     n, k = Xv.shape
     if Zv.shape[1] < k:
         raise ValueError(f"도구변수 {Zv.shape[1]}개 < 계수 {k}개 — 식별 불가 (@inst에 도구를 더 넣으세요)")
-    Pz, _ = pinv_svd(Zv)
+    Pz, _, _ = pinv_cols(Zv)
     Xhat = Zv @ (Pz @ Xv)
-    P, _ = pinv_svd(Xhat)
+    P, _, _ = pinv_cols(Xhat)
     b = P @ yv
     e = yv - Xv @ b
     bread = P @ P.T
@@ -346,8 +377,8 @@ def gmm(y: pd.Series, X: pd.DataFrame, Z: pd.DataFrame, weight: str = "white", l
     if kind is None:
         raise ValueError(f"알 수 없는 GMM 가중행렬: {weight!r} (가능: white, hac)")
     L = (newey_west_lags(n) if lags is None else int(lags)) if kind == "hac" else None
-    Pz, _ = pinv_svd(Zv)
-    P, _ = pinv_svd(Zv @ (Pz @ Xv))
+    Pz, _, _ = pinv_cols(Zv)
+    P, _, _ = pinv_cols(Zv @ (Pz @ Xv))
     b = P @ yv                                          # 1단계: TSLS
     G = Zv.T @ Xv / n
     gy = Zv.T @ yv / n
@@ -357,7 +388,7 @@ def gmm(y: pd.Series, X: pd.DataFrame, Z: pd.DataFrame, weight: str = "white", l
     while True:
         Wh = _inv_sqrt(_gmm_S(Zv, yv - Xv @ b, kind, L))
         M = Wh @ G
-        PM, _ = pinv_svd(M)
+        PM, _, _ = pinv_cols(M)
         b_new = PM @ (Wh @ gy)
         it += 1
         moved = float(np.max(np.abs(b_new - b))) if k else 0.0
@@ -385,7 +416,7 @@ def _resid_on(A: np.ndarray, B: np.ndarray) -> np.ndarray:
     """B를 A의 열공간에 회귀한 잔차(A가 비면 B 그대로)."""
     if A.shape[1] == 0:
         return B
-    P, _ = pinv_svd(A)
+    P, _, _ = pinv_cols(A)
     return B - A @ (P @ B)
 
 

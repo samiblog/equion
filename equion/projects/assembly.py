@@ -60,7 +60,9 @@ class AssemblyReport:
              f"  조립   {self.composition}"]
         if self.excluded:
             L.append(f"  뺀 식  {' · '.join(self.excluded)} (목표는 실측으로)")
-        L.append(f"  내생 {len(self.endogenous)}  " + " · ".join(self.endogenous))
+        many = 24                     # 큰 모형은 줄여 보인다(수와 앞의 몇 개 — 전부는 --json)
+        L.append(f"  내생 {len(self.endogenous)}  " + " · ".join(self.endogenous[:many])
+                 + (f" … 외 {len(self.endogenous) - many}(전부: --json)" if len(self.endogenous) > many else ""))
         ex = []
         for v in self.exogenous:
             info = self.exo_info.get(v, {})
@@ -70,15 +72,26 @@ class AssemblyReport:
                 ex.append(f"{v}(~{info['last']})")
             else:
                 ex.append(v)
-        L.append(f"  외생 {len(self.exogenous)}  " + (" · ".join(ex) if ex else "없음"))
-        if self.links:
+        L.append(f"  외생 {len(self.exogenous)}  " + (" · ".join(ex[:many]) + (f" … 외 {len(ex) - many}(전부: --json)"
+                                                                            if len(ex) > many else "") if ex else "없음"))
+        if self.links and len(self.links) <= 12:
             L.append("  연결   " + " · ".join(f"{a} →{v}→ {b}" for a, v, b in self.links))
+        elif self.links:              # 연결이 많으면 블록 쌍마다 수와 앞의 변수 몇 개
+            pairs: dict = {}
+            for a, v, b in self.links:
+                pairs.setdefault((a, b), []).append(v)
+            L.append(f"  연결   {len(self.links)}개 · 블록 쌍 {len(pairs)}(전부: --json): " + " · ".join(
+                f"{a} → {b} {len(vs)}({'·'.join(vs[:3])}{'…' if len(vs) > 3 else ''})" for (a, b), vs in pairs.items()))
         if self.blocks:
             sim = [b for b in self.blocks if b["size"] > 1]
             line = f"  풀이   블록 {len(self.blocks)}"
-            if sim:
-                line += " (동시 " + ", ".join("·".join(b["variables"][:6]) + ("…" if b["size"] > 6 else "")
-                                            for b in sim) + ")"
+            if sim and len(sim) <= 3 and all(b["size"] <= 6 for b in sim):
+                line += " (동시 " + ", ".join("·".join(b["variables"]) for b in sim) + ")"
+            elif sim:                 # 큰 동시 블록 — 크기(변수 수)를 큰 차례로, 앞의 변수 몇 개
+                sim = sorted(sim, key=lambda b: -b["size"])
+                line += (f" · 동시 블록 {len(sim)}(변수 " + ", ".join(str(b["size"]) for b in sim[:6]) + (" …" if len(sim) > 6 else "")
+                         + ") — " + ", ".join("·".join(b["variables"][:6]) + ("…" if b["size"] > 6 else "") for b in sim[:3])
+                         + (" …" if len(sim) > 3 else ""))
             L.append(line)
         for w in self.warnings:
             L.append(f"  주의   {w}")
@@ -239,6 +252,10 @@ def check(cfg: ProjectConfig, parts_by_block: Dict[str, List[Part]], name: str, 
             for b in system.structure().describe(system):
                 blocks.append({"block": b["block"], "type": "동시" if b["size"] > 1 else "순차",
                                "size": b["size"], "variables": list(b["variables"])})
+            for d in system.dependent_identities():          # 같은 관계를 두 번 적은 항등식 — 늘 특이(D66)
+                problems.append(f"서로 종속인 항등식 {' · '.join(d['identities'])} — 같은 관계를 두 번 적어 "
+                                f"블록({'·'.join(d['variables'][:6])}{'…' if len(d['variables']) > 6 else ''})의 해가 "
+                                "하나로 정해지지 않습니다. 하나를 빼거나(exclude) 다른 관계로 바꾸세요")
         except StructureError as e:
             problems.append(f"구조: {e}")
     return AssemblyReport(model=name, desc=desc, composition=comp, parts=parts, excluded=excluded,

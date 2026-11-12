@@ -99,12 +99,18 @@ def skill_text() -> str:
 
 
 def install_skill(where: str = "user", project: str = ".", force: bool = False) -> str:
-    """스킬을 Claude Code의 스킬 폴더에 쓴다 → 쓴 경로. where: 'user'(~/.claude/skills/equion/) · 'project'(<프로젝트>/.claude/skills/equion/).
+    """스킬을 Claude Code의 스킬 폴더에 쓴다 → 쓴 경로. where: 'user'(~/.claude/skills/equion/) · 'project'(<프로젝트>/.claude/skills/equion/ —
+    프로젝트는 project 폴더에서 위로 올라가며 equion.toml이 있는 곳, 없으면 project 폴더 그대로).
     이미 다른 내용이 있으면 force일 때만 덮는다(FileExistsError). 사람이 시킬 때만 쓴다."""
     if where == "user":
         base = os.path.join(os.path.expanduser("~"), ".claude", "skills", "equion")
     elif where == "project":
-        base = os.path.join(os.path.abspath(project), ".claude", "skills", "equion")
+        from ..projects.config import ProjectError, find_config
+        try:
+            top = os.path.dirname(find_config(project))   # 프로젝트의 하위 폴더(EQUATIONS/ 등)에서 쳐도 프로젝트 폴더에
+        except ProjectError:
+            top = os.path.abspath(project)
+        base = os.path.join(top, ".claude", "skills", "equion")
     else:
         raise ValueError(f"where는 user · project입니다: {where!r}")
     dst = os.path.join(base, "SKILL.md")

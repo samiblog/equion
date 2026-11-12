@@ -131,6 +131,75 @@ class ModelSystem:
             self._cache[key] = st
         return st
 
+    def dependent_identities(self, structure: Structure = None, seed: int = 0) -> List[dict]:
+        """블록 안에서 서로 종속인 항등식(같은 관계를 두 번 적은 것)을 찾는다 — 계수·자료 없이(D66).
+
+        항등식에는 계수가 없으므로 블록 변수에 대한 항등식 자코비안의 행은 모형마다 정해져 있다. 그 행들이
+        무작위 점 두 곳에서 모두 순위가 모자라면 어느 점에서나 모자란다 — 그 블록의 자코비안은 늘 특이하고
+        해가 하나로 정해지지 않는다(또는 해가 없다). 예: `Y = CN + I + G + SD`와 `SD = Y - CN - I - G`,
+        `A = B + G`와 `B = A - G`.
+
+        돌려주는 것
+            [{"block": 블록 번호, "variables": [블록 변수], "identities": [종속인 항등식 표시]}, …] — 없으면 []
+        """
+        import numpy as np
+        st = structure or self.structure()
+        rng = np.random.default_rng(seed)
+        out = []
+        for k, b in enumerate(st.blocks):
+            ids = [e for e in b.eqs if self.eqs[e].kind == "identity"]
+            if not ids:
+                continue
+            keys: Dict[Tuple[str, int], int] = {}
+
+            def leaf(v, keys=keys):
+                key = (v.name, v.lag)
+                if key not in keys:
+                    keys[key] = len(keys)
+                return f"V[{keys[key]}]"
+            try:
+                rows = []
+                for e in ids:
+                    eq = self.eqs[e]
+                    row = []
+                    for j in b.vars:
+                        name = self.var_names[j]
+                        if name not in eq.current:
+                            row.append("0.0")
+                            continue
+                        row.append(ir.to_code(ir.deriv(eq.residual, ir.Var(name, 0)), leaf))
+                    rows.append("[" + ", ".join(row) + "]")
+                fn = eval("lambda V: [" + ", ".join(rows) + "]", dict(ir.RUNTIME))  # noqa: S307 — 검증된 IR에서 만든 식(색인만)
+            except Exception:  # noqa: BLE001 — 계수가 든 항등식 등은 보지 않는다
+                continue
+            deficient, null = 0, None
+            for _ in range(2):
+                V = rng.uniform(0.5, 1.5, max(len(keys), 1))
+                try:
+                    with np.errstate(all="ignore"):
+                        M = np.array(fn(V), dtype=float)
+                except ir.EVAL_ERRORS:
+                    break
+                if not np.all(np.isfinite(M)):
+                    break
+                r = np.max(np.abs(M), axis=1)
+                r[r == 0] = 1.0
+                M = M / r[:, None]
+                c = np.max(np.abs(M), axis=0)
+                c[c == 0] = 1.0
+                M = M / c[None, :]
+                U, s, _ = np.linalg.svd(M)
+                rank = int(np.sum(s > 1e-9 * max(s[0] if len(s) else 0.0, 1e-300)))
+                if rank >= len(ids):
+                    break
+                deficient += 1
+                null = U[:, rank:]
+            if deficient == 2 and null is not None:
+                who = [ids[i] for i in range(len(ids)) if np.max(np.abs(null[i])) > 1e-8]
+                out.append({"block": k, "variables": [self.var_names[j] for j in b.vars],
+                            "identities": [self.eqs[e].label for e in (who or ids)]})
+        return out
+
     def _build(self, active: FrozenSet[int], unknowns: FrozenSet[int]) -> Structure:
         if len(active) != len(unknowns):
             raise StructureError(

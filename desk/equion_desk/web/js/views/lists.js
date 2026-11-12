@@ -97,21 +97,34 @@ export function changesView(project, desc) {
 
   function whoText(c) { return WHO[c.who] || c.who || ''; }
 
-  /** 되돌리기 — 그 바뀜 앞의 내용으로 다시 쓴다(이것도 바뀜 기록에 남는다). file 을 주면 그 파일만 */
+  /** 되돌리기 — 그 바뀜 하나만 물린다(뒤의 바뀜은 그대로 — 이것도 바뀜 기록에 남는다). file 을 주면 그 파일만.
+   *  뒤의 바뀜이 같은 줄을 또 고쳤으면 패키지가 멈추고(겹침) 알린다 — 그때 통째로 되돌릴지(--force) 따로 묻는다 */
   async function revert(c, file = null) {
     const files = file ? c.files.filter((f) => f.path === file) : c.files;
     const command = `equion history revert ${c.id}${file ? ` --file ${file}` : ''}`;
     const body = h('div', { class: 'adopt' },
-      h('p', {}, h('b', { class: 'mono' }, c.id), file ? ' 가 고친 파일 가운데 하나만' : ' 가 고친 파일을', ' 그 앞의 내용으로 되돌립니다. 그 뒤에 같은 파일을 또 고쳤으면 그것도 함께 물러납니다 — 되돌린 것도 바뀜 기록에 남아 다시 되돌릴 수 있습니다.'),
+      h('p', {}, h('b', { class: 'mono' }, c.id), file ? ' 가 고친 파일 가운데 하나만' : ' 가 고친 파일을', ' 그 앞의 내용으로 되돌립니다. 이 바뀜의 몫만 물리고 그 뒤의 바뀜은 그대로 둡니다 — 뒤에서 같은 줄을 또 고쳤으면 멈추고 알립니다. 되돌린 것도 바뀜 기록에 남아 다시 되돌릴 수 있습니다.'),
       h('div', { class: 'diff' }, files.map((f) => h('span', { class: `dl ${f.op === 'added' ? 'del' : 'add'}` }, `${f.op === 'added' ? '지움(새로 만든 파일)' : f.op === 'removed' ? '되살림' : '앞 내용으로'}  ${f.path}`))),
       h('div', { class: 'cmd-note mono' }, command));
     if (!(await confirmDialog({ title: '되돌리기', body, confirm: file ? '이 파일만 되돌리기' : '되돌리기', wide: true }))) return;
-    try {
-      const res = await project.compute('revert', { change: c.id, ...(file ? { files: [file] } : {}) }, { quiet: true });
+    const run = async (force) => {
+      const res = await project.compute('revert', { change: c.id, ...(file ? { files: [file] } : {}), ...(force ? { force: true } : {}) }, { quiet: true });
       flash(res.result.change ? `되돌렸습니다 — 바뀜 기록 ${res.result.change}` : '지금 내용이 이미 그 앞과 같습니다(바꾼 것 없음)');
       if (res.result.change) { selected = res.result.change; }
       await load();
+    };
+    try {
+      await run(false);
     } catch (err) {
+      if (err.kind === 'conflict') {
+        // 뒤의 바뀜이 같은 줄을 고쳤다 — 그대로 두는 것이 기본, 통째로 되돌리기는 사람이 고를 때만
+        const why = h('div', { class: 'adopt' }, h('pre', { class: 'conflict-text' }, err.message),
+          h('p', {}, '통째로 되돌리면 그 파일이 ', h('b', { class: 'mono' }, c.id), ' 앞의 내용이 되어, 뒤의 바뀜도 그 파일에서 함께 물러납니다(그것도 바뀜 기록에 남아 다시 되돌릴 수 있습니다).'),
+          h('div', { class: 'cmd-note mono' }, `${command} --force`));
+        if (!(await confirmDialog({ title: '뒤의 바뀜과 겹칩니다', body: why, confirm: '통째로 되돌리기', tone: 'danger', wide: true }))) return;
+        try { await run(true); } catch (e2) { if (e2.kind !== 'busy') project.notify({ level: 'error', text: e2.message }); }
+        return;
+      }
       if (err.kind !== 'busy') project.notify({ level: 'error', text: err.message });
     }
   }

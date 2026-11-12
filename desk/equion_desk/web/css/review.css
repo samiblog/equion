@@ -51,3 +51,7 @@
   .split-view .list { max-height: 196px; border-right: 0; border-bottom: 1px solid var(--line-strong); }
   .split-view .detail { padding: 16px 20px 44px; }
 }
+
+/* 되돌리기가 뒤의 바뀜과 겹칠 때 — 패키지가 알린 글(파일마다 뒤의 바뀜)을 그대로 */
+.conflict-text { margin: 0 0 10px; padding: 8px 10px; max-height: 40vh; overflow: auto; border-radius: var(--radius-s); background: var(--canvas); color: var(--ink-2);
+  font-family: var(--font-mono); font-size: calc(11.5px * var(--scale)); white-space: pre-wrap; overflow-wrap: anywhere; }

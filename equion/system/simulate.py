@@ -25,7 +25,7 @@ import pandas as pd
 
 from .analyzer import Block, ModelSystem, StructureError
 from .compiler import compile_equation_full, ensure_compiled
-from .solver import DEFAULT_FALLBACK, JACOBIANS, solve_block
+from .solver import DEFAULT_FALLBACK, GROWTH_MAX, JACOBIANS, RCOND_MIN, equilibrated_rcond, solve_block
 from ..log import engine as _log
 
 MODES = ("dynamic", "static", "fit")
@@ -357,9 +357,18 @@ def run_simulation(system: ModelSystem, df: pd.DataFrame, start: int, end: int,
             ceqs.append(cache[e])
         ti = np.array([t for t, _ in cols])
         ji = np.array([j for _, j in cols])
+        # 지평 뒤 칸 가운데 끝 값을 따라가는 것(terminal='hold', 또는 'actual'인데 실측이 없음 — fill_terminal과 같은 규칙):
+        # Newton이 끝 값을 바꿀 때마다 같이 바꾸고, 자코비안에서는 그 칸의 미분을 끝 값의 열에 더한다.
+        # (한 번만 채워 두면 끝 다음 값이 첫 추정에 묶여 Fair-Taylor와 다른 해가 나온다.)
+        held = {(r_, j) for j in system.endo_idx for r_ in range(end + 1, TT)
+                if not (opts.terminal == "actual" and math.isfinite(A[r_, j]))}
+        hr = np.array([r_ for r_, _ in sorted(held)], dtype=int)
+        hj = np.array([j for _, j in sorted(held)], dtype=int)
 
         def put(x):
             S[ti, ji] = x
+            if hr.size:
+                S[hr, hj] = S[end, hj]
 
         def F(x):
             put(x)
@@ -373,6 +382,8 @@ def run_simulation(system: ModelSystem, df: pd.DataFrame, start: int, end: int,
             for k, (ce, (t, _)) in enumerate(zip(ceqs, rows)):
                 for j, lag, fn in ce.derivs:
                     c = colmap.get((t + lag, j))
+                    if c is None and (t + lag, j) in held:
+                        c = colmap.get((end, j))
                     if c is not None:
                         ri.append(k)
                         ci.append(c)
@@ -380,6 +391,7 @@ def run_simulation(system: ModelSystem, df: pd.DataFrame, start: int, end: int,
             return sp.csc_matrix((vv, (ri, ci)), shape=(len(rows), len(cols)))
         x = S[ti, ji].copy()
         r, sc = F(x)
+        sc0 = sc.copy()
         nr = float(np.max(np.abs(r) / sc)) if len(r) and np.all(np.isfinite(r)) else np.inf
         it = 0
         with np.errstate(all="ignore"):
@@ -409,10 +421,25 @@ def run_simulation(system: ModelSystem, df: pd.DataFrame, start: int, end: int,
                 nr = float(np.max(np.abs(r) / sc))
         put(x)
         ok = nr < opts.ftol
+        why = ""
+        if ok and len(cols):                      # 수렴으로 보인 해의 확인 — 블록 풀이(solver._verify)와 같은 규칙
+            rt = np.array([t for t, _ in rows])
+            grow = max((float(np.max(sc[rt == t])) / max(float(np.max(sc0[rt == t])), 1.0)
+                        for t in set(rt.tolist())), default=1.0)
+            if not np.all(np.isfinite(x)):
+                why = "해에 무한·NaN 값이 있습니다"
+            elif grow > GROWTH_MAX:
+                why = f"해가 없어 값이 끝없이 커집니다(발산 — 식의 크기가 시작값의 {grow:.1e}배)"
+            else:
+                with np.errstate(all="ignore"):
+                    rc = equilibrated_rcond(Jac(x), np.maximum(np.abs(x), 1.0), sc)
+                if rc < RCOND_MIN:
+                    why = (f"식이 서로 종속이라 해가 하나로 정해지지 않습니다(자코비안 특이 — 크기를 맞춘 역조건수 {rc:.1e})")
+            ok = not why
         per = {}
         for (t, _), v in zip(rows, np.abs(r) / sc):
             per[t] = max(per.get(t, 0.0), float(v))
-        return ok, it, per, nr
+        return ok, it, per, nr, why
 
     passes = 1
     mce_ok = None
@@ -431,7 +458,9 @@ def run_simulation(system: ModelSystem, df: pd.DataFrame, start: int, end: int,
             st_, fx = one_period(t, 1)
             statuses.append(st_)
             fixed[t] = fx
-        mce_ok, passes, per, nr = stacked()
+        mce_ok, passes, per, nr, why = stacked()
+        if not mce_ok and opts.on_fail == "stop":
+            raise SimulationError(f"MCE(stacked) 미수렴 — {why or f'최대 정규화 잔차 {nr:.2e}'}")
         for st_ in statuses:
             t = st_["t"]
             st_["methods"] = ["stacked"]
@@ -441,8 +470,19 @@ def run_simulation(system: ModelSystem, df: pd.DataFrame, start: int, end: int,
                 st_["fallback"], st_["message"] = [], ""
                 st_["status"] = "partial" if st_["excluded"] else "ok"
             else:
+                # 풀리지 않은 해는 쓰지 않는다 — 그 기의 미지수에 실패 정책(on_fail)을 적용하고 상태도 실패로
+                unk = sorted(active[t][1])
+                if unk and opts.on_fail == "actual":
+                    S[t, unk] = A[t, unk]
+                elif unk and opts.on_fail == "nan":
+                    S[t, unk] = np.nan
+                fixed[t] = set(fixed.get(t, set())) | {names[j] for j in unk}
+                st_["fallback"] = sorted(set(st_["fallback"]) | {names[j] for j in unk})
+                vals = S[t, system.endo_idx]
+                st_["status"] = ("failed" if opts.on_fail == "nan" or not np.isfinite(vals).any()
+                                 else "fallback")
                 st_["message"] = (st_["message"] + " | " if st_["message"] else "") + \
-                    f"MCE(stacked) 미수렴 — 최대 정규화 잔차 {nr:.2e}"
+                    f"MCE(stacked) 미수렴 — {why or f'최대 정규화 잔차 {nr:.2e}'}"
         if opts.verbose:
             _log.info(f"[MCE] stacked-time Newton {passes}회 — {'수렴' if mce_ok else '미수렴'}")
     elif opts.mce and system.max_lead > 0 and opts.mode == "dynamic":

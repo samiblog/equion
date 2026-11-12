@@ -84,6 +84,8 @@ export function batchView(project, desc) {
 
   const list = () => combos(st.dep, st.always, st.slots);
   const picked = () => list().filter((t) => !st.off.has(t));
+  /** '모두 추정'을 누를 수 있나 — 고른 식이 있고 한도(MAX) 안이며 도는 계산이 없을 때(그리기와 작업 줄이 같은 규칙을 쓴다) */
+  const canRun = (on = picked()) => on.length > 0 && on.length <= MAX && !st.running && !project.busy;
   const smpl = () => (st.s0 || st.s1 ? `${st.s0}:${st.s1}` : '');
   const lineOf = (t) => ['est', quote(t), '--for', partId, ...(smpl() ? ['--smpl', smpl()] : []), ...(st.sim ? ['--sim'] : []), ...(st.cov ? ['--cov', st.cov] : [])].join(' ');
 
@@ -149,7 +151,7 @@ export function batchView(project, desc) {
     })));
     if (over) listBox.append(h('div', { class: 'banner warn' }, icon('alert'), h('div', {}, `한 번에 ${MAX}개까지 추정합니다 — 칸을 줄이거나 몇 개를 끄세요.`)));
     listBox.append(h('div', { class: 'batch-acts' },
-      h('button', { class: 'btn primary', type: 'button', 'data-act': 'run-batch', disabled: !on.length || over || st.running || project.busy,
+      h('button', { class: 'btn primary', type: 'button', 'data-act': 'run-batch', disabled: !canRun(on),
         title: '고른 식을 차례로 추정한다 — 하나가 틀려도 나머지는 한다', onclick: runAll }, icon('play'), `모두 추정 (${on.length})`),
       h('button', { class: 'btn', type: 'button', 'data-act': 'batch-note', disabled: !on.length || over, title: '이 줄들을 노트의 블록 하나로 남긴다 — 다음 회차에는 노트 전체 실행',
         onclick: () => addToNote(project, { lines: on.map(lineOf), title: `${partId} 후보`, suggest: `notes/candidates_${(part()?.target || partId.split(':')[1] || 'x').replace(/[^A-Za-z0-9_]/g, '_')}.md` }) }, icon('doc'), '노트로 저장…'),
@@ -159,7 +161,7 @@ export function batchView(project, desc) {
 
   async function runAll() {
     const texts = picked();
-    if (!texts.length) return;
+    if (!canRun(texts)) return;
     st.running = true; st.error = null; st.result = null;
     drawList(); drawOut();
     try {
@@ -195,7 +197,7 @@ export function batchView(project, desc) {
     key: `batch:${partId}`, type: 'batch', title: `후보 묶음 ${partId}`, icon: 'layers', mono: false, el,
     desc: () => ({ type: 'batch', part: partId, batch: { dep: st.dep, always: st.always, slots: st.slots, off: [...st.off].slice(0, 200), s0: st.s0, s1: st.s1, sim: st.sim, cov: st.cov } }),
     show() { if (!st.seeded) render(); },
-    event(e) { if (e.type === 'overview' && !st.seeded) render(); if (e.type === 'job') { const b = el.querySelector('[data-act="run-batch"]'); if (b) b.disabled = project.busy || st.running || !picked().length; } },
+    event(e) { if (e.type === 'overview' && !st.seeded) render(); if (e.type === 'job') { const b = el.querySelector('[data-act="run-batch"]'); if (b) b.disabled = !canRun(); } },
     dispose() {},
   };
 }

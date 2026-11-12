@@ -107,14 +107,31 @@ def regularize(df: pd.DataFrame, freq: str) -> pd.DataFrame:
     return out
 
 
-def parse_period(token, freq: str) -> pd.Period:
-    """'2000Q1' / '2000M3' / '2000-03' / '2000' 등을 freq에 맞는 Period로 변환."""
+_YEAR_ONLY = re.compile(r"^\d{4}$")
+
+
+def is_year_only(token) -> bool:
+    """'2019'·2019처럼 해만 적은 시점 표기면 참(분기·월 표기, Period, 상대 표기는 거짓)."""
+    if token is None or isinstance(token, (pd.Period, pd.Timestamp, bool, np.bool_)):
+        return False
+    if isinstance(token, (int, np.integer)):
+        return 1000 <= int(token) <= 9999
+    return bool(_YEAR_ONLY.match(str(token).strip()))
+
+
+def parse_period(token, freq: str, end: bool = False) -> pd.Period:
+    """'2000Q1' / '2000M3' / '2000-03' / '2000' 등을 freq에 맞는 Period로 변환.
+
+    해만 적은 표기('2019')는 분기·월 자료에서 그 해의 첫 기(2019Q1·2019M1)다. 구간의 끝이면 `end=True`로 —
+    그 해의 마지막 기(2019Q4·2019M12)가 된다(D66: `smpl 2000 2019`는 2019년 전체까지)."""
     if token is None:
         return None
     if isinstance(token, pd.Period):
         return token.asfreq(PERIOD_FREQ[freq])
     s = str(token).strip().upper()
     pf = PERIOD_FREQ[freq]
+    if end and freq in ("Q", "M") and _YEAR_ONLY.match(s):
+        return pd.Period(s, freq="Y").asfreq(pf, how="end")
     hint = {"Q": "2000Q1", "M": "2000M3 또는 2000-03", "A": "2000"}[freq]
     other = ("Q" if re.fullmatch(r"\d{4}Q[1-4]", s) else "M" if re.fullmatch(r"\d{4}M\d{1,2}", s) else None)
     if other and other != freq:      # 다른 주기의 기간 표기(연간에 '2000Q1', 월간에 '2015Q2')는 받지 않는다
@@ -136,12 +153,20 @@ def to_period(ts, freq: str) -> pd.Period:
     return pd.Timestamp(ts).to_period(PERIOD_FREQ[freq])
 
 
-def locate(index: pd.DatetimeIndex, token, freq: str) -> int:
-    """시점 표기('2000Q1'·'2000M3'·'2000')의 인덱스 위치. 없으면 ValueError(자료 기간과 extend 안내)."""
-    target = parse_period(token, freq)
+def locate(index: pd.DatetimeIndex, token, freq: str, end: bool = False) -> int:
+    """시점 표기('2000Q1'·'2000M3'·'2000')의 인덱스 위치. 없으면 ValueError(자료 기간과 extend 안내).
+
+    해만 적은 표기는 시작이면 그 해의 첫 기, 끝(`end=True`)이면 마지막 기 — 자료에 그 해의 일부만 있으면
+    자료 안에서 그 해의 첫·마지막 기다(예: 자료가 2019Q2에서 끝나면 끝 '2019'는 2019Q2)."""
+    target = parse_period(token, freq, end=end)
     for i, ts in enumerate(index):
         if to_period(ts, freq) == target:
             return i
+    if freq in ("Q", "M") and is_year_only(token):
+        year = int(str(token).strip())
+        hits = [i for i, ts in enumerate(index) if pd.Timestamp(ts).year == year]
+        if hits:
+            return hits[-1] if end else hits[0]
     span = (f"{format_period(to_period(index[0], freq), freq)}~{format_period(to_period(index[-1], freq), freq)}"
             if len(index) else "비어 있음")
     raise ValueError(f"데이터에서 시점을 찾을 수 없음: {token} — 기간은 {span}입니다(늘리려면 extend)")
@@ -194,13 +219,23 @@ def is_relative(token) -> bool:
     return token is not None and bool(_REL_TOKEN.match(str(token).strip()))
 
 
-def resolve_token(token, index: pd.DatetimeIndex, freq: str, first: int = 0, last: int = None) -> str:
+def resolve_token(token, index: pd.DatetimeIndex, freq: str, first: int = 0, last: int = None,
+                  end: bool = False) -> str:
     """기간 표기 하나 → 라벨. first·last(자료의 처음·끝 위치 — 기본은 인덱스의 처음·끝)와 ±N을 받는다.
-    자료 밖으로 나가도 된다(예: last+4 — 전망 구간). 보통 라벨은 그대로(검사만)."""
+    자료 밖으로 나가도 된다(예: last+4 — 전망 구간). 보통 라벨은 그대로(검사만).
+
+    해만 적은 표기('2019')는 그 해의 첫 기, 구간의 끝(`end=True`)이면 마지막 기 — 그 해의 일부만 인덱스에
+    있으면 인덱스 안에서 그 해의 첫·마지막 기다(`locate`와 같은 규칙)."""
     s = str(token).strip()
     m = _REL_TOKEN.match(s)
     if not m:
-        return format_period(parse_period(s, freq), freq)
+        if freq in ("Q", "M") and is_year_only(s) and len(index):
+            year = int(s)
+            hits = [i for i, ts in enumerate(index) if pd.Timestamp(ts).year == year]
+            p = parse_period(s, freq, end=end)
+            if hits and not any(to_period(index[i], freq) == p for i in hits):
+                return format_period(to_period(index[hits[-1] if end else hits[0]], freq), freq)
+        return format_period(parse_period(s, freq, end=end), freq)
     pos = first if m[1].lower() == "first" else (len(index) - 1 if last is None else last)
     base = to_period(index[pos], freq)
     k = int(m[3] or 0) * (-1 if m[2] == "-" else 1)
@@ -210,6 +245,7 @@ def resolve_token(token, index: pd.DatetimeIndex, freq: str, first: int = 0, las
 def resolve_span(spec: str, index: pd.DatetimeIndex, freq: str, first: int = 0, last: int = None):
     """구간 표기 → (시작 라벨, 끝 라벨). 'S:E'(S·E는 라벨 · first · last · last-N · first+N) 또는 'next:N'(자료 끝 다음 기부터 N기).
 
+    해만 적은 끝은 그 해의 마지막 기다 — 분기 자료의 '2000:2019'는 2000Q1~2019Q4(D66).
     예: 'last-39:last'(끝에서 40기) · '2005Q1:last' · 'next:12'(전망 12기)."""
     s = str(spec).strip()
     m = _NEXT_SPAN.match(s)
@@ -221,7 +257,7 @@ def resolve_span(spec: str, index: pd.DatetimeIndex, freq: str, first: int = 0, 
     if ":" not in s:
         raise ValueError(f"구간 표기는 '시작:끝' 또는 'next:N'입니다: {spec!r}")
     a, b = [t.strip() for t in s.split(":", 1)]
-    start, end = resolve_token(a, index, freq, first, last), resolve_token(b, index, freq, first, last)
+    start, end = resolve_token(a, index, freq, first, last), resolve_token(b, index, freq, first, last, end=True)
     if parse_period(start, freq) > parse_period(end, freq):
         raise ValueError(f"구간의 시작({start})이 끝({end})보다 뒤입니다: {spec!r}")
     return start, end

@@ -235,15 +235,19 @@ class BuildResult:
     same_as: Optional[str] = None
     inbox: list = field(default_factory=list)      # 받은 원자료(InboxItem) — --inbox로 넣은 것
     waiting: int = 0                               # --inbox 없이 만들 때 받은 상자에 남은 파일 수
+    warnings: List[str] = field(default_factory=list)   # 사람이 볼 것(!) — 지금 회차보다 짧음(--allow-shorter) · 옛 회차로 돌아감
 
     def text(self) -> str:
         """명령줄에 보이는 짧은 글."""
         head = (f"[data build] 새 회차 {self.id}" if self.created else
                 f"[data build] 바뀐 것 없음 — 회차 {self.id}와 내용이 같습니다(새로 만들지 않음)")
         L = [head, f"  시리즈 {self.n_series} · {self.span[0]}~{self.span[1]}"]
+        L += [f"  ! {w}" for w in self.warnings]
         if self.inbox:
             L.append(f"  받은 원자료 {len(self.inbox)}")
-            L += [f"    - {x.text()}" for x in self.inbox]
+            for x in self.inbox:
+                L.append(f"    - {x.text()}")
+                L += [f"      {n}" for n in getattr(x, "notes", [])]
         if self.waiting:
             L.append(f"  받은 상자(DATA/raw/inbox/)에 파일 {self.waiting}개 — 넣으려면 equion data build --inbox ask")
         if self.implicit:
@@ -255,7 +259,7 @@ class BuildResult:
         """명령줄 --json과 같은 사전."""
         return {"id": self.id, "created": self.created, "n_series": self.n_series, "span": list(self.span),
                 "implicit": self.implicit, "path": self.path, "inbox": [x.to_dict() for x in self.inbox],
-                "waiting": self.waiting}
+                "waiting": self.waiting, "warnings": self.warnings}
 
     def __repr__(self):
         return f"<자료 회차 {self.id}{'' if self.created else ' (이미 있음)'}: 시리즈 {self.n_series}>"
@@ -360,18 +364,151 @@ def _suffix(n: int) -> str:
     return s
 
 
+IDS_FILE = "ids.txt"                 # work/data/ids.txt — 만든 회차 이름(한 줄에 하나). 폴더를 지워도 이름은 다시 쓰지 않는다
+_VID_ANY = __import__("re").compile(r"(?<![A-Za-z0-9_])d\d{4}-\d{2}[a-z]+(?![A-Za-z0-9_])")
+
+
+def used_ids(root: str) -> set:
+    """한 번이라도 쓴 회차 이름 — 지금 있는 회차 폴더 · 만든 회차 장부(work/data/ids.txt) · equion.toml의 지금 회차 · 기록(record.json)·
+    이정표가 가리키는 회차. 회차 폴더를 손으로 지워도 그 이름을 다시 쓰지 않는다(옛 기록·보고서가 다른 자료를 가리키게 되지 않게 — 기록 번호와 같은 규칙, D66)."""
+    out = set()
+    base = os.path.join(root, VINTAGE_DIR)
+    if os.path.isdir(base):
+        for n in os.listdir(base):
+            n = n[5:] if n.startswith(".tmp-") else n
+            if VID_RE.match(n):
+                out.add(n)
+        led = os.path.join(base, IDS_FILE)
+        if os.path.isfile(led):
+            with open(led, encoding="utf-8") as f:
+                out |= {x.strip() for x in f if VID_RE.match(x.strip())}
+    texts = [os.path.join(root, "equion.toml")]
+    work = os.path.join(root, "work")
+    if os.path.isdir(work):
+        for kind in os.listdir(work):
+            kd = os.path.join(work, kind)
+            if kind in ("data", "history") or not os.path.isdir(kd):
+                continue
+            for name in os.listdir(kd):
+                for fn in ("record.json", "milestone.json"):
+                    fp = os.path.join(kd, name, fn)
+                    if os.path.isfile(fp):
+                        texts.append(fp)
+    for fp in texts:
+        try:
+            with open(fp, encoding="utf-8") as f:
+                out |= set(_VID_ANY.findall(f.read()))
+        except (OSError, UnicodeDecodeError):
+            continue
+    return out
+
+
 def next_id(root: str, now: datetime = None) -> str:
+    """새 회차 이름 d<해>-<달><a·b·…> — 한 번이라도 쓴 이름(`used_ids`)은 건너뛴다."""
     now = now or datetime.now()
     base = f"d{now:%Y-%m}"
-    have = {v["id"] for v in list_vintages(root)}
+    have = used_ids(root)
     k = 0
     while f"{base}{_suffix(k)}" in have:
         k += 1
     return f"{base}{_suffix(k)}"
 
 
-def build_vintage(defs: DataDefs, equion_version: str, now: datetime = None) -> BuildResult:
-    """정의대로 자료 회차를 만든다. 문제(틀이 안 맞음·없는 열·주기 변환)는 모아서 ProjectError."""
+class ShorterError(ProjectError):
+    """새 자료가 지금 회차보다 짧다(시작이 늦거나 끝이 이르다) — 사람이 확인할 일(`--allow-shorter`). 명령줄은 종료 코드 3,
+    스크립트(.eqs)에서는 그 단계를 '!'로 남기고 이어 간다(지금 회차는 그대로)."""
+
+
+def series_spans(df: pd.DataFrame, F: str = None) -> Dict[str, Tuple[str, str]]:
+    """시리즈마다 (처음 값, 끝 값)의 기간 라벨. 인덱스가 기간 라벨(회차 읽기)이든 날짜(만들기)이든."""
+    out = {}
+    for c in df.columns:
+        s = df[c]
+        a, b = s.first_valid_index(), s.last_valid_index()
+        if a is None:
+            continue
+        if F is not None and not isinstance(a, str):
+            a, b = format_period(a, F), format_period(b, F)
+        out[c] = (str(a), str(b))
+    return out
+
+
+def shrink_notes(root: str, current: Optional[str], spans: Dict[str, Tuple[str, str]], F: str) -> List[str]:
+    """지금 회차보다 짧아진 시리즈 — '{이름} 1970Q1~2020Q1 → 1970Q2~2020Q1'. 지금 회차가 없거나 읽을 수 없으면 []."""
+    from ..data.periods import parse_period
+    if not current:
+        return []
+    try:
+        old, _, _ = read_vintage(root, current)
+    except (ProjectError, OSError, ValueError):
+        return []
+    out = []
+    for name, (a0, b0) in series_spans(old).items():
+        if name not in spans:
+            continue
+        a1, b1 = spans[name]
+        try:
+            later = parse_period(a1, F) > parse_period(a0, F)
+            earlier = parse_period(b1, F) < parse_period(b0, F)
+        except (ValueError, KeyError):
+            continue
+        if later or earlier:
+            out.append(f"{name} {a0}~{b0} → {a1}~{b1}")
+    return out
+
+
+def shorter_message(current: str, notes: List[str], what: str = "새 자료") -> str:
+    """기간이 줄어든 자료를 거절하는 글 — 무엇이 얼마나, 그리고 할 일."""
+    shown = " · ".join(notes[:6]) + (f" 외 {len(notes) - 6}" if len(notes) > 6 else "")
+    return (f"{what}가 지금 회차 {current}보다 짧습니다(시작이 늦거나 끝이 이름 — 시리즈 {len(notes)}: {shown}). 지난 파일을 다시 받았거나 "
+            "일부 기간만 든 파일, 또는 정의가 옛 원자료를 가리키는지(이정표 되돌리기·바뀜 되돌리기 뒤) 확인하세요 — 아무것도 바꾸지 않았습니다"
+            "(지금 회차는 그대로). 짧아진 자료로 만들려면 --allow-shorter(스크립트에서는 그 줄에)")
+
+
+def move_notes(root: str, old: Optional[str], new: Optional[str]) -> List[str]:
+    """지금 회차가 old → new로 바뀔 때 사람이 볼 것 — 더 옛 회차로 돌아감 · 끝이 이른(짧아진) 회차. 바뀌지 않으면 []."""
+    if not old or not new or old == new:
+        return []
+    order = [v["id"] for v in list_vintages(root)]
+    out = []
+    if old in order and new in order and order.index(new) < order.index(old):
+        out.append(f"지금 회차가 더 옛 회차로 돌아갑니다: {old} → {new}(만든 차례로 앞)")
+    try:
+        df_new, _, meta_new = read_vintage(root, new)
+        F = meta_new.get("freq")
+        notes = shrink_notes(root, old, series_spans(df_new), F) if F else []
+    except (ProjectError, OSError, ValueError):
+        notes = []
+    if notes:
+        out.append(f"{new}는 {old}보다 짧습니다 — " + " · ".join(notes[:4]) + (f" 외 {len(notes) - 4}" if len(notes) > 4 else ""))
+    return out
+
+
+def build_vintage(defs: DataDefs, equion_version: str, now: datetime = None, current: Optional[str] = None,
+                  allow_shorter: bool = False) -> BuildResult:
+    """정의대로 자료 회차를 만든다. 문제(틀이 안 맞음·없는 열·주기 변환)는 모아서 ProjectError.
+
+    current(지금 회차)를 주면 새 자료가 그보다 짧은지(시리즈마다 시작이 늦거나 끝이 이른지) 견준다 — 짧으면 아무것도 쓰지 않고
+    ShorterError(allow_shorter면 만들고 `.warnings`에 남긴다)."""
+    df, fl, meta, implicit = vintage_frame(defs)
+    warnings: List[str] = []
+    notes = shrink_notes(defs.root, current, series_spans(df, defs.freq), defs.freq)
+    if notes:
+        if not allow_shorter:
+            raise ShorterError(shorter_message(current, notes))
+        warnings.append(f"지금 회차 {current}보다 짧은 자료(--allow-shorter): " + " · ".join(notes[:6])
+                        + (f" 외 {len(notes) - 6}" if len(notes) > 6 else ""))
+    res = _write_vintage(defs, df, fl, meta, implicit, equion_version, now)
+    order = [v["id"] for v in list_vintages(defs.root)]
+    if (current and not res.created and res.id != current and current in order and res.id in order
+            and order.index(res.id) < order.index(current)):
+        warnings.append(f"지금 회차 {current}보다 옛 회차 {res.id}와 내용이 같습니다 — 지난 원자료를 다시 읽고 있지 않은지 확인하세요")
+    res.warnings = warnings
+    return res
+
+
+def vintage_frame(defs: DataDefs):
+    """정의대로 읽어 (값 표, 값의 종류 표, meta, 알아서 한 것) — 쓰지 않는다. 문제는 모아서 ProjectError."""
     from ..workfile.workfile import _from_frame
     F = defs.freq
     implicit: List[str] = []
@@ -430,6 +567,7 @@ def build_vintage(defs: DataDefs, equion_version: str, now: datetime = None) -> 
         implicit.append(f"시리즈마다 자료 구간이 다릅니다 — 회차는 {format_period(p0, F)}~{format_period(p1, F)}, "
                         "빈 칸은 결측")
     if defs.derived:
+        made, marks = {}, {}                  # 파생 시리즈는 모아서 한 번에 붙인다(하나씩 넣으면 큰 모형에서 표가 조각난다)
         with _Quiet():
             wf = _from_frame(df.copy(), F, "vintage", check=False)
             for line, name, expr, desc in defs.derived:
@@ -439,15 +577,26 @@ def build_vintage(defs: DataDefs, equion_version: str, now: datetime = None) -> 
                     problems.append(f"{defs.derived_file}:{line}: {str(e)[:200]} — {name} = {expr}")
                     continue
                 vals = wf[name].to_numpy(dtype=float)
-                df[name] = vals
-                fl[name] = np.where(np.isfinite(vals), "derived", "missing")
+                made[name] = vals
+                marks[name] = np.where(np.isfinite(vals), "derived", "missing")
                 meta[name] = {"kind": "derived", "expr": expr, "line": line, "desc": desc, "unit": ""}
         if problems:
             raise ProjectError(problems)
-    return _write_vintage(defs, df, fl, meta, implicit, equion_version, now)
+        if made:
+            keep = [c for c in df.columns if c not in made]
+            df = pd.concat([df[keep], pd.DataFrame(made, index=df.index)], axis=1)
+            fl = pd.concat([fl[[c for c in fl.columns if c not in marks]], pd.DataFrame(marks, index=fl.index)], axis=1)
+    return df, fl, meta, implicit
 
 
-def _write_vintage(defs, df, fl, meta, implicit, equion_version, now) -> BuildResult:
+def _write_vintage(defs, *args, **kwargs) -> BuildResult:
+    """같은 내용의 회차 찾기·이름 정하기·옮기기는 프로젝트 잠금 안에서 — 같은 자료를 여럿이 한꺼번에 만들어도 회차 이름이 겹치지 않는다."""
+    from ..work.lock import project_lock
+    with project_lock(defs.root):
+        return _write_vintage_now(defs, *args, **kwargs)
+
+
+def _write_vintage_now(defs, df, fl, meta, implicit, equion_version, now) -> BuildResult:
     F = defs.freq
     root = defs.root
     labels = [format_period(ts, F) for ts in df.index]
@@ -463,7 +612,8 @@ def _write_vintage(defs, df, fl, meta, implicit, equion_version, now) -> BuildRe
     vid = next_id(root, now)
     base = os.path.join(root, VINTAGE_DIR)
     os.makedirs(base, exist_ok=True)
-    tmp = os.path.join(base, f".tmp-{vid}")
+    from ..work.lock import tmp_dir
+    tmp = tmp_dir(base, vid)                      # 프로세스마다 다른 임시 이름
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
     sources = []
@@ -484,6 +634,8 @@ def _write_vintage(defs, df, fl, meta, implicit, equion_version, now) -> BuildRe
     final = os.path.join(base, vid)
     from ..work.store import move_into_place
     move_into_place(tmp, final)      # 폴더 감시(Desk·백신·색인)가 잠깐 쥐고 있어도 기다렸다 옮긴다
+    with open(os.path.join(base, IDS_FILE), "a", encoding="utf-8", newline="\n") as f:
+        f.write(vid + "\n")          # 만든 회차 이름 장부 — 폴더를 지워도 이 이름은 다시 쓰지 않는다
     return BuildResult(vid, final, True, len(df.columns), span, implicit)
 
 
@@ -822,7 +974,7 @@ class SourcePreview:
         """명령줄에 보이는 짧은 글."""
         L = [f"[data preview] {self.file} — {self.shape[0]}줄 × {self.shape[1]}열"
              + (f" · 시트 {', '.join(self.sheets)}" if self.sheets else "")]
-        for k, row in enumerate(self.grid[:6], 1):
+        for k, row in enumerate(self.grid, 1):          # 읽은 그대로 — rows(명령줄 --rows, 기본 12)만큼
             L.append(f"  {k:>3} | " + " | ".join(c[:12] for c in row[:8]) + (" | …" if len(row) > 8 else ""))
         if not self.ok:
             L.append(f"  읽지 못했습니다: {self.error}")

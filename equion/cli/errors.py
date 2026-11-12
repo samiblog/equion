@@ -18,6 +18,17 @@ PROG = "equion"
 KIND = {EXIT_SCRIPT: "script", EXIT_SOLVE: "check", EXIT_INPUT: "input", EXIT_INTERRUPT: "interrupted"}
 KIND_KO = {EXIT_SCRIPT: "스크립트 오류", EXIT_SOLVE: "풀이 실패·확인 실패", EXIT_INPUT: "입력 오류", EXIT_INTERRUPT: "중단"}
 JSON = False          # 지금 명령에 --json이 있나(main이 정한다)
+SOFT = None           # 지금 명령이 사람에게 넘긴 것 — soft()가 채운다(main이 명령마다 새로)
+LAST_SOFT: list = []  # 방금 끝난 명령의 그것(main이 끝날 때 옮긴다 — 스크립트가 그 단계를 멈추지 않고 '!'로 표시한다)
+
+
+def soft(reason) -> None:
+    """종료 코드가 0이 아닌 까닭이 '사람이 정할 것'뿐임을 알린다(손으로 고친 결과 구역을 덮지 않고 건너뜀 등).
+
+    명령줄에서는 그대로 종료 코드 3이다. 스크립트(.eqs)에서는 그 단계에서 멈추지 않고 '!'(표시)로 까닭을 남기고 이어 간다
+    — 사람이 볼 것이지 실행을 멈출 오류가 아니므로."""
+    if SOFT is not None:
+        SOFT.append(str(reason))
 
 
 def payload(message, code: int = EXIT_INPUT, **extra) -> dict:
@@ -34,6 +45,19 @@ def fail(message, code: int = EXIT_INPUT, **extra) -> int:
     else:
         print(f"{PROG}: 오류: {message}", file=sys.stderr)
     return code
+
+
+def busy_text(exc: BaseException):
+    """파일을 다른 프로그램이 쥐고 있어서(접근 거부·공유 위반) 또는 다른 명령이 프로젝트를 고치는 중이라 난 오류면 사람이 읽을 글,
+    아니면 None — 트레이스백 대신 입력 오류(종료 코드 3)로 알린다."""
+    from ..work.lock import FileBusy, ProjectBusy, is_busy
+    if isinstance(exc, (FileBusy, ProjectBusy)):
+        return str(exc)
+    if isinstance(exc, OSError) and is_busy(exc):
+        name = exc.filename or "파일"
+        return (f"{name}을(를) 열거나 바꿀 수 없습니다 — 다른 프로그램(엑셀·동기화·백신 등)이 쓰고 있거나 읽기 전용입니다. "
+                f"그 프로그램에서 닫고 다시 하세요. ({exc.strerror or exc})")
+    return None
 
 
 def internal(exc: BaseException) -> int:

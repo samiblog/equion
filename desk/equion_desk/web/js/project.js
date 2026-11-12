@@ -7,6 +7,7 @@ import { getJSON, papi, postJSON, query } from './api.js';
 import { CommandPane } from './command.js';
 import { Side } from './side.js';
 import { TermDeck } from './terminal.js';
+import { confirmDialog } from './dialog.js';
 import { bindVarClicks } from './varmenu.js';
 import { clear, debounce, flash, h, icon, kindClass, WHO } from './util.js';
 import { analysisView } from './views/analysis.js';
@@ -295,12 +296,12 @@ export class Project {
     if (desc.type === 'bench' && !desc.part && desc.free == null) desc = { ...desc, free: ++this.free };
     const key = this.keyOf(desc);
     let tab = this.tabs.get(key);
-    if (tab && replace) { this.closeTab(key, { save: false, select: false }); tab = null; }
+    if (tab && replace) { this.dropTab(key, { save: false, select: false }); tab = null; }
     if (!tab) {
       if (this.tabs.size >= MAX_TABS) {
         // 가장 오래된(맨 왼쪽) 닫을 수 있는 탭을 닫는다
-        const old = [...this.tabs.values()].find((t) => !t.view.pinned && t.view.key !== this.active);
-        if (old) this.closeTab(old.view.key, { save: false, select: false });
+        const old = [...this.tabs.values()].find((t) => !t.view.pinned && t.view.key !== this.active && !t.view.unsaved?.());     // 쓰던 글이 있는 탭은 남긴다
+        if (old) this.dropTab(old.view.key, { save: false, select: false });
       }
       const view = FACTORY[desc.type](this, desc);
       const pane = h('div', { class: 'pane', hidden: true, role: 'tabpanel' }, view.el);
@@ -348,7 +349,26 @@ export class Project {
     if (save) this.saveView();
   }
 
-  closeTab(key, { save = true, select = true } = {}) {
+  /**
+   * 탭을 닫는다 — 저장하지 않은 글이 있는 탭(정의 파일 고치기 · 시나리오 폼)은 버릴지 먼저 묻는다(그 탭을 보이고 나서).
+   * 쓰던 글은 탭과 함께 기억되므로(닫았다 열어도 이어진다) 탭을 닫는 것만이 글을 버린다. 닫았으면 true.
+   */
+  async closeTab(key, { save = true, select = true, ask = true } = {}) {
+    const tab = this.tabs.get(key);
+    if (!tab || tab.view.pinned) return false;
+    const unsaved = ask ? tab.view.unsaved?.() : null;
+    if (unsaved) {
+      if (this.active !== key) this.selectTab(key);
+      const body = h('div', { class: 'adopt' }, h('p', {}, unsaved), h('p', { class: 'muted' }, '저장하려면 ‘취소’를 누르고 그 화면에서 저장하세요.'));
+      if (!(await confirmDialog({ title: '저장하지 않고 닫을까요', body, confirm: '버리고 닫기', tone: 'danger' }))) return false;
+      if (this.tabs.get(key) !== tab) return false;
+    }
+    this.dropTab(key, { save, select });
+    return true;
+  }
+
+  /** 묻지 않고 탭을 없앤다(같은 탭을 새로 열 때 · 탭이 너무 많을 때 · 저장한 뒤) */
+  dropTab(key, { save = true, select = true } = {}) {
     const tab = this.tabs.get(key);
     if (!tab || tab.view.pinned) return;
     const keys = [...this.tabs.keys()];

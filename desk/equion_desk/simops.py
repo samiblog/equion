@@ -119,16 +119,27 @@ def forecast(project: Any, model: str | None = None) -> dict:
     return out
 
 
-def assume_write(project: Any, name: str, columns: list[str], rows: dict[str, dict[str, str]]) -> dict:
+def _period_key(period: str) -> list[int]:
+    return [int(x) for x in re.findall(r"\d+", period)]
+
+
+def assume_write(project: Any, name: str, columns: list[str], rows: dict[str, dict[str, str]], bases: dict[str, dict[str, str]] | None = None,
+                 force: bool = False) -> dict:
     """가정 표를 쓴다(`ASSUMPTIONS/<이름>.csv`) — 기간 × 외생 변수. 빈칸은 그대로 빈칸(채우기 규칙이 채운다). 바뀜 기록에 'Desk'로 남는다.
-    표에 없던 기간의 줄(지난 전망의 가정)은 그대로 둔다 — 이번 전망 구간의 줄만 바꾼다."""
+
+    rows 는 고친 칸만 받는다(화면은 사람이 친 칸만 보낸다) — 그 칸들을 **지금 파일**에 얹으므로, 화면이 표를 읽은 뒤 밖(엑셀·Claude·편집기)에서
+    고친 다른 칸은 그대로 남는다. bases(칸마다 고치기 시작할 때 읽은 값)를 주면, 그 사이 밖에서도 같은 칸이 다른 값으로 바뀐 것을 가려
+    쓰지 않고 `Conflict`(409 — detail 에 칸마다 읽은 값·지금 값·친 값)로 알린다. force 면 친 값으로 덮는다.
+
+    바뀐 칸이 있는 줄만 다시 쓴다 — 나머지 줄은 글자 그대로(따옴표·숫자 모양·줄 끝까지) 두어 바뀜 기록에 고친 줄만 남는다.
+    파일에 없던 열은 값을 적은 칸이 있을 때만 더한다(화면은 모형의 외생 모두를 보내지만, 비운 열을 덧붙이면 모든 줄이 바뀐다).
+    열 이름은 대소문자를 가리지 않고 파일의 것에 맞춘다. 표에 없던 기간의 줄(지난 전망의 가정)은 그대로 둔다."""
     from equion.projects.config import ProjectError
 
     if not NAME.fullmatch(name):
         raise ProjectError(f"가정 세트 이름 {name!r} — 영문으로 시작하고 영문·숫자·_ 만")
     rel = f"ASSUMPTIONS/{name}.csv"
     path = os.path.join(str(project.root), *rel.split("/"))
-    old_cols, old = _csv_grid(path)
     for period, cells in rows.items():
         for col, text in cells.items():
             if text not in ("", None):
@@ -136,17 +147,106 @@ def assume_write(project: Any, name: str, columns: list[str], rows: dict[str, di
                     float(str(text).replace(",", ""))
                 except ValueError:
                     raise ProjectError(f"{period} {col}: 숫자가 아닙니다 — {text!r}") from None
-    cols = list(dict.fromkeys([*old_cols, *columns]))
-    merged = {p: dict(v) for p, v in old.items()}
+    from equion.work.lock import project_lock
+
+    with project_lock(str(project.root)):          # 지금 파일 읽기 → 친 칸 얹기 → 쓰기를 한 번에(그 사이 다른 명령이 같은 표를 고치지 못하게)
+        return _assume_merge(project, rel, path, rows, bases, force)
+
+
+def _assume_merge(project: Any, rel: str, path: str, rows: dict[str, dict[str, str]], bases: dict[str, dict[str, str]] | None, force: bool) -> dict:
+    """`assume_write`의 몸 — 프로젝트 잠금 안에서 부른다. 지금 파일을 읽어 친 칸을 얹고(밖에서도 바뀐 칸은 `Conflict`) 바뀜 기록으로 쓴다.
+    다른 프로그램(엑셀)이 파일을 쥐고 있어 읽지 못하면 `FileBusy`(입력 오류) — 빈 파일로 보고 덮어쓰지 않는다."""
+    from equion.work.lock import as_busy
+
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except FileNotFoundError:
+        raw = b""
+    except OSError as exc:
+        raise as_busy(exc, rel, reading=True) from None
+    bom = raw.startswith(b"\xef\xbb\xbf")
+    old_text = raw.decode("utf-8-sig", errors="replace")
+    eol = "\r\n" if "\r\n" in old_text else "\n"
+    lines = old_text.splitlines()
+    parsed = [next(csv.reader([ln])) if ln.strip() else [] for ln in lines]
+    header = parsed[0] if parsed and parsed[0] else ["period"]
+    cols = [c.strip() for c in header[1:]]
+    where = {c.upper(): i for i, c in enumerate(cols)}
+
+    # 밖에서도 바뀐 칸 — 읽은 값(base)과 지금 파일의 값이 다르고, 지금 값이 친 값과도 다르면 겹친 것이다
+    if bases and not force:
+        current = {cells[0].strip(): cells for cells in parsed[1:] if cells and cells[0].strip()}
+        clashes = []
+        for period, cells in rows.items():
+            for col, value in cells.items():
+                base = (bases.get(period) or {}).get(col)
+                if base is None:
+                    continue
+                mine = "" if value is None else str(value).replace(",", "").strip()
+                j, row = where.get(str(col).upper()), current.get(str(period).strip())
+                now = row[j + 1].strip() if row is not None and j is not None and j + 1 < len(row) else ""
+                if now != str(base).strip() and now != mine:
+                    clashes.append({"period": period, "name": col, "base": str(base).strip(), "now": now, "mine": mine})
+        if clashes:
+            from .modelops import Conflict
+
+            shown = " · ".join(f"{c['name']} {c['period']}" for c in clashes[:4]) + (f" 외 {len(clashes) - 4}칸" if len(clashes) > 4 else "")
+            raise Conflict(f"고치는 동안 밖에서도 바뀐 칸이 있습니다 — {shown}. 어느 값을 쓸지 고르세요.", clashes)
+
+    # 받은 칸 → 파일의 열 번호(값을 적은 새 열만 더한다)
+    want: dict[str, dict[int, str]] = {}
+    added = False
     for period, cells in rows.items():
-        merged.setdefault(period, {}).update({c: ("" if v is None else str(v).replace(",", "").strip()) for c, v in cells.items()})
-    order = sorted(merged, key=lambda p: [int(x) for x in re.findall(r"\d+", p)])
-    buf = io.StringIO()
-    writer = csv.writer(buf, lineterminator="\n")
-    writer.writerow(["period", *cols])
-    for period in order:
-        writer.writerow([period, *[merged[period].get(c, "") for c in cols]])
-    change = project.history.write_files({rel: buf.getvalue()}, "desk", "Desk 에서 고침(가정 표)", note=rel)
+        for col, value in cells.items():
+            text = "" if value is None else str(value).replace(",", "").strip()
+            j = where.get(str(col).upper())
+            if j is None:
+                if not text:
+                    continue
+                cols.append(str(col))
+                j = where[str(col).upper()] = len(cols) - 1
+                added = True
+            want.setdefault(str(period).strip(), {})[j] = text
+
+    if not raw and not any(text for cells in want.values() for text in cells.values()):
+        return {"path": rel, "change": None}         # 파일도 없고 적은 값도 없다 — 빈 파일을 만들지 않는다
+
+    def line(cells: list[str]) -> str:
+        buf = io.StringIO()
+        csv.writer(buf, lineterminator="").writerow(cells)
+        return buf.getvalue()
+
+    out: list[str] = [line(["period" if not parsed or not parsed[0] else header[0], *cols]) if added or not lines else lines[0]]
+    seen: set[str] = set()
+    keys: list[list[int] | None] = []      # 줄마다 기간의 차례(새 줄을 끼울 자리) — 기간이 아닌 줄은 None
+    for ln, cells in zip(lines[1:], parsed[1:]):
+        period = cells[0].strip() if cells else ""
+        if not period:
+            out.append(ln)
+            keys.append(None)
+            continue
+        seen.add(period)
+        vals = [(cells[i + 1].strip() if i + 1 < len(cells) else "") for i in range(len(cols))]
+        changed = False
+        for j, text in want.get(period, {}).items():
+            if vals[j] != text:
+                vals[j], changed = text, True
+        out.append(line([cells[0], *vals]) if changed or added else ln)
+        keys.append(_period_key(period))
+    # 파일에 없던 기간 — 적은 값이 있을 때만, 기간 차례에 맞는 자리에
+    for period in sorted((p for p in want if p not in seen and any(want[p].values())), key=_period_key):
+        vals = [""] * len(cols)
+        for j, text in want[period].items():
+            vals[j] = text
+        k = _period_key(period)
+        at = next((i for i, key in enumerate(keys) if key is not None and key > k), len(keys))
+        out.insert(at + 1, line([period, *vals]))
+        keys.insert(at, k)
+    text = eol.join(out) + eol
+    if text == old_text or (old_text and text == old_text + eol):
+        return {"path": rel, "change": None}
+    change = project.history.write_files({rel: ("\ufeff" if bom else "") + text}, "desk", "Desk 에서 고침(가정 표)", note=rel)
     return {"path": rel, "change": change.id if change is not None else None}
 
 

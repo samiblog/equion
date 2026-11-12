@@ -17,6 +17,7 @@
 
 import json
 import os
+import re
 import sys
 from .errors import fail
 
@@ -24,6 +25,7 @@ from .runner import EXIT_INPUT, EXIT_OK
 
 PROG = "equion"
 COMMANDS = ("est", "adopt", "compare", "hs", "sim", "propose", "export", "work", "history")
+_RID = re.compile(r"\b(?:est|hs|sim|an|run):[A-Za-z0-9][A-Za-z0-9_\-]*")     # 글 속의 기록 이름
 
 
 def _common(sp):
@@ -64,6 +66,8 @@ def add_parsers(sub):
     h.add_argument("--vs", metavar="hs:이름", help="견줄 HS 기록 — 변수별 RMSPE 전후")
     h.add_argument("--as", dest="as_name", metavar="이름", help="기록 이름(기본 hs_0001 …)")
     h.add_argument("--replay", metavar="hs:이름", help="그 기록의 조립 명세로 그대로 다시(지금 파일과 무관)")
+    h.add_argument("--mce", choices=("fair-taylor", "stacked", "no"),
+                   help="선행변수 풀이 — 모형 일관 기대(기본 [hs] mce, 없으면 선행 값에 실측)")
 
     sm = _common(sub.add_parser("sim", help="전망·시나리오를 풀고 기록을 남긴다(가정 세트·보정항·시나리오 파일)"))
     sm.add_argument("scenarios", nargs="*", metavar="시나리오", help="base(기준선) 또는 SCENARIOS/의 이름(여럿이면 하나씩, 기본 base)")
@@ -73,6 +77,8 @@ def add_parsers(sub):
     sm.add_argument("--vs", metavar="sim:이름", help="견줄 전망 기록 — 연간 증가율 전후")
     sm.add_argument("--as", dest="as_name", metavar="이름", help="기록 이름(시나리오가 하나일 때, 기본 연-월_시나리오)")
     sm.add_argument("--mode", choices=("dynamic", "static"), help="풀이 방식(기본 [forecast] mode, 없으면 dynamic)")
+    sm.add_argument("--mce", choices=("fair-taylor", "stacked", "no"),
+                    help="선행변수 풀이 — 모형 일관 기대(기본 [forecast] mce, 없으면 선행변수가 있을 때 fair-taylor)")
 
     pr = sub.add_parser("propose", help="제안 — 파일을 바꾸기 전에 보여 주기(만들기·목록·보기·적용·버림)")
     psub = pr.add_subparsers(dest="propose_command", metavar="동작")
@@ -127,9 +133,12 @@ def add_parsers(sub):
     hl.add_argument("--limit", type=int, default=30, help="보일 수(기본 30, 0이면 전부)")
     hs_ = _common(hsub.add_parser("show", help="바뀜 하나 — 파일과 차이"))
     hs_.add_argument("change", metavar="h0001")
-    hr = _common(hsub.add_parser("revert", help="그 바뀜 앞의 내용으로 되돌린다(이것도 바뀜 기록에 남는다)"))
+    hr = _common(hsub.add_parser("revert", help="그 바뀜 하나만 되돌린다 — 뒤에 같은 파일이 또 바뀌었으면 그 바뀜의 차이만 물린다"
+                                                 "(겹치면 멈춤, 이것도 바뀜 기록에 남는다)"))
     hr.add_argument("change", metavar="h0001")
     hr.add_argument("--file", action="append", metavar="경로", help="그 바뀜이 고친 파일 가운데 이것만 되돌린다(여러 번 쓸 수 있다)")
+    hr.add_argument("--force", action="store_true",
+                    help="뒤의 바뀜이 같은 곳을 고쳤어도 그 파일을 그 바뀜 앞 내용으로 통째로(뒤의 바뀜도 그 파일에서 함께 물린다)")
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +168,8 @@ def _flags(p, store, rec, adopted, marks):
         f.append("★채택")
     cr = m.get("criteria")
     if cr is not None:
-        f.append("통과" if cr["pass"] else "걸러짐")
+        from ..projects.records import criteria_word
+        f.append(criteria_word(cr))
     if marks.get(rec.id, {}).get("pinned"):
         f.append("고정")
     d = m.get("data") or {}
@@ -210,7 +220,35 @@ def _referenced(p, store):
     for r in store.records("run"):                  # 실행 기록이 남아 있으면 그 단계의 기록도(재연이 견준다)
         for s in r.meta.get("steps") or []:
             keep |= {x for x in s.get("records") or [] if not str(x).startswith("data:")}
+    keep |= _used_by_definitions(p)
+    for r in store.records("est"):                  # 남기는 추정 기록을 낸 분석(an keep — ECM·VAR …)도
+        if r.id not in keep:
+            continue
+        src = r.meta.get("from")
+        cmd = str(r.meta.get("command") or "")
+        if not src and re.match(r"^(equion\s+)?an\s+keep\b", cmd):    # '이 식을 낸 기록'을 따로 적기 전의 기록
+            src = next(iter(_RID.findall(cmd)), None)
+        if src and str(src).startswith("an:"):
+            keep.add(src)
     return keep
+
+
+def _used_by_definitions(p) -> set:
+    """정의 파일이 가리키는 기록 — 자료 정의의 made_by(`an:seas_…`)·파생식의 `# an:genr_…`, 그리고 채택표의 지난 판(바뀜 기록의
+    전후 사본 — 되돌리면 다시 가리킨다)."""
+    import glob
+    from ..projects.records import ADOPTED
+    out = set()
+    cfg = p.config
+    for rel in (cfg.series_file, cfg.derived_file, ADOPTED):
+        if rel and os.path.isfile(os.path.join(p.root, rel)):
+            with open(os.path.join(p.root, rel), encoding="utf-8", errors="replace") as f:
+                out |= set(_RID.findall(f.read()))
+    hist = os.path.join(p.root, "work", "history")
+    for f in glob.glob(os.path.join(hist, "h*", "*", *ADOPTED.split("/"))):
+        with open(f, encoding="utf-8", errors="replace") as fh:
+            out |= set(_RID.findall(fh.read()))
+    return out
 
 
 def _used_by_documents(p) -> set:
@@ -278,20 +316,22 @@ def dispatch(args, cmdline: str) -> int:
             out = r.to_dict() if args.json else r.text()
         elif cmd == "hs":
             if args.replay:
-                if args.model or args.range or args.mode or args.swap:
-                    raise ValueError("--replay는 기록 하나만 받습니다(모형·--range·--mode·--swap 없이 — 그때 그대로)")
+                if args.model or args.range or args.mode or args.swap or args.mce:
+                    raise ValueError("--replay는 기록 하나만 받습니다(모형·--range·--mode·--swap·--mce 없이 — 그때 그대로)")
                 r = p.replay(args.replay, as_name=args.as_name, who=who, command=cmdline)
             else:
                 s, e = _range(args.range)
                 r = p.hs(args.model, start=s, end=e, mode=args.mode, swap=_swaps(args.swap) or None, record=True,
-                         vs=args.vs, as_name=args.as_name, who=who, command=cmdline)
+                         vs=args.vs, as_name=args.as_name, who=who, command=cmdline,
+                         **({"mce": False if args.mce == "no" else args.mce} if args.mce else {}))
             out = r.to_dict() if args.json else r.text()
         elif cmd == "sim":
             scs = args.scenarios or ["base"]
             if args.as_name and len(scs) > 1:
                 raise ValueError("--as는 시나리오가 하나일 때만")
             rs = [p.sim(sc, model=args.model, range=args.range, vintage=args.vintage, vs=args.vs, as_name=args.as_name,
-                        mode=args.mode, who=who, command=cmdline) for sc in scs]
+                        mode=args.mode, who=who, command=cmdline,
+                        mce=(False if args.mce == "no" else args.mce)) for sc in scs]
             out = [r.to_dict() for r in rs] if args.json else "\n".join(r.text() for r in rs)
             if args.json and len(rs) == 1:
                 out = out[0]
@@ -435,7 +475,7 @@ def _history(p, args, who, cmdline):
     if act == "show":
         c = h.get(args.change)
         return c.to_dict() if args.json else c.text() + "\n" + (c.diff.rstrip() or "(차이 없음)")
-    c = h.revert(args.change, who, how=cmdline, files=args.file)
+    c = h.revert(args.change, who, how=cmdline, files=args.file, force=args.force)
     p._reset()
     if c is None:
         return {"change": None} if args.json else f"[history revert] {args.change} — 지금 내용이 이미 그 앞과 같습니다(바꾼 것 없음)"

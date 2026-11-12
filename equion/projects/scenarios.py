@@ -18,7 +18,7 @@ import math
 import os
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from .config import NAME_RE, ProjectError
@@ -43,6 +43,7 @@ class ScenarioChange:
     change: Optional[str] = None
     shocks: int = 0
     addfactor: int = 0
+    warnings: List[str] = field(default_factory=list)
 
     def text(self) -> str:
         """명령줄에 보이는 짧은 글."""
@@ -51,13 +52,13 @@ class ScenarioChange:
         else:
             head = f"[scenario define] {self.file}" + (" — 새 시나리오" if self.new else (" — 고침" if self.change else " — 바뀐 것이 없습니다"))
             head += f"\n  충격 {self.shocks} · 식 보정 {self.addfactor}"
-        return head + (f"\n  바뀜 기록  {self.change}" if self.change else "") + (
+        return head + "".join(f"\n  ! {w}" for w in self.warnings) + (f"\n  바뀜 기록  {self.change}" if self.change else "") + (
             f"\n  다음   equion sim {self.name}" if not self.removed else "")
 
     def to_dict(self) -> dict:
         """명령줄 --json과 같은 사전."""
         return {"name": self.name, "file": self.file, "new": self.new, "removed": self.removed, "change": self.change,
-                "shocks": self.shocks, "addfactor": self.addfactor}
+                "shocks": self.shocks, "addfactor": self.addfactor, "warnings": list(self.warnings)}
 
 
 def parse_shock(text: str) -> dict:
@@ -135,6 +136,9 @@ def check_raw(raw: dict, rel: str, known=None, parts=None, assumptions=None, add
         if not isinstance(a, dict) or not a.get("eq") or "value" not in a:
             problems.append(f"{rel} [[addfactor]] {k}번째: eq(블록:목표)와 value가 있어야 합니다")
             continue
+        val = a.get("value")
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            problems.append(f"{rel} [[addfactor]] {k}번째: value는 숫자 — {val!r}")
         if parts is not None and a["eq"] not in parts:
             problems.append(f"{rel} [[addfactor]] {k}번째: 없는 식 {a['eq']}")
         for key in ("from", "to"):
@@ -156,11 +160,80 @@ def _names(root: str, folder: str, ext: str) -> List[str]:
         return []
 
 
+def check_model(p, raw: dict, rel: str) -> Tuple[List[str], List[str]]:
+    """시나리오를 그 모형(시나리오의 model → [forecast] model → [hs] model)과 전망 구간([forecast] range, 없으면 next:8)에 대어 본다
+    — (문제, 알림). 문제: 항등식에 식 보정 · 항등식이 정하는 내생변수에 충격 · 기간이 거꾸로이거나 전망 구간 밖(효과 없음).
+    알림: 추정식의 내생변수에 준 충격(그 식의 보정항으로 들어간다) · 기간 일부가 전망 구간 밖(잘림) · 그 모형에 없는 식의 보정."""
+    from .sim import _when
+    from ..data.periods import parse_period
+    problems: List[str] = []
+    warns: List[str] = []
+    by_id = {x.id.lower(): x for x in p.parts()}
+    for k, a in enumerate(raw.get("addfactor") or [], 1):
+        pt = by_id.get(str(a.get("eq", "")).lower()) if isinstance(a, dict) else None
+        if pt is not None and pt.kind == "identity":
+            problems.append(f"{rel} [[addfactor]] {k}번째: {pt.id}는 항등식입니다 — 식 보정(보정항)은 추정식에만 붙입니다"
+                            "(항등식의 오른쪽 외생변수에 충격을 주거나 추정식을 보정하세요)")
+    fc = p.config.forecast or {}
+    try:
+        mname = raw.get("model") or fc.get("model") or p._default(None)
+        rep = p.assemble(mname)
+    except (KeyError, ValueError):
+        return problems, warns
+    if not rep.ok:
+        return problems, warns
+    ident = {x.target.upper(): x.id for x in rep.parts if x.kind == "identity"}
+    eqs = {x.target.upper(): x.id for x in rep.parts if x.kind == "equation"}
+    eq_ids = {x.id.lower() for x in rep.parts if x.kind == "equation"}
+    try:
+        F = p.config.freq or p.workfile.freq
+        s, e = p.span(fc.get("range") or "next:8")
+    except (KeyError, ValueError):
+        s = e = None
+
+    def when(what, item, k):
+        if s is None:
+            return
+        try:
+            a_, b_ = _when(item.get("from", "start"), s, e, F), _when(item.get("to", "end"), s, e, F, end=True)
+            pa, pb, ps, pe = (parse_period(x, F) for x in (a_, b_, s, e))
+        except (KeyError, ValueError, TypeError):
+            return                                  # 꼴은 check_raw가 본다
+        if pa > pb:
+            problems.append(f"{rel} {what} {k}번째: 기간 {a_}~{b_} — 시작이 끝보다 뒤입니다")
+        elif pb < ps or pa > pe:
+            problems.append(f"{rel} {what} {k}번째: 기간 {a_}~{b_}이(가) 전망 구간 {s}~{e} 밖이라 효과가 없습니다 — "
+                            "start · end · start+N · end-N이나 구간 안의 라벨로")
+        elif pa < ps or pb > pe:
+            warns.append(f"{what} {k}번째: 기간 {a_}~{b_} 가운데 지금 전망 구간 {s}~{e} 밖은 풀 때 뺍니다")
+    for k, sh in enumerate(raw.get("shock") or [], 1):
+        if not isinstance(sh, dict) or not sh.get("var"):
+            continue
+        v = str(sh["var"]).upper()
+        if v in ident:
+            problems.append(f"{rel} [[shock]] {k}번째: {sh['var']}는 모형 {mname}에서 항등식({ident[v]})이 정하는 내생변수라 충격을 "
+                            "줄 식이 없습니다 — 그 항등식 오른쪽의 외생변수나 추정식에 주세요")
+        elif v in eqs:
+            warns.append(f"충격 {sh['var']}: 모형 {mname}의 내생변수({eqs[v]})라 그 식의 보정항(+{sh.get('pct', sh.get('value'))}, 식의 단위"
+                         + (" — %가 아니라 그 수만큼" if "pct" in sh else "") + ")으로 들어갑니다 — 식을 보정하려면 "
+                         + f"--addfactor {eqs[v]}=값")
+        when("[[shock]]", sh, k)
+    for k, a in enumerate(raw.get("addfactor") or [], 1):
+        if not isinstance(a, dict) or not a.get("eq"):
+            continue
+        pt = by_id.get(str(a["eq"]).lower())
+        if pt is not None and pt.kind == "equation" and pt.id.lower() not in eq_ids:
+            warns.append(f"식 보정 {pt.id}: 모형 {mname}에 없는 식입니다 — 그 모형으로 풀면 오류(--model로 그 식이 있는 모형을)")
+        when("[[addfactor]]", a, k)
+    return problems, warns
+
+
 def scenario_text(p, name: str, desc: str = None, base: str = None, addfactors: str = None, model: str = None,
-                  shocks=None, addfactor=None) -> Tuple[str, bool, dict]:
+                  shocks=None, addfactor=None, warnings: list = None) -> Tuple[str, bool, dict]:
     """시나리오를 더하거나 고친 **새 내용** — (글, 새 시나리오인지, 읽은 내용). 파일은 쓰지 않는다.
     준 것만 바꾼다: 글(desc·base·addfactors·model)은 빈 글이면 그 키를 지우고, shocks·addfactor는 목록을 주면 통째로 바꾼다(빈 목록은 지움).
-    목록의 항목은 사전({var, pct|value, from, to}) 또는 명령줄 꼴의 글."""
+    목록의 항목은 사전({var, pct|value, from, to}) 또는 명령줄 꼴의 글. 모형·전망 구간에 대어 본 문제(`check_model`)도 ProjectError이고,
+    warnings(목록)를 주면 알림을 거기에 더한다."""
     import tomlkit
     if not NAME_RE.match(str(name)) or str(name) == "base":
         raise ProjectError(f"시나리오 이름 {name!r} — 영문으로 시작하고 영문·숫자·_만('base'는 기준선 이름이라 쓰지 않는다)")
@@ -210,4 +283,9 @@ def scenario_text(p, name: str, desc: str = None, base: str = None, addfactors: 
                          models=list(p.config.models), freq=p.config.freq)
     if problems:
         raise ProjectError(problems)
+    problems, warns = check_model(p, raw, rel)
+    if problems:
+        raise ProjectError(problems)
+    if warnings is not None:
+        warnings.extend(warns)
     return text, new, raw

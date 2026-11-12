@@ -107,6 +107,9 @@ def read_block(spec: BlockSpec, data) -> Tuple[List[Part], List[str]]:
     problems: List[str] = []
     try:
         text = read_text(spec.path)
+    except PermissionError as e:              # 다른 프로그램이 쥐고 있다 — '없는 부품'이 아니라 그렇다고 알린다
+        from ..work.lock import as_busy
+        raise as_busy(e, spec.file, reading=True) from None
     except (OSError, ValueError) as e:
         return [], [f"{spec.file}: {e}"]
     defs: List[str] = []

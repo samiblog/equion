@@ -1,6 +1,6 @@
 # Equion API 참조
 
-Equion 0.9.0의 공개 API — `docs/make_api.py`가 코드의 서명과 docstring에서 만든다(손으로 고치지 말 것). 배우는 순서는 [시작하기](../start/first-model.md)와 [튜토리얼](../tutorial/README.md), 방정식 문법은 [방정식 문법](../explain/equations.md). 예제의 `eqn`·`np`·`pd`는 `import equion as eqn`·`numpy`·`pandas`다.
+Equion 0.9.1의 공개 API — `docs/make_api.py`가 코드의 서명과 docstring에서 만든다(손으로 고치지 말 것). 배우는 순서는 [시작하기](../start/first-model.md)와 [튜토리얼](../tutorial/README.md), 방정식 문법은 [방정식 문법](../explain/equations.md). 예제의 `eqn`·`np`·`pd`는 `import equion as eqn`·`numpy`·`pandas`다.
 
 *English: generated reference of the public API (signatures and docstrings, in Korean). See [README.en.md](../../README.en.md) and [docs/en](../en/README.md).*
 
@@ -148,7 +148,8 @@ wf.freq, wf.smpl()
 
 스크립트 매개변수 — 기본값을 주면 명령줄 `--set 이름=값`(또는 환경변수 EQUION_PARAMS의 JSON)이 덮는다.
 
-값은 기본값의 형(정수·실수·글자·참거짓)으로 바뀐다. `smpl`이라는 이름은 명령줄 `--smpl S:E`로도 덮인다.  
+값은 기본값의 형(정수·실수·글자·참거짓)으로 바뀐다 — 참거짓은 true·false·yes·no·on·off·1·0, 그 형으로 읽을 수 없는 값은  
+오류다(명령줄에서는 입력 오류, 종료 코드 3). `smpl`이라는 이름은 명령줄 `--smpl S:E`로도 덮인다.  
 스크립트를 `equion run`으로 실행하면 준 값과 최종 값이 보고서 manifest.json에 남는다.  
 
 **매개변수**
@@ -167,6 +168,10 @@ p = eqn.params(g_up=10.0, start="1990Q1")
 p.g_up, p.start
 # (10.0, '1990Q1')
 ```
+
+**오류**
+
+- `ParamError(ValueError)`: --set·EQUION_PARAMS 값을 기본값의 형으로 읽을 수 없음(예: 정수 매개변수에 'abc')
 
 **관련** — 명령줄 equion run --set · secret
 
@@ -1220,7 +1225,7 @@ eqn.Workfile.load(p).name
 | [`nls`](#equationobjectnls) | `(spec, start=None, cov=None, lags=None)` | 비선형 최소제곱(NLS) — 식은 `Y = c(1) + c(2)*X^c(3)` 꼴. 기울기는 식을 미분해 정확히 계산한다. |
 | [`set_cov`](#equationobjectset_cov) | `(cov=None, lags=None)` | 계수 공분산만 바꿔 다시 계산한다(계수는 그대로). cov=None이면 보통 공분산. |
 | [`fixed`](#equationobjectfixed) | `(spec, coefs)` | 다른 곳(다른 프로그램·Python 추정 등)에서 얻은 계수를 고정해 넣는다 — 모델에서 추정식처럼 쓰인다. |
-| [`serial_lm`](#equationobjectserial_lm) | `(lags=2)` | 계열상관 LM 검정(Breusch-Godfrey). 귀무가설: 시차 lags까지 잔차에 계열상관이 없다. OLS·WLS 식. |
+| [`serial_lm`](#equationobjectserial_lm) | `(lags=2)` | 계열상관 LM 검정(Breusch-Godfrey). 귀무가설: 시차 lags까지 잔차에 계열상관이 없다. AR 오차가 없는 OLS 식. |
 | [`ljungbox`](#equationobjectljungbox) | `(lags=None)` | Ljung-Box Q 검정(잔차 자기상관). 결과의 .table에 시차별 자기상관·Q·p값. 모든 추정법. |
 | [`white`](#equationobjectwhite) | `(cross=True)` | White 이분산 검정 — 잔차²를 회귀변수·제곱(cross=True면 교차곱까지)에 회귀. 귀무가설: 동분산. |
 | [`breusch_pagan`](#equationobjectbreusch_pagan) | `()` | Breusch-Pagan-Godfrey 이분산 검정. 귀무가설: 동분산. |
@@ -1245,7 +1250,7 @@ eqn.Workfile.load(p).name
 | `stats` | `속성` | 통계 사전 — r_squared · adj_r_squared · se_regression · durbin_watson · log_likelihood · aic · bic · f_statistic · n_obs 등(추정법별 항목 추가: j_statistic · liml_kappa · collinear …). 항목 설명은 docs/reference/outputs.md. |
 | `resid` | `속성` | 잔차(표본 기간 Series) = 실측 − 적합값. |
 | `actual` | `속성` | 종속변수(좌변 식 그대로, 예: log(RCPSA))의 전 기간 값. |
-| `fitted` | `속성` | 적합값(표본 기간 Series). |
+| `fitted` | `속성` | 적합값(표본 기간 Series) = 추정에 쓴 종속변수 − 잔차 — 추정한 뒤 자료를 바꿔도 달라지지 않는다. |
 | `results` | `속성` | 추정 결과 객체(equion.stats.Results) — params·bse·tvalues·pvalues·resid·cov_params()·set_cov(). |
 | `nobs` | `속성` | 추정에 쓴 관측치 수. |
 | `output` | `()` | 결과표(TableOutput — .text() · .html() · .data). `eqn.show(eq)`가 보이는 것과 같다. |
@@ -1441,7 +1446,7 @@ eq.method, eq.coefs.to_dict()
 
 `serial_lm(lags=2)`
 
-계열상관 LM 검정(Breusch-Godfrey). 귀무가설: 시차 lags까지 잔차에 계열상관이 없다. OLS·WLS 식.
+계열상관 LM 검정(Breusch-Godfrey). 귀무가설: 시차 lags까지 잔차에 계열상관이 없다. AR 오차가 없는 OLS 식.
 
 **예**
 
@@ -1687,7 +1692,8 @@ list(rc.columns), round(float(rc["R"].iloc[-1]), 3)
 
 표준 진단 한 표 — 계열상관 LM·White·Breusch-Pagan·Ljung-Box·ARCH·Jarque-Bera·RESET.
 
-OLS가 아니면 잔차 검정(Ljung-Box·ARCH·Jarque-Bera)만. 잔차가 사실상 0이면(완전 적합) 오류다.  
+AR 오차가 없는 OLS가 아니면(WLS·도구변수·NLS·AR 오차식) 잔차 검정(Ljung-Box·ARCH·Jarque-Bera)만 — 낱개 검정  
+(serial_lm·white·breusch_pagan·reset)과 같은 기준이다. 잔차가 사실상 0이면(완전 적합) 오류다.  
 
 **예**
 
@@ -1934,7 +1940,8 @@ SolveResult — .counts() · .status() · .statistics() · .summary() · .save()
 
 **오류**
 
-- `ValueError`: 옵션 값이 틀림 · StructureError: 모델 구조(같은 변수를 두 식이 결정 등)
+- `ValueError`: 옵션 값이 틀림 · 별칭 이름의 시리즈(예: 사용자가 만든 I_1)가 이미 있는데 풀이 결과가 아님(덮어쓰지 않는다)
+- `StructureError`: 모델 구조(같은 변수를 두 식이 결정 등)
 
 **예**
 
@@ -2013,11 +2020,12 @@ list(s.band("Y").columns)
 
 목표 추적 — target(내생)이 path를 따르도록 instrument(외생)를 거꾸로 풀어 시리즈(기본 이름 instrument + '_C')로 쓴다.
 
-path는 Series·{기간: 값}·스칼라 — start~end 구간에만 쓰인다.  
+path는 Series·{기간: 값}·스칼라 — start~end 구간에만 쓰인다. 결과 시리즈는 구간 밖이 빈 칸이다.  
 
 **오류**
 
 - `SimulationError`: instrument가 내생이거나 target이 instrument에 반응하지 않음
+- `ValueError`: 결과 이름의 시리즈가 이미 있는데 풀이 결과가 아님(사용자 시리즈 — 덮어쓰지 않는다)
 
 **예**
 
@@ -2951,6 +2959,7 @@ print(wf.equation("eq_i").ls("I c Y(-1) R").output().md().splitlines()[0])
 | [`nltsls`](#eqnstatsnltsls) | `(y, params, fitted, J, Z)` | 비선형 2단계 최소제곱(NL-2SLS)의 결과 객체 — 잔차 e를 도구 Z의 열공간에 투영한 제곱합 eᵀP_Z e를 최소화한 해(params)에서, 공분산 σ̂²(ĴᵀĴ)⁻¹(Ĵ = P_Z J, σ̂² = eᵀe/(n−k))와 Sargan 과대식별 검정 n·eᵀP_Z e / eᵀe(자유도 = 도구의 계수 − 계수 수)를 낸다. J는 해에서의 기울기 ∂f/∂c(관측치 × 계수). 계수에 선형인 식이면 TSLS와 같다. |
 | [`fixed`](#eqnstatsfixed) | `(y, params, fitted)` | 고정(외부) 계수의 결과 객체 — 표준오차 없음, 적합도 통계만. |
 | [`pinv_svd`](#eqnstatspinv_svd) | `(X, rcond=1e-15)` | (유사역행렬, 특이값) — 특이값이 최댓값×rcond 이하인 방향은 버린다(완전 공선에서도 최소 노름 해). |
+| [`pinv_cols`](#eqnstatspinv_cols) | `(X, rcond=1e-15)` | (유사역행렬, 특이값, 열 크기를 맞췄는가) — 보통은 pinv_svd 그대로다(0.5.0까지와 같은 계산 순서, 바이트까지 같다). |
 | [`constant_info`](#eqnstatsconstant_info) | `(X)` | (상수항 수 0\|1, 상수열 위치 또는 None). 명시 상수열이 없으면 암묵적 상수(예: 계절 더미 합 = 1)도 찾는다. |
 | [`newey_west_lags`](#eqnstatsnewey_west_lags) | `(n)` | Newey-West 고정 대역폭 규칙 ⌊4·(n/100)^(2/9)⌋ — cov='hac'의 기본 시차. |
 | [`normalize_cov_type`](#eqnstatsnormalize_cov_type) | `(cov_type)` | 공분산 이름을 표준 이름으로 — None·'nonrobust' → 'nonrobust', 'white' → 'hc1', 대소문자 무시. |
@@ -3176,6 +3185,26 @@ round(r.rsquared, 3)
 P, sv = eqn.stats.pinv_svd(np.array([[1.0, 2.0], [2.0, 4.0], [1.0, 2.0]]))
 int((sv > 1e-12).sum())                                   # 계수 1(두 열이 비례)
 # 1
+```
+
+### eqn.stats.pinv_cols
+
+`pinv_cols(X, rcond=1e-15)`
+
+(유사역행렬, 특이값, 열 크기를 맞췄는가) — 보통은 pinv_svd 그대로다(0.5.0까지와 같은 계산 순서, 바이트까지 같다).
+
+pinv_svd가 방향을 잘라 냈는데(최소 특잇값 ≤ 최댓값×rcond) 열마다 길이를 1로 맞추면 완전 순위일 때만(원 단위 수준  
+변수와 % 금리를 함께 회귀하는 것처럼 열의 크기가 크게 다를 때 — 공선이 아니라 단위 탓) 맞춘 X로 풀어 되돌린다.  
+그대로 두면 잘린 방향 탓에 계수가 경고 없이 틀린다. 맞춰도 순위가 모자라면(진짜 공선) 원래 결과를 그대로 돌려준다.  
+
+**예**
+
+<!-- skip -->
+```python
+X = np.column_stack([np.ones(6), np.arange(6.0) * 1e16, np.array([1.0, 3, 2, 5, 4, 6])])
+_, _, scaled = eqn.stats.pinv_cols(X)
+scaled
+# True
 ```
 
 ### eqn.stats.constant_info
@@ -4017,7 +4046,7 @@ s[:4].round(6).tolist()
 | `models` | `속성` | 모형 이름 목록(설정 파일 순서). |
 | [`workfile`](#projectworkfile) | `속성` | 프로젝트 자료의 워크파일 — 자료 정의를 쓰면 지금 자료 회차, 아니면 [data] file(처음 쓸 때 연다). |
 | `vintage` | `속성` | 지금 자료 회차(equion.toml [data] vintage) — 자료 파일 하나를 쓰면 None. |
-| [`data_build`](#projectdata_build) | `(use=False, inbox=None, ask=None, who=None, command=None)` | 자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다. |
+| [`data_build`](#projectdata_build) | `(use=False, inbox=None, ask=None, who=None, command=None, allow_shorter=False)` | 자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다. |
 | [`data_inbox`](#projectdata_inbox) | `()` | 받은 상자(DATA/raw/inbox/)의 파일마다 짝지을 출처와 틀 검사 — 미리보기(아무것도 바꾸지 않는다). InboxItem 목록. |
 | [`data_use`](#projectdata_use) | `(vid, who=None, command=None)` | 이 회차로 바꾸기 — equion.toml의 [data] vintage를 고치고(주석·순서는 그대로) 자료를 다시 연다. 이전 회차를 돌려준다. |
 | [`data_list`](#projectdata_list) | `()` | 자료 회차 목록(만든 때 순) — {id, created, span, n_series, current}. |
@@ -4057,7 +4086,7 @@ s[:4].round(6).tolist()
 | [`adopt`](#projectadopt) | `(record, part=None, who=None, command=None)` | 추정 기록을 그 부품의 채택 계수로 — 블록 파일의 그 줄을 기록의 식으로 바꾸고(다르면) 채택표 `EQUATIONS/adopted.toml`을 고친다(주석·순서 그대로). 바뀜 기록에 남고, 그 뒤 모형은 이 계수로 푼다(다시 추정하지 않음). |
 | [`compare`](#projectcompare) | `(*records, target=None, part=None)` | 기록 비교 — 추정 기록이면 식·표본·적합 통계·진단·기준·단독 모의 표(종속변수·표본이 다르면 경고), HS 기록이면 변수별 RMSPE. |
 | [`replay`](#projectreplay) | `(record, as_name=None, who=None, command=None)` | HS 기록을 그때 그대로 다시 — 기록의 조립 명세(식 글자·계수·자료 회차·구간·방식)로 푼다. 지금 파일과 무관하고, 원래 기록의 풀린 값과 견주어(`.meta['replay']` — same · max_abs_diff) 새 기록을 남긴다. |
-| [`sim`](#projectsim) | `(scenario='base', model=None, range=None, vintage=None, vs=None, as_name=None, mode=None, who=None, command=None)` | 전망·시나리오 — 가정 세트(`ASSUMPTIONS/이름.csv`, 빈 외생은 `[forecast] fill`)·보정항(`ADDFACTORS/이름.toml`)·시나리오 (`SCENARIOS/이름.toml`)로 풀고 작업 기록(`work/sim/<이름>/`)을 남긴다. 시나리오면 같은 가정·보정항의 기준선도 풀어 차이를 적는다. |
+| [`sim`](#projectsim) | `(scenario='base', model=None, range=None, vintage=None, vs=None, as_name=None, mode=None, who=None, command=None, mce=None)` | 전망·시나리오 — 가정 세트(`ASSUMPTIONS/이름.csv`, 빈 외생은 `[forecast] fill`)·보정항(`ADDFACTORS/이름.toml`)·시나리오 (`SCENARIOS/이름.toml`)로 풀고 작업 기록(`work/sim/<이름>/`)을 남긴다. 시나리오면 같은 가정·보정항의 기준선도 풀어 차이를 적는다. |
 | [`an`](#projectan) | `(analysis, target, smpl=None, as_name=None, note=None, who=None, command=None, **options)` | 분석 하나 — 등록부(`equion.registry`)의 분석을 돌려 기록(`work/an/<이름>/` — 표 CSV·차트 CSV·카드 summary.md)을 남긴다. |
 | [`keep`](#projectkeep) | `(record, as_name=None, replace=False, who=None, command=None)` | 분석 기록을 남긴다 — 만드는 분석(계절조정·파생)은 정의(`series.toml`·`derived.txt`, `made_by` = 기록)로, 부품을 내는 분석(ECM·VAR·VECM·시스템)은 식 후보(est: 기록 — 계수 그대로)로. 정의를 고치면 바뀜 기록에 남고, 자료에는 `data build`로 들어간다. |
 | [`note_run`](#projectnote_run) | `(note, block=None, stale=False, force=False, who=None, command=None)` | 노트의 ```` ```equion ```` 블록을 실행해 블록 아래 결과 구역을 채운다(블록마다 새 기록). 블록은 등록부의 계산·보기 명령만 부를 수 있고, 손으로 고친 구역은 force일 때만 덮는다. Python 블록은 block으로 고를 때만 돈다. |
@@ -4144,7 +4173,7 @@ p.assemble("main").ok, p.vintage is not None
 
 ### Project.data_build
 
-`data_build(use=False, inbox=None, ask=None, who=None, command=None)`
+`data_build(use=False, inbox=None, ask=None, who=None, command=None, allow_shorter=False)`
 
 자료 만들기 — 원자료를 정의(series.toml·derived.txt)대로 읽어 새 자료 회차(work/data/<회차>/)를 만든다.
 
@@ -4157,6 +4186,7 @@ inbox를 주면 먼저 받은 상자(DATA/raw/inbox/)의 새 파일을 출처와
 - `use`: 참이면 만든(또는 같은) 회차를 지금 회차로
 - `inbox`: None · 'auto'(짝이 하나이고 틀이 맞으면 넣는다) · 'ask'(ask(item)이 참인 것만 — ask가 없으면 auto)
 - `ask`: 받은 파일마다 부르는 함수(InboxItem → 참거짓) — 명령줄은 터미널이면 묻는다
+- `allow_shorter`: 지금 회차보다 짧은 자료(시리즈의 시작이 늦거나 끝이 이름 — 지난 파일·일부 기간만 든 파일)도 만든다(기본은 거절 — ShorterError)
 
 **돌려주는 것**
 
@@ -4165,6 +4195,7 @@ BuildResult — .id · .created · .n_series · .span · .implicit(알아서 한
 **오류**
 
 - `ProjectError`: 정의·원자료 문제(없는 열·틀이 맞지 않음·주기 변환·파생식 — 위치와 함께)
+- `ShorterError`: 새 자료가 지금 회차보다 짧다(아무것도 바꾸지 않음 — allow_shorter로 만든다)
 
 **예**
 
@@ -4278,7 +4309,7 @@ r.parts, r.models
 
 **매개변수**
 
-- `path`: 넣을 파일(csv·xlsx·xls)
+- `path`: 넣을 파일(csv·xlsx — .xls는 xlrd가 있을 때만. 상대 경로는 지금 폴더에서 먼저, 없으면 프로젝트 폴더에서)
 - `source`: 바꿀 출처 이름([source.이름]) — 원자료 바꾸기
 - `as_name`: DATA/raw/에 둘 이름(기본: 파일 이름)
 - `note`: 출처 메모(옆 파일 *.source.toml에)
@@ -4306,7 +4337,7 @@ r.copied, r.file
 
 **매개변수**
 
-- `file`: 원자료 파일(csv·xlsx·xls — 프로젝트 기준 경로 또는 절대 경로)
+- `file`: 원자료 파일(csv·xlsx — 상대 경로는 지금 폴더에서 먼저, 없으면 프로젝트 폴더에서 · 절대 경로)
 sheet · header_row · unit_row · time_col · missing · thousands · freq: 불러오기 틀(docs/reference/formats.md) —  
 header_row는 여러 줄도 된다([3, 4] · "3,4" — 이어 붙인 이름)  
 time_axis · time_row · name_col · unit_col: 시점이 열로 가는 표(time_axis="columns") — 시점 줄 · 이름 열 · 단위 열  
@@ -5075,7 +5106,7 @@ p.span("last-3:last"), p.span("next:4")
 - `vs`: 견줄 HS 기록(record=True일 때 — 변수별 RMSPE 전후)
 - `as_name`: 기록 이름(기본 hs_0001, hs_0002 …)
 - `who, command`: 기록에 적을 '누가'·'명령'(명령줄이 채운다)
-- `**opts`: ModelObject.solve의 선택지(on_missing · on_fail · tolerance …)
+- `**opts`: ModelObject.solve의 선택지(on_missing · on_fail · tolerance …). record=True면 mce='fair-taylor'·'stacked'·False로 선행변수 풀이(기본 [hs] mce, 없으면 선행 값에 실측)
 
 **돌려주는 것**
 
@@ -5199,7 +5230,7 @@ p.replay(h.id).meta["replay"]["same"]
 
 ### Project.sim
 
-`sim(scenario='base', model=None, range=None, vintage=None, vs=None, as_name=None, mode=None, who=None, command=None)`
+`sim(scenario='base', model=None, range=None, vintage=None, vs=None, as_name=None, mode=None, who=None, command=None, mce=None)`
 
 전망·시나리오 — 가정 세트(`ASSUMPTIONS/이름.csv`, 빈 외생은 `[forecast] fill`)·보정항(`ADDFACTORS/이름.toml`)·시나리오 (`SCENARIOS/이름.toml`)로 풀고 작업 기록(`work/sim/<이름>/`)을 남긴다. 시나리오면 같은 가정·보정항의 기준선도 풀어 차이를 적는다.
 
@@ -5212,6 +5243,7 @@ p.replay(h.id).meta["replay"]["same"]
 - `vs`: 견줄 전망 기록(sim:…) — 연간 증가율 전후
 - `as_name`: 기록 이름(기본: 연-월_시나리오)
 - `mode`: 'dynamic'(기본) · 'static'
+- `mce`: 선행변수 풀이 — 'fair-taylor' · 'stacked' · False(기본 [forecast] mce, 없으면 선행변수가 있을 때 'fair-taylor')
 
 **돌려주는 것**
 
@@ -5387,6 +5419,9 @@ p.report_check("m").items[0]["status"]
 
 새 기록으로 바꾸기 — 구역을 같은 모양으로 다시 만들어 차이를 보이고 적용한다(기본: 같은 갈래의 가장 새 기록). 손으로 고친 구역은 고친 곳을 차이로 보이고 force일 때만 덮는다.
 
+같은 갈래는 같은 계산을 새 자료로 다시 한 것만이다 — 바꿔 끼운 HS(--swap)·그때 그대로 다시(--replay)·다른 회차에 묶은 전망  
+(--vintage)·다른 식 후보·다른 표본은 구역을 바꿔 끼지 않는다.  
+
 **예**
 
 <!-- skip -->
@@ -5395,7 +5430,8 @@ import tempfile, os
 p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
 _ = p.report_new("m")
 _ = p.report_add("m", p.hs("main", record=True).id)
-h2 = p.hs("main", record=True, swap={"demand:CN": "CN c Y"})
+h_swap = p.hs("main", record=True, swap={"demand:CN": "CN c Y"})
+h2 = p.hs("main", record=True)
 p.report_update("m").items[0]["to"] == h2.id
 # True
 ```
@@ -5789,7 +5825,7 @@ c.ok, c.n
 | 이름 | 서명 | 설명 |
 |---|---|---|
 | `adopted` | `속성` | 새 계수를 채택한 부품. |
-| `flagged` | `속성` | 기준을 통과하지 못해 사람이 볼 부품. |
+| `flagged` | `속성` | 기준을 통과하지 못했거나(걸러짐) 판단할 수 없어(검정 없음) 사람이 볼 부품. |
 | `text` | `()` | 명령줄에 보이는 짧은 글. |
 | `to_dict` | `()` | 명령줄 --json과 같은 사전. |
 
@@ -5921,7 +5957,7 @@ s.result.id, s.result.exit_code, [x.status for x in s.result.steps]
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
-| `brief` | `속성` | 한 줄 요약 — 명령 출력의 첫 줄 또는 까닭. |
+| `brief` | `속성` | 한 줄 요약 — 명령 출력의 첫 결과 줄(경고 줄은 건너뜀) 또는 까닭. |
 | `to_dict` | `()` | 사전(출력 글은 steps/NN.txt에). |
 
 ## 43. 실행 결과 `p.run_script(…)`
@@ -5973,15 +6009,36 @@ s.result.id, s.result.exit_code, [x.status for x in s.result.steps]
 | `dir` | `(kind)` | 그 종류의 기록 폴더(work/<종류>). |
 | `exists` | `(kind, name)` | 그 기록이 있으면 참. |
 | `names` | `(kind)` | 그 종류의 기록 이름(가나다순). |
-| `next_name` | `(kind, prefix)` | prefix_0001, prefix_0002 … — 같은 앞글자의 가장 큰 번호 다음. |
+| `used_names` | `(kind)` | 그 종류에서 한 번이라도 쓴 기록 이름 — 지금 있는 것과 log.jsonl에 남은 것(정리로 지운 기록도). 번호를 다시 쓰지 않게. |
+| `next_name` | `(kind, prefix)` | prefix_0001, prefix_0002 … — 같은 앞글자의 가장 큰 번호 다음. 정리(work clean)로 지운 기록의 번호도 다시 쓰지 않는다 — 보고서·노트·바뀜 기록에 남은 이름이 다른 계산을 가리키지 않게. 돌려주는 이름은 AutoName(쓰기 전에 다른 명령이 먼저 쓰면 write가 다음 번호로 바꾼다). |
+| [`naming`](#workstorenaming) | `(kind, as_name=None, prefix=None)` | 새 기록 이름을 잡은 채로 — `with store.naming("est", as_name, "cn") as name: … store.write("est", name, …)`. |
 | `check_new` | `(kind, name)` | 새 기록 이름을 검사한다 — 글자가 틀리거나 이미 있으면 RecordError(기록은 고치지 않는다). |
-| `write` | `(kind, name, meta, files, summary, log=None)` | 기록 하나를 쓴다 — files의 값은 글자·DataFrame(CSV)·dict(JSON). record.json·summary.md를 더하고 log.jsonl에 한 줄. |
+| [`write`](#workstorewrite) | `(kind, name, meta, files, summary, log=None)` | 기록 하나를 쓴다 — files의 값은 글자·DataFrame(CSV)·dict(JSON). record.json·summary.md를 더하고 log.jsonl에 한 줄. |
 | `get` | `(rid, kind=None)` | 기록 하나. kind를 주면 그 종류여야 한다. |
 | `log` | `()` | log.jsonl의 줄(지운 기록은 뺀다) — 만든 순. |
 | `records` | `(kind=None)` | 기록 목록(만든 순). |
 | `marks` | `()` | {기록: {pinned, memo}}. |
 | `mark` | `(rid, pinned=None, memo=None)` | 고정(pinned)·메모 — 기록 자체는 그대로, marks.json에만. |
 | `remove` | `(rid)` | 기록 폴더를 지운다(정리 — 사람이 고를 때만). log.jsonl의 줄은 남고 목록에서 빠진다. |
+
+### WorkStore.naming
+
+`naming(kind, as_name=None, prefix=None)`
+
+새 기록 이름을 잡은 채로 — `with store.naming("est", as_name, "cn") as name: … store.write("est", name, …)`.
+
+프로젝트 잠금을 쥔 채 이름을 정하고(as_name, 없으면 prefix의 다음 번호) 검사한다. 블록 안에서 그 이름으로 기록을 쓴다  
+— 같은 명령을 여러 개 한꺼번에 돌려도 이름이 겹치지 않는다. 계산은 블록 밖에서(잠금을 오래 쥐지 않게).  
+
+### WorkStore.write
+
+`write(kind, name, meta, files, summary, log=None)`
+
+기록 하나를 쓴다 — files의 값은 글자·DataFrame(CSV)·dict(JSON). record.json·summary.md를 더하고 log.jsonl에 한 줄.
+
+임시 폴더(프로세스마다 다른 이름)에 다 쓴 뒤, 프로젝트 잠금 안에서 이름을 다시 확인하고 log.jsonl을 연 다음 기록을 옮기고  
+줄을 더한다 — log.jsonl을 다른 프로그램이 쥐고 있으면 기록도 옮기지 않는다(FileBusy). 저절로 정한 이름(AutoName)을  
+그사이 다른 명령이 먼저 썼으면 다음 이름으로 바꿔 쓴다. 사람이 준 이름이 이미 있으면 RecordError.  
 
 ## 49. 작업 기록 하나 `p.work.get(…)`
 
@@ -5997,11 +6054,42 @@ s.result.id, s.result.exit_code, [x.status for x in s.result.steps]
 
 | 이름 | 서명 | 설명 |
 |---|---|---|
-| `scan` | `()` | 명령 밖에서 바뀐 정의 파일을 '바깥' 바뀜으로 적는다. 처음이면 지금 내용을 기준으로 삼고 아무것도 적지 않는다. |
-| `write_files` | `(new, who, how, note='', reverts=None)` | 정의 파일을 고치고 바뀜 기록을 남긴다 — new: {경로: 새 내용(None이면 지움)}. 먼저 바깥 바뀜을 따로 적는다. |
+| [`scan`](#historyscan) | `()` | 명령 밖에서 바뀐 정의 파일을 '바깥' 바뀜으로 적는다. 처음이면 지금 내용을 기준으로 삼고 아무것도 적지 않는다. |
+| [`write_files`](#historywrite_files) | `(new, who, how, note='', reverts=None)` | 정의 파일을 고치고 바뀜 기록을 남긴다 — new: {경로: 새 내용(None이면 지움)}. 먼저 바깥 바뀜을 따로 적는다. |
 | `list` | `()` | 바뀜 기록(오래된 것부터). |
 | `get` | `(cid)` | 바뀜 하나. |
-| `revert` | `(cid, who, how=None, files=None)` | 그 바뀜 앞의 내용으로 되돌린다(그 뒤에 같은 파일이 또 바뀌었어도 — 지금 내용과의 차이가 새 바뀜으로 남는다). files를 주면 그 바뀜이 고친 파일 가운데 그것만 되돌린다(파일 여럿을 고친 바뀜에서 하나만 물릴 때). 그 바뀜에 없는 파일이면 KeyError. |
+| `later` | `(cid, rel=None)` | 그 바뀜 뒤의 바뀜(오래된 것부터) — rel을 주면 그 파일을 고친 것만. |
+| [`revert`](#historyrevert) | `(cid, who, how=None, files=None, force=False)` | 그 바뀜 **하나만** 되돌린다 — 그 뒤에 같은 파일이 또 바뀌었으면 그 바뀜의 차이만 지금 내용에서 거꾸로 적용한다(뒤의 바뀜은 그대로). |
+
+### History.scan
+
+`scan()`
+
+명령 밖에서 바뀐 정의 파일을 '바깥' 바뀜으로 적는다. 처음이면 지금 내용을 기준으로 삼고 아무것도 적지 않는다.
+
+다른 프로그램이 쥐고 있어 읽을 수 없는 파일은 이번에는 건너뛰고(표준오류에 경고 — `.skipped`) 다음 명령 때 다시 본다  
+— 계산만 하는 명령(hs·sim·est)이 그 파일 하나 때문에 멈추지 않게.  
+
+### History.write_files
+
+`write_files(new, who, how, note='', reverts=None)`
+
+정의 파일을 고치고 바뀜 기록을 남긴다 — new: {경로: 새 내용(None이면 지움)}. 먼저 바깥 바뀜을 따로 적는다.
+
+프로젝트 잠금 안에서: 바뀜 기록을 임시 폴더에 다 쓴 뒤 파일을 한 묶음으로 바꾸고(하나라도 바꾸지 못하면 이미 바꾼 것을  
+되돌린다) 마지막에 바뀜 기록을 제자리로 옮긴다. 다른 프로그램이 파일을 쥐고 있으면 FileBusy(그 파일 이름 — 아무것도 바꾸지  
+않음). 지금 파일이 CRLF면 새 내용도 CRLF로 쓴다(줄바꿈은 지금 파일을 따른다).  
+
+### History.revert
+
+`revert(cid, who, how=None, files=None, force=False)`
+
+그 바뀜 **하나만** 되돌린다 — 그 뒤에 같은 파일이 또 바뀌었으면 그 바뀜의 차이만 지금 내용에서 거꾸로 적용한다(뒤의 바뀜은 그대로).
+
+뒤의 바뀜이 같은 줄(TOML이면 같은 키)을 고쳤거나 그 파일을 새로 만들었다·지웠으면 그 바뀜만 물릴 수 없다 — RevertConflict  
+(ValueError, 아무것도 쓰지 않음, 메시지에 뒤의 바뀜 목록). force=True면 뒤의 바뀜까지 버리고 그 파일을 그 바뀜 앞 내용으로  
+통째로 쓴다. 되돌리기도 바뀜 기록에 남는다(되돌리기의 되돌리기도 된다). files를 주면 그 바뀜이 고친 파일 가운데 그것만  
+되돌린다(파일 여럿을 고친 바뀜에서 하나만 물릴 때). 그 바뀜에 없는 파일이면 KeyError.  
 
 ## 51. 바뀜 하나 `p.history.get(…)`
 
@@ -6111,8 +6199,8 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `est` | --adopt --adopted --as --cov --for --help --json --method --project --sim --smpl | 식 하나를 추정해 기록을 남긴다(부품 또는 식 글자 — 후보) |
 | `adopt` | --help --json --part --project | 추정 기록을 부품의 채택 계수로(블록 파일의 줄·채택표를 고치고 바뀜 기록에) |
 | `compare` | --help --json --part --project --target | 기록 비교 — 추정 후보(적합·진단·기준·단독 모의) 또는 HS(변수별 RMSPE) |
-| `hs` | --as --help --json --mode --project --range --replay --swap --vs | 과거 재현을 풀고 기록을 남긴다(바꿔 끼우기·전후 비교·그때 그대로 다시) |
-| `sim` | --as --help --json --mode --model --project --range --vintage --vs | 전망·시나리오를 풀고 기록을 남긴다(가정 세트·보정항·시나리오 파일) |
+| `hs` | --as --help --json --mce --mode --project --range --replay --swap --vs | 과거 재현을 풀고 기록을 남긴다(바꿔 끼우기·전후 비교·그때 그대로 다시) |
+| `sim` | --as --help --json --mce --mode --model --project --range --vintage --vs | 전망·시나리오를 풀고 기록을 남긴다(가정 세트·보정항·시나리오 파일) |
 | `propose` | --help | 제안 — 파일을 바꾸기 전에 보여 주기(만들기·목록·보기·적용·버림) |
 | `export` | --help --json --project --xlsx | 기록의 값·값의 종류·출처를 엑셀로 |
 | `work` | --help | 작업 기록 — 목록·보기·고정·메모·정리 |

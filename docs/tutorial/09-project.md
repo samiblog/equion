@@ -97,7 +97,7 @@ equion("data", "list")
 <!-- out -->
 ```text
 [data list] prj: 자료 회차 1
-  * d2026-11a    2026-11-09T12:34:18  1970Q1~2019Q4    시리즈 13
+  * d2026-11a    2026-11-13T05:20:29  1970Q1~2019Q4    시리즈 13
 ```
 
 ## 9.3 식 고르기 — 추정·후보·비교·채택
@@ -153,6 +153,8 @@ equion("hs", "main", "--swap", "demand:CN=est:cn2", "--vs", "hs:h_now", "--as", 
 ```
 
 채택과 바뀜 기록 — 정의 파일이 바뀔 때마다 누가·어떤 명령으로·무엇이 바뀌었는지 남고(`history show`), 되돌릴 수 있습니다(`history revert`).
+되돌리기는 **그 바뀜 하나만** 물립니다 — 뒤의 바뀜은 그대로 두고, 뒤의 바뀜이 같은 줄을 고쳤으면 아무것도 쓰지 않고 멈춥니다(종료 코드 3).
+그래도 그 파일을 그 바뀜 앞 내용으로 통째로 되돌리려면 `--force`(뒤의 바뀜도 그 파일에서 함께 물린다).
 
 ```python
 equion("adopt", "est:cn2")
@@ -166,10 +168,10 @@ equion("history", "list")
   바뀜 기록  h0002 (EQUATIONS/adopted.toml, EQUATIONS/demand.txt)
   다음   모형을 풀면 이 기록의 계수를 쓴다(다시 추정하지 않음)
 [history list] prj: 바뀜 2
-[h0001] 2026-11-09T12:34:18 · Python · data use d2026-11a
+[h0001] 2026-11-13T05:20:29 · Python · data use d2026-11a
   파일   equion.toml(고침)
   메모   자료 회차 d2026-11a
-[h0002] 2026-11-09T12:34:29 · Python · equion adopt est:cn2
+[h0002] 2026-11-13T05:20:42 · Python · equion adopt est:cn2
   파일   EQUATIONS/adopted.toml(새로) · EQUATIONS/demand.txt(고침)
   메모   demand:CN ← est:cn2
 ```
@@ -262,7 +264,7 @@ equion("run", "FLOWS/monthly.eqs")
 [4/11] hs main                                      ✓ [hs:hs_0001] main dynamic 2005Q1~2020Q1 · 정상 61 · 일부식 제외 0 · 실패대체 0 · 실패 0
 [5/11] expect hs Y.rmspe < 3% --flag                ✓ Y RMSPE 0.4659 — Y.rmspe < 3
 [6/11] sim base oil20 --model main                  ✓ [sim:2026-11_base] main · base · 2020Q2~2022Q1 dynamic · 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
-[7/11] note run notes/data_check.md                 ✓ [note run] notes/data_check.md: 블록 1
+[7/11] note run notes/data_check.md                 ✓ [note run] notes/data_check.md: 블록 2
 [8/11] report new reports/forecast_d2026-11b.md --title "월간 전망 — 자료 d2026-11b" --exist-ok ✓ [report new] reports/forecast_d2026-11b.md
 [9/11] report add reports/forecast_d2026-11b.md sim:2026-11_base --key growth --rows Y,CN,I,P --show yoy --annual --title "성장률 전망" ✓ [report add] reports/forecast_d2026-11b.md
 [10/11] report add reports/forecast_d2026-11b.md hs:hs_0001 --key hs --rows Y,CN --chart --title "과거 재현" ✓ [report add] reports/forecast_d2026-11b.md
@@ -297,10 +299,10 @@ equion("run", "--replay", "run:monthly_0001", "-q")
 
 같은 폴더에서 Claude Code를 띄우면 Claude도 같은 명령을 씁니다. 예제 프로젝트의 `CLAUDE.md`가 먼저 `equion guide`(모형 작업 안내 — 규칙·프로젝트
 지도·명령·분석·판단 기준·보고 꼴)를 읽게 합니다. 규칙의 핵심은 사람과 같습니다 — 계산은 명령으로, 결론에는 근거 기록의 이름, 결과는 고치지 않고,
-정의 파일은 명령(채택·제안)으로 먼저, "제안만"이면 파일 대신 `equion propose`.
+정의 파일은 명령(채택·`block add`·`scenario define`·제안 …)으로 먼저, "제안만"이면 파일 대신 `equion propose`.
 
 ```python
-print("\n".join(eqn.help.guide_text().splitlines()[4:15]))
+print("\n".join(eqn.help.guide_text().splitlines()[4:19]))
 ```
 <!-- out -->
 ```text
@@ -308,13 +310,17 @@ print("\n".join(eqn.help.guide_text().splitlines()[4:15]))
 ## 1. 꼭 지킬 것
 
 1. **계산은 명령으로.** 추정·과거 재현(HS)·전망·분석은 `equion est`·`hs`·`sim`·`an`으로 한다 — 할 때마다 `work/<종류>/<이름>/`에 기록이 남고
-   사람이 Desk에서 그 기록을 연다. 같은 계산을 Python으로 따로 하지 않는다(필요하면 `eqn.project(".")`의 같은 메서드 — 기록이 같다).
+   사람이 Desk에서 그 기록을 연다. 같은 계산을 Python으로 따로 하지 않는다. 꼭 Python이면 `eqn.project(".")`의 메서드 — `p.est`·`p.sim`·`p.an`은
+   명령과 같은 기록을 남기지만 `p.hs("main")`은 풀기만 한다(기록 `hs:`는 `p.hs("main", record=True)`).
 2. **결론에는 근거 기록의 이름을 붙인다.** "c5가 가장 낫다(근거 `est:cons_c5` · `hs:hs_0009`)". 이름 없는 수치를 말하지 않는다.
 3. **결과는 고치지 않는다.** `work/` 아래의 기록·`DATA/raw/`의 원자료·보고서와 노트의 결과 구역(`<!-- equion:… -->` 사이)은 손대지 않는다.
    다시 계산하면 새 기록이고, 구역은 `note run`·`report update`가 바꾼다.
 4. **정의 파일은 명령으로 먼저 고친다.** 채택은 `equion adopt est:…`, 회차 바꾸기는 `equion data use`, 정의로 남기기는 `equion an keep`,
-   여러 파일은 제안(`equion propose new … ` → 사람이 `propose apply`). 명령이 없는 고침(블록 파일에 새 식, `series.toml`의 새 시리즈)은
-   사람이 시켰을 때만 직접 고치고 — 다음 명령 때 '바깥' 바뀜으로 바뀜 기록에 남는다 — 무엇을 고쳤는지 말한다.
+   블록 파일의 식 한 줄은 `equion block add 블록 "식"`·`block remove 블록:목표`, 자료 정의(출처·시리즈)는 `equion data define`,
+   모형·블록·묶음은 `model define`·`block define`·`group define`, 시나리오는 `scenario define`, 노트의 블록은 `note add` —
+   명령으로 고친 것은 바뀜 기록에 누가(Claude)와 함께 남는다. 여러 파일은 제안(`equion propose new … ` → 사람이 `propose apply`).
+   명령이 없는 고침(주석·가정 CSV의 값 등)은 사람이 시켰을 때만 직접 고치고 — 다음 명령 때 '바깥' 바뀜으로 바뀜 기록에 남는다 — 무엇을 고쳤는지 말한다.
+   **정의를 한꺼번에 되돌리는 명령(`milestone restore`·`history revert`)은 사람에게 먼저 묻는다** — 사람이 시켰어도 먼저 무엇이 물려지는지
 ```
 
 Claude Code 스킬 초안도 들어 있습니다(`equion guide skill`). 쓰려면 사람이 시킬 때 `equion guide skill --install user`(모든 프로젝트) 또는
@@ -329,9 +335,10 @@ Claude Code 스킬 초안도 들어 있습니다(`equion guide skill`). 쓰려�
 | 식 고르기 | `equion est 부품` · `est "식" --for 부품` · `compare --part 부품` · `hs --swap 부품=est:… --vs hs:…` · `adopt est:…` |
 | 전망·보고서 | `equion sim base oil20` · `report new 이름` · `report add 이름 sim:… --rows … --show yoy` |
 | 분석·노트 | `equion an <분석> <대상>` · `an keep an:…` · `note run notes/x.md` |
-| 기록·바뀜 | `equion work list` · `work show 기록` · `history list` · `history revert h…` |
+| 기록·바뀜 | `equion work list` · `work show 기록` · `history list` · `history revert h…`(그 바뀜 하나만 — 뒤의 바뀜과 겹치면 멈춘다) |
+| 시나리오·이정표 | `equion scenario define 이름 --shock POIL=+20%` · `an split "sim:… sim:…"` · `milestone make 이름` · `bundle make` |
 | 스크립트 | `equion check x.eqs` · `run x.eqs [--dry-run · --set · --from]` · `run --replay run:…` · `script new·export --py` |
 | Claude | `equion guide` · `guide skill --install user` |
 
 파일 형식은 [파일 형식](../reference/formats.md), 명령은 [명령줄](../reference/cli.md), 할 일별 처방은 [레시피](../howto/README.md)
-(R48~R58 — 프로젝트·회차·후보·전망 기록·제안·분석·노트·보고서·스크립트)에 있습니다.
+(R48~R66 — 프로젝트·회차·후보·전망 기록·제안·분석·노트·보고서·스크립트·자료 정의·시나리오 쓰기·요인 나누기·이정표와 묶어 보내기·비선형 시스템)에 있습니다.

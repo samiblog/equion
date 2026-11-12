@@ -66,22 +66,44 @@ def set_params(values: dict):
     _OVERRIDES.update(values or {})
 
 
-def _coerce(value, default):
+class ParamError(ValueError):
+    """--set·EQUION_PARAMS 값을 매개변수의 형(기본값의 형)으로 읽을 수 없음 — 명령줄의 입력 오류(종료 코드 3)."""
+
+
+_TRUE = ("1", "true", "yes", "on", "y")
+_FALSE = ("0", "false", "no", "off", "n")
+
+
+def _coerce(value, default, name: str = "", source: str = "--set"):
     if not isinstance(value, str) or default is None:
         return value
+    text = value.strip()
+    where = f"{source} {name}={value!r}" if source == "--set" else f"{source}의 {name}={value!r}"
     if isinstance(default, bool):
-        return value.strip().lower() in ("1", "true", "yes", "on", "y")
+        if text.lower() in _TRUE:
+            return True
+        if text.lower() in _FALSE:
+            return False
+        raise ParamError(f"{where}: {name}은(는) 참거짓입니다(기본값 {default!r}) — "
+                         f"{'·'.join(_TRUE[1:4])} 또는 {'·'.join(_FALSE[1:4])}(1·0도 됩니다)")
     if isinstance(default, int):
-        return int(value)
+        try:
+            return int(text)
+        except ValueError:
+            raise ParamError(f"{where}: {name}은(는) 정수입니다(기본값 {default!r})") from None
     if isinstance(default, float):
-        return float(value)
+        try:
+            return float(text)
+        except ValueError:
+            raise ParamError(f"{where}: {name}은(는) 수입니다(기본값 {default!r})") from None
     return value
 
 
 def params(**defaults) -> SimpleNamespace:
     """스크립트 매개변수 — 기본값을 주면 명령줄 `--set 이름=값`(또는 환경변수 EQUION_PARAMS의 JSON)이 덮는다.
 
-    값은 기본값의 형(정수·실수·글자·참거짓)으로 바뀐다. `smpl`이라는 이름은 명령줄 `--smpl S:E`로도 덮인다.
+    값은 기본값의 형(정수·실수·글자·참거짓)으로 바뀐다 — 참거짓은 true·false·yes·no·on·off·1·0, 그 형으로 읽을 수 없는 값은
+    오류다(명령줄에서는 입력 오류, 종료 코드 3). `smpl`이라는 이름은 명령줄 `--smpl S:E`로도 덮인다.
     스크립트를 `equion run`으로 실행하면 준 값과 최종 값이 보고서 manifest.json에 남는다.
 
     매개변수
@@ -95,6 +117,9 @@ def params(**defaults) -> SimpleNamespace:
         >>> p.g_up, p.start
         (10.0, '1990Q1')
 
+    오류
+        ParamError(ValueError): --set·EQUION_PARAMS 값을 기본값의 형으로 읽을 수 없음(예: 정수 매개변수에 'abc')
+
     관련: 명령줄 equion run --set · secret
     """
     merged = dict(defaults)
@@ -106,18 +131,20 @@ def params(**defaults) -> SimpleNamespace:
         except json.JSONDecodeError as e:
             raise ValueError(f"EQUION_PARAMS 가 JSON이 아닙니다: {e}") from None
     sources.append(_OVERRIDES)
+    rec = _RUN["record"]
+    if rec is not None:
+        rec.params_declared.update(defaults)     # 값이 틀려 멈춰도 '쓰이지 않은 --set'으로 잘못 알리지 않게 먼저 적는다
     for src in sources:
+        label = "--set" if src is _OVERRIDES else "EQUION_PARAMS"
         for k, v in src.items():
-            merged[k] = _coerce(v, defaults.get(k))
+            merged[k] = _coerce(v, defaults.get(k), k, label)
     for k, v in merged.items():
         if SENSITIVE_NAME.search(k):
             _remember_secret(v)
-    rec = _RUN["record"]
     if rec is not None and rec.smpl and "smpl" in defaults and "smpl" not in _OVERRIDES:
         merged["smpl"] = rec.smpl  # CLI --smpl 은 스크립트가 선언한 smpl 매개변수도 덮는다
     if rec is not None:
         rec.params.update(merged)
-        rec.params_declared.update(defaults)
     return SimpleNamespace(**merged)
 
 

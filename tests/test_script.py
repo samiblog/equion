@@ -19,6 +19,7 @@ test_script.py — Equion 스크립트(.eqs)·실행 기록·재연·받은 원�
   J. 초안·Python으로: script new(--from-records·--last — --as·-p 뺌) · export --py → 실행하면 같은 숫자
   K. 명령줄: run x.eqs·--dry-run·--json·--replay·check x.eqs·script new·export — 종료 코드, .py 선택지 거절
   L. 완료 기준: 예제 프로젝트에서 원자료 교체 → equion run FLOWS/monthly.eqs가 보고서까지 · 같은 회차로 다시 돌려도 글이 남음 · replay가 같은 결과
+  M. 손으로 고친 구역(스크립트에서는 !로 이어 감) · 내보낸 Python이 멈춘 까닭 · 끝나지 못한 실행(취소)의 기록과 이름(다시 쓰지 않음)
 자료는 예제 프로젝트(예제 자료 toy_q·toy_m)와 그것을 코드로 바꾼 합성 표만 쓴다.
 """
 
@@ -451,14 +452,157 @@ def _main(tmp, t0):
     reg_md = "\n".join(x for x in rt2.split("\n") if x.startswith("<!-- equion:report"))
     write(rep, rt2.replace("| Y |", "| Y(고침) |", 1))
     code, out, err = run(["run", "FLOWS/monthly.eqs", "-q"], dw)
-    check("L5 손으로 고친 구역은 덮지 않고 멈춘다(3) — 고친 곳과 함께", code == 3 and "손으로 고쳤습니다" in err
-          and "Y(고침)" in read(rep) and bool(reg_md))
+    m5 = quiet(Project.open, dw).work.records("run")[-1].meta
+    fl = [s for s in m5["steps"] if s["status"] == "flag" and "손으로 고쳤습니다" in s["detail"]]
+    card = read(os.path.join(dw, m5["path"], "summary.md"))
+    check("L5 손으로 고친 구역은 덮지 않는다 — 스크립트는 그 단계를 !(까닭과 함께)로 남기고 끝까지(종료 코드 0, 카드의 '볼 것')",
+          code == 0 and len(fl) == 1 and fl[0]["code"] == 3 and "report add" in fl[0]["line"] and "Y(고침)" in read(rep)
+          and m5["status"] == "flag" and m5["steps"][-1]["status"] == "ok" and "손으로 고쳤습니다" in card.split("## 볼 것")[-1]
+          and bool(reg_md), (out + err)[-400:])
+    key = fl[0]["line"].split("--key ")[1].split()[0] if fl else "growth"
+    code, _, err = run(["report", "add", rep, sim2, "--key", key, "--rows", "Y", "-p", dw], dw)
+    check("L5b 명령줄에서는 같은 일이 종료 코드 3(사람이 정할 것 — 덮으려면 --force)", code == 3 and "--force" in err, err[-200:])
+
+    _stop_and_cancel(tmp)
+    _fixf_tests(tmp)
 
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:
         print("실패:", ", ".join(FAIL))
     return len(FAIL)
+
+
+def _stop_and_cancel(tmp):
+    print("\n== M. 손으로 고친 구역(노트) · 멈춘 까닭(Python) · 끝나지 못한 실행 ==")
+    p, d = new_project(tmp, "mprj")
+    write(os.path.join(d, "notes", "m.md"), "# m\n\n```equion\nan stats Y\n```\n")
+    code, _, _ = run(["note", "run", "notes/m.md"], d)
+    nm = os.path.join(d, "notes", "m.md")
+    write(nm, read(nm).replace("**기술 통계", "**기술 통계(고침)", 1))
+    write(os.path.join(d, "FLOWS", "nt.eqs"), "note run notes/m.md\nassemble main\n")
+    code2, out2, err2 = run(["run", "FLOWS/nt.eqs"], d)
+    m = quiet(Project.open, d).work.records("run")[-1].meta
+    st = m["steps"][0]
+    check("M1 스크립트의 note run — 손으로 고친 구역을 건너뛰면 그 단계는 !(까닭과 함께)이고 다음 단계로(종료 코드 0)",
+          code == 0 and "(고침)" in read(nm) and code2 == 0 and st["status"] == "flag" and st["code"] == 3
+          and "손으로 고친" in st["detail"] and m["steps"][1]["status"] == "ok" and m["status"] == "flag"
+          and "!" in out2.split("\n")[0], (out2 + err2)[-300:])
+
+    write(os.path.join(d, "FLOWS", "stop.eqs"), "param sc = oil20\nsim {sc}\nreport add reports/x.md {sim:base}\n")
+    pyrel = quiet(p.export_script, "FLOWS/stop.eqs")
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
+    env["PYTHONPATH"] = ROOT + os.pathsep + env.get("PYTHONPATH", "")
+    r = subprocess.run([sys.executable, pyrel], cwd=d, capture_output=True, env=env, stdin=subprocess.DEVNULL)
+    err = r.stderr.decode("utf-8", errors="replace")
+    check("M2 내보낸 Python이 멈추면 까닭을 알린다 — 멈춘 단계와 그 까닭(.eqs 실행의 끝 줄과 같은 글), 출력은 UTF-8",
+          r.returncode == 1 and "멈춘 단계 [2]" in err and "전망 기록이 없습니다" in err and "run:stop_" in err, err[-300:])
+
+    # 끝나지 못한 실행 — 프로세스가 단계 도중에 끝나면(Desk의 '취소' = 프로세스 끝냄) 다음 실행이 그 이름으로 기록을 남기고 새 번호를 쓴다
+    write(os.path.join(d, "FLOWS", "cut.eqs"), "assemble main\nhs main --range 2015Q1:last\n")
+    killer = ("import os, sys\nsys.path.insert(0, {root!r})\nimport equion as eqn\n"
+              "s = eqn.script.session({d!r}, script='FLOWS/cut.eqs', origin='eqs')\n"
+              "s.cmd('assemble main')\ns.cmd('hs main --range 2015Q1:last')\n"
+              "s._save_active(s._new('cmd', 'sim base', ''))\nos._exit(9)\n").format(root=ROOT, d=d)
+    r = subprocess.run([sys.executable, "-c", killer], cwd=d, capture_output=True, env=env, stdin=subprocess.DEVNULL)
+    act = os.path.join(d, "work", "run", ".active")
+    left = sorted(os.listdir(act)) if os.path.isdir(act) else []
+    code, out, err = run(["run", "FLOWS/cut.eqs", "--json"], d)
+    new_id = json.loads(out).get("id") if code == 0 else None
+    q = quiet(Project.open, d)
+    try:
+        cut = q.work.get("run:cut_0001").meta
+    except Exception:  # noqa: BLE001
+        cut = {}
+    hs_cut = [x for x in cut.get("records") or [] if x.startswith("hs:")]
+    check("M3 끝나지 못한 실행 — 이름을 잡아 두었다가(work/run/.active/) 다음 실행이 '끝나지 못함' 기록 run:cut_0001을 남기고 새 번호 run:cut_0002",
+          r.returncode == 9 and left == ["cut_0001.json"] and new_id == "run:cut_0002" and cut.get("status") == "cancelled"
+          and cut.get("exit_code") == 130 and [s["status"] for s in cut["steps"]] == ["ok", "ok", "interrupted"]
+          and len(hs_cut) == 1 and q.work.get(hs_cut[0]).meta.get("run") == "run:cut_0001"
+          and not os.listdir(act), f"{r.returncode} {left} {new_id} {cut.get('status')} {(out + err)[-200:]}")
+    code, out, _ = run(["work", "show", "run:cut_0001"], d)
+    code2, _, err2 = run(["run", "--replay", "run:cut_0001"], d)
+    check("M4 그 기록 — work show에 '끝나지 못함'과 까닭 · 다시 하기(--replay)는 안 된다(3)", code == 0 and "끝나지 못함" in out
+          and "도중에" in out and code2 == 3 and "끝나지 못한 실행" in err2, out[-300:] + err2)
+    with eqn.script.session(d, script="FLOWS/cut.eqs") as s1:
+        busy = s1.name
+        clash = raises(lambda: eqn.script.session(d, script="FLOWS/cut.eqs", name=busy), Exception, "도는")
+        other = eqn.script.session(d, script="FLOWS/cut.eqs")
+        other.close()
+    check("M5 도는 실행의 이름은 다른 실행이 쓰지 않는다(같은 프로세스 — 이름을 주면 거절, 아니면 다음 번호)", clash
+          and other.name != busy and busy == "cut_0003" and other.name == "cut_0004", f"{busy} {other.name}")
+
+    # 기준 판단 못 함(기준의 검정을 그 추정법이 계산하지 않음 — criteria.pass None + untested)도 단계는 '!'(통과로 지나가지 않는다)
+    write(os.path.join(d, "FLOWS", "unk.eqs"), 'est "CN = c(1) + c(2)*Y + c(3)*CN(-1)" --for demand:CN\nest demand:I\n')
+    code, out, err = run(["run", "FLOWS/unk.eqs"], d)
+    m = quiet(Project.open, d).work.records("run")[-1].meta
+    cr = quiet(Project.open, d).work.get(m["steps"][0]["records"][0]).meta.get("criteria") or {}
+    check("M6 기준 판단 못 함 — 그 단계는 !와 까닭('기준 판단 못 함 demand:CN(…)'), 판단한 단계는 그대로(✓)",
+          code == 0 and cr.get("pass") is None and cr.get("untested") and m["steps"][0]["status"] == "flag"
+          and "기준 판단 못 함 demand:CN" in m["steps"][0]["detail"] and m["steps"][1]["status"] in ("ok", "flag")
+          and "판단 못 함" not in m["steps"][1]["detail"] and m["status"] == "flag", (out + err)[-300:])
+
+
+def _fixf_tests(tmp):
+    print("\n== N. 단계의 까닭·결과 줄 · 경고는 따로 · --fail-on 한 번 · --from의 기록은 지금 회차 · 옛 회차로 가는 단계 (fixF) ==")
+    from equion.script.session import StepResult, _error_line
+    out = ("equion: 오류: 받은 원자료를 넣지 못했습니다(아무것도 넣지 않음):\n"
+           "  - toy_q_2020Q1.csv → [source.na] 틀이 맞지 않습니다: [series.CN] 새 파일에 없는 열: CN\n")
+    long = "equion: 오류: 머리:\n" + "".join(f"  - 까닭 {k}\n" for k in range(20))
+    check("까닭: 여러 줄 오류의 까닭 줄까지(어느 파일·열인지) — 첫 줄의 ':'에서 끊지 않는다 · 한도(줄 수) 안에서",
+          "새 파일에 없는 열: CN" in _error_line(out, 3) and "toy_q_2020Q1.csv" in _error_line(out, 3)
+          and "까닭 6" in _error_line(long, 3) and "까닭 12" not in _error_line(long, 3) and "외 " in _error_line(long, 3))
+    st = StepResult(1, "cmd", "hs main", out="D:\\x\\records.py:1060: PerformanceWarning: DataFrame is highly fragmented.\n"
+                    "  full[v] = col\n[WARN] 모델 core에 선행변수(X(1) 등)가 있습니다\n[hs:hs_0001] main dynamic 2005Q1~2019Q4 · 정상 60\n")
+    check("결과 줄: 파이썬 경고(와 그 소스 줄)·[WARN] 줄은 건너뛰고 결과 줄을", st.brief.startswith("[hs:hs_0001]"), st.brief)
+
+    _, d = new_project(tmp, "fixf_script")
+    revised_toy_q(d, drop="CN")                        # 열 이름이 바뀐(CN → 없음) 받은 파일
+    code, out, err = run(["run", "FLOWS/monthly.eqs"], d)
+    rr = json.loads(read(os.path.join(d, "work", "run", "monthly_0001", "record.json")))
+    card = read(os.path.join(d, "work", "run", "monthly_0001", "summary.md"))
+    check("스크립트가 멈춘 까닭: 어느 파일·어느 열인지가 단계 줄·끝 줄·work show·카드에(steps/에만이 아니라)",
+          code == 3 and "CN" in rr["steps"][0]["detail"] and "toy_q_2020Q1.csv" in rr["steps"][0]["detail"]
+          and "새 파일에 없는 열: CN" in (out + err) and "새 파일에 없는 열: CN" in card.split("## 이 결과를 만든 스크립트")[0],
+          rr["steps"][0]["detail"][:300])
+    os.remove(os.path.join(d, "DATA", "raw", "inbox", "toy_q_2020Q1.csv"))
+
+    # 선행변수 모형의 HS: 일부식 제외 기간 — --fail-on partial의 알림에 기록이 한 번
+    write(os.path.join(d, "EQUATIONS", "demand.txt"), "CN c Y CN(-1)\nI c Y(+1) R\nY = CN + I + G\n")
+    write(os.path.join(d, "FLOWS", "lead.eqs"), "hs core\nexpect hs Y.rmspe < 50% --flag\n")
+    code, out, err = run(["run", "FLOWS/lead.eqs", "--fail-on", "partial"], d)
+    line = next((x for x in (out + err).splitlines() if "--fail-on partial" in x), "")
+    check("--fail-on: 확인(expect) 단계가 가리키는 기록을 두 번 세지 않는다 — 알림 줄에 HS 기록이 한 번(종료 코드 2)",
+          code == 2 and line.count("hs:hs_") == 1, line)
+    rl = json.loads(read(os.path.join(d, "work", "run", "lead_0001", "record.json")))
+    check("선행변수 HS 단계의 결과 줄은 HS 결과(경고 줄이 아니라) · 파이썬 API의 'mce=True' 처방이 나오지 않는다",
+          rl["steps"][0]["status"] in ("ok", "flag") and "[WARN]" not in (out + err) and "mce=True" not in (out + err)
+          and "hs:hs_" in (out + err).split("[1/")[1].splitlines()[0], (out + err)[:300])
+    write(os.path.join(d, "EQUATIONS", "demand.txt"), "CN c Y CN(-1)\nI c Y(-1) R\nY = CN + I + G\n")
+
+    # --from: 건너뛴 단계의 기록은 지금 자료 회차에서 계산한 것만
+    write(os.path.join(d, "FLOWS", "rep.eqs"), "sim base --model core\nreport new reports/r.md --exist-ok\n"
+          "report add reports/r.md {sim:base} --key g --rows Y\n")
+    code, _, _ = run(["run", "FLOWS/rep.eqs"], d)
+    P = quiet(Project.open, d)
+    va = P.vintage
+    revised_toy_q(d)
+    quiet(P.data_build, inbox="auto", use=True)
+    code, out, err = run(["run", "FLOWS/rep.eqs", "--from", "3"], d)
+    check("--from: 건너뛴 단계의 기록이 지금 회차에 없으면 옛 회차의 기록을 쓰지 않고 까닭과 함께 멈춘다", code != 0
+          and "옛 회차" in (out + err) and va in (out + err), (out + err)[-300:])
+    run(["sim", "base", "--model", "core"], d)
+    code, out, err = run(["run", "FLOWS/rep.eqs", "--from", "3"], d)
+    vnow = quiet(Project.open, d).vintage
+    check("--from: 지금 회차의 가장 새 기록으로 — '알아서 한 것'에 회차와 함께", code == 0 and f"자료 회차 {vnow}의 가장 새 기록" in (out + err),
+          (out + err)[-300:])
+
+    # 옛 회차로 가는 단계는 '!'
+    write(os.path.join(d, "FLOWS", "back.eqs"), f"data use {va}\n")
+    code, out, err = run(["run", "FLOWS/back.eqs"], d)
+    rb = json.loads(read(os.path.join(d, "work", "run", "back_0001", "record.json")))
+    check("스크립트에서 지금 회차를 더 옛 회차·짧은 회차로 바꾸는 단계는 '!'(종료 코드 0) — 까닭과 함께",
+          code == 0 and rb["steps"][0]["status"] == "flag" and "옛 회차" in rb["steps"][0]["detail"], rb["steps"][0].get("detail"))
 
 
 def test_suite():

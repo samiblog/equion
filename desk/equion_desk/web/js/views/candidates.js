@@ -10,11 +10,13 @@ import { clear, cmdText, h, icon, put, when, WHO } from '../util.js';
 
 export const MAX_OVERLAY = 4;
 
-const r4 = (v) => (v == null ? '—' : (v >= 0 && v < 1 ? v.toFixed(4).slice(1) : v.toFixed(4)));
+// 앞의 0만 떼어 짧게(.9871) — 반올림한 글자를 보고 뗀다: 0.99996 은 '1.0000'(값을 보고 떼면 '.0000'이 된다)
+const noLead0 = (s) => (s.startsWith('0.') ? s.slice(1) : s);
+export const r4 = (v) => (v == null ? '—' : noLead0(v.toFixed(4)));
 const sig = (v) => (v == null ? '—' : Math.abs(v) >= 1000 ? v.toFixed(0) : Math.abs(v) >= 100 ? v.toFixed(1) : Math.abs(v) >= 1 ? v.toFixed(3) : v.toPrecision(3));
 const d1 = (v) => (v == null ? '—' : v.toFixed(1));
 const d2 = (v) => (v == null ? '—' : v.toFixed(2));
-const p3 = (v) => (v == null ? '—' : v < 0.001 ? '<.001' : v.toFixed(3).slice(1));
+export const p3 = (v) => (v == null ? '—' : v < 0.001 ? '<.001' : noLead0(v.toFixed(3)));
 const pct = (v) => (v == null ? '—' : `${v.toFixed(2)}%`);
 
 // better: 클수록·작을수록 좋은 칸. needs: 무엇이 같아야 견줄 수 있나(dep 종속변수 · sample 종속변수와 표본)

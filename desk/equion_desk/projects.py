@@ -55,6 +55,7 @@ class ProjectSession:
         self.worker = Worker(self.root)
         self.watcher = ProjectWatcher(self.root, self.id, feed, on_defs=self.scan_soon)
         self.started = False                 # 화면이 한 번이라도 개요를 받아 갔는지 — 그 전에는 작업 프로세스를 띄우지 않는다
+        self.opened_at = time.time()         # 탭을 연 때 — 그 뒤에 고친 파일은 'Desk 가 꺼져 있는 동안'의 바뀜이 아니다
         self._jobs = 0
         self._scan_lock = threading.Lock()
         self._scan_pending = False
@@ -127,11 +128,22 @@ class ProjectSession:
                     if wait is None:
                         return
                     time.sleep(wait)
-            if found and offline:
+            # 첫 적기가 늦게 돌면(작업 프로세스가 바쁨) 연 뒤에 밖에서 고친 것까지 함께 적힌다 — 그때는 '꺼져 있는 동안'이라 하지 않는다
+            if found and offline and self._changed_before_open(found.get("files") or []):
                 self.feed.add("offline", p=self.id, change=found.get("id"), files=found.get("files") or [])
             self.watcher.poke()
 
         threading.Thread(target=work, name=f"desk-scan-{self.id}", daemon=True).start()
+
+    def _changed_before_open(self, files: list[Any]) -> bool:
+        """바뀐 파일이 모두 이 탭을 열기 전에 고친 것인가(지운 파일은 따지지 않는다)."""
+        for rel in files:
+            try:
+                if os.path.getmtime(os.path.join(self.root, *str(rel).split("/"))) > self.opened_at + 0.5:     # 시계·파일 시각의 거친 눈금
+                    return False
+            except OSError:
+                continue
+        return True
 
     # ---- 파일 읽기 ------------------------------------------------------------------------------
 
@@ -179,6 +191,8 @@ class ProjectSession:
         if b"\0" in data[:8192]:
             return {**info, "kind": "binary"}
         truncated = len(data) > TEXT_LIMIT
+        if not truncated:       # 내용의 지문 — 화면이 고치기 시작한 내용을 기억해 두었다가, 저장할 때 그 사이 밖에서 바뀌었는지 견준다(modelops.file_hash 와 같은 셈)
+            info["hash"] = hashlib.sha256(data).hexdigest()
         data = data[:TEXT_LIMIT]
         for encoding in ("utf-8-sig", "cp949"):
             try:

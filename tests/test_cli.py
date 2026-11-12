@@ -10,6 +10,7 @@ test_cli.py — 명령줄(2단계) 테스트.
      형식(--format), 종료 코드(0·1·2·3·sys.exit), --fail-on, -q·--log·-- 인자·--dry-run, 실행 뒤 상태 복원
   C. info: 실행 환경·데이터·워크파일·방정식 파일·보고서 폴더
   D. 프로세스: python -m equion, 설치된 equion 명령, --threads, --watch, -i
+  H. 출력 인코딩(Windows 파이프 → UTF-8) · --json은 JSON 하나(명령마다) · 상대 경로 규칙 · 프로젝트 밖의 an list
 자료는 `equion new`가 만드는 예시 자료와 패키지의 예제 자료(eqn.datasets.toy_q)만 쓴다.
 """
 
@@ -281,6 +282,19 @@ def main():
           == _read(os.path.join(proj, "out", "argv", "run.log")))
     check("쓰이지 않은 --set 알림", ma["params"]["unused"] == ["zz"] and "쓰이지 않은 --set: zz" in out)
     check("eqn.show(DataFrame) → 표로 수집", [o["kind"] for o in ma["outputs"]] == ["text", "table"])
+    s_typ = write(os.path.join(proj, "scripts", "typed.py"),
+                  "import equion as eqn\np = eqn.params(n=3, flag=False, ratio=0.5)\nprint('P', p.n, p.flag, p.ratio)\n")
+    bad = {k: run(["run", s_typ, "--no-report", "--set", k], proj) for k in ("flag=maybe", "n=abc", "ratio=x")}
+    check("--set 값이 매개변수의 형이 아님(참거짓에 maybe·정수에 abc) → 입력 오류 3, 이름·기본값을 알리고 '쓰이지 않은 --set'은 아님",
+          all(c == 3 and "쓰이지 않은 --set" not in o for c, o, _ in bad.values())
+          and "flag은(는) 참거짓" in bad["flag=maybe"][2] and "n은(는) 정수입니다(기본값 3)" in bad["n=abc"][2],
+          str({k: v[0] for k, v in bad.items()}))
+    c_no, o_no, _ = run(["run", s_typ, "--no-report", "--set", "flag=no", "--set", "n=7"], proj)
+    check("--set 참거짓 no·정수는 그대로 읽는다", c_no == 0 and "P 7 False 0.5" in o_no)
+    s_unk = write(os.path.join(proj, "scripts", "unknown_var.py"),
+                  "import equion as eqn\nwf = eqn.wfopen('DATA/data.csv')\nwf.equation('e').ls('I c NOPE')\n")
+    c_unk, _, e_unk = run(["run", s_unk, "--no-report"], proj)
+    check("식이 쓴 변수가 자료에 없음 → 입력 오류 3(equion check·문법 오류와 같게)", c_unk == 3 and "NOPE" in e_unk, str(c_unk))
 
     s_w = write(os.path.join(proj, "scripts", "wr.py"),
                 f"import equion as eqn\nwf = eqn.wfopen('DATA/data.csv')\nwf.write({os.path.join(tmp, 'w.csv')!r})\n"
@@ -454,6 +468,8 @@ def main():
           and any(o["flags"][0] == "--json" and not o["takes"] for o in unit.get("options", []))
           and unit["args"][0]["name"] == "target" and cmds["run"]["denied"] is None and cmds["new"]["denied"], str(unit)[:300])
 
+    _encoding_json_paths(tmp)
+    _busy_tests(tmp)
     shutil.rmtree(tmp, ignore_errors=True)
     print("\n" + "=" * 80)
     total = len(PASS) + len(FAIL)
@@ -461,6 +477,137 @@ def main():
     print("  " + ("[OK] ALL PASSED!" if not FAIL else "실패: " + ", ".join(FAIL)))
     print("=" * 80)
     return len(FAIL)
+
+
+def _encoding_json_paths(tmp):
+    print("=" * 80)
+    print("H. 출력 인코딩 · --json은 JSON 하나 · 상대 경로 규칙")
+    print("=" * 80)
+    hp = quiet(eqn.Project.create, os.path.join(tmp, "enc_demo"))
+    bare = {k: v for k, v in ENV.items() if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}   # Claude Code의 셸처럼 아무것도 정하지 않음
+
+    def raw(args, where, env):
+        r = subprocess.run([sys.executable, "-m", "equion", *args], cwd=where, env=env, capture_output=True, stdin=subprocess.DEVNULL,
+                           timeout=300)
+        return r.returncode, r.stdout, r.stderr
+
+    code, out, _ = raw(["guide"], hp.root, bare)
+    try:
+        text = out.decode("utf-8")
+    except UnicodeDecodeError:
+        text = ""
+    check("인코딩: 파이프(인코딩을 정하지 않음)로 나가는 출력은 UTF-8 — equion guide의 '—'·한글이 그대로(\\u2014가 아니다)",
+          code == 0 and text.startswith("# Equion — Claude를 위한 모형 작업 안내") and "\\u2014" not in text, repr(out[:60]))
+    code, out, _ = raw(["est", "demand:ZZ", "--json"], hp.root, bare)
+    try:
+        msg = json.loads(out.decode("utf-8"))["error"]["message"]
+    except (UnicodeDecodeError, ValueError, KeyError):
+        msg = ""
+    check("인코딩: --json 오류도 UTF-8 JSON — 한글 메시지가 그대로", code == 3 and "없는 부품" in msg, repr(out[:80]))
+    code, out, _ = raw(["guide"], hp.root, {**bare, "PYTHONIOENCODING": "cp949"})
+    check("인코딩: 사람이 정한 인코딩(PYTHONIOENCODING=cp949)은 그대로 — 그 인코딩에 없는 글자만 \\uXXXX",
+          code == 0 and out.decode("cp949", errors="strict").startswith("# Equion \\u2014 Claude를 위한"), repr(out[:60]))
+
+    # --json: 명령마다(성공·오류) 표준출력 전체가 JSON 하나 — 자료를 여는 요약 줄([이름] 열기 …)이 앞에 붙지 않는다
+    cmds = [["scenario", "define", "s2", "--shock", "POIL=+10%"], ["scenario", "define", "bad", "--shock", "ZZ"], ["scenario", "list"],
+            ["scenario", "show", "oil20"], ["scenario", "remove", "s2"], ["scenario", "remove", "nope"],
+            ["block", "define", "extra"], ["block", "add", "extra", "G c Y"], ["block", "add", "extra", "G c Y"],
+            ["block", "remove", "extra:G"], ["block", "remove", "demand:NOPE"], ["model", "define", "m2", "--blocks", "demand"],
+            ["model", "define", "m3", "--blocks", "nope"], ["group", "list"], ["group", "define", "g2", "--series", "Y,CN"],
+            ["group", "remove", "g2"], ["view", "list"], ["view", "define", "v1", "--series", "Y"], ["desk", "show", "model:main"],
+            ["milestone", "make", "m1"], ["milestone", "list"], ["milestone", "show", "m1"], ["milestone", "restore", "m1"],
+            ["milestone", "show", "nope"], ["bundle", "make", "--out", "exports/j.zip"],
+            ["bundle", "open", os.path.join(tmp, "none.zip"), os.path.join(tmp, "enc_open")],
+            ["assemble", "main"], ["ident", "demand:Y"], ["ident", "demand:Y", "--check"], ["data", "list"], ["data", "diff"],
+            ["data", "inbox"], ["data", "preview", "DATA/raw/toy_q.csv"], ["data", "use", "nope"], ["data", "build"],
+            ["est", "demand:CN"], ["work", "list"], ["history", "list"], ["propose", "list"], ["an", "list"], ["an", "stats", "Y"],
+            ["note", "check", "notes/data_check.md"], ["note", "run", "notes/data_check.md"], ["report", "new", "r1"],
+            ["report", "check", "r1"], ["check", "FLOWS/monthly.eqs"], ["run", "FLOWS/monthly.eqs", "--dry-run"],
+            ["script", "export", "FLOWS/monthly.eqs", "--py", "--force"], ["hs", "--range"]]
+    bad = []
+    for c in cmds:
+        code, out, err = run([*c, "--json"], hp.root)
+        try:
+            json.loads(out)
+        except ValueError:
+            bad.append(f"{' '.join(c)} → {code} {out[:70]!r}")
+    check(f"--json: 명령 {len(cmds)}개(성공·오류)의 표준출력이 모두 JSON 하나(scenario define·block add·remove·milestone·bundle 포함)",
+          not bad, "; ".join(bad[:4]))
+    # 이정표 되돌리기 — 자료 회차가 이정표 때와 같으면 자료 알림을 만드는 길을 탄다(인자 둘인 함수에 요약 감추기를 단 것이 TypeError·1이던 것)
+    run(["milestone", "make", "mr"], hp.root)
+    run(["est", "CN c Y", "--for", "demand:CN", "--as", "mr_s"], hp.root)
+    run(["adopt", "est:mr_s"], hp.root)
+    code_r, out_r, err_r = run(["milestone", "restore", "mr"], hp.root)
+    code_j, out_j, _ = run(["milestone", "restore", "mr", "--json"], hp.root)
+    check("milestone restore — 되돌리고 종료 코드 0(글·--json 모두, 바꿀 것이 없을 때도)", code_r == 0 and "milestone restore" in out_r
+          and code_j == 0 and json.loads(out_j)["change"] is None, f"{code_r} {err_r[-200:]} {code_j}")
+    code, out, _ = run(["scenario", "define", "s3", "--shock", "POIL=+5%"], hp.root)
+    check("요약 줄: 글 출력에도 자료를 여는 줄([이름] 열기 …)이 붙지 않는다(scenario define)", code == 0 and "열기" not in out
+          and out.startswith("[scenario"), out[:120])
+
+    # 상대 경로: 있는 파일은 지금 폴더에서 먼저, 없으면 프로젝트 폴더에서 · 만드는 파일은 프로젝트 폴더 기준
+    code, out, err = run(["check", "EQUATIONS/demand.txt", "--data", f"work/data/{hp.vintage}/series.csv", "-p", hp.root], tmp)
+    check("경로: check -p(다른 폴더에서) — 방정식 파일·자료를 프로젝트 폴더에서 찾는다", code == 0 and "통과" in out, (out + err)[-200:])
+    code, out, err = run(["check", "demand.txt", "--data", f"../work/data/{hp.vintage}/series.csv"], os.path.join(hp.root, "EQUATIONS"))
+    check("경로: check(프로젝트 하위 폴더에서) — 지금 폴더의 파일 그대로", code == 0 and "통과" in out, (out + err)[-200:])
+    code, out, err = run(["check", "EQUATIONS/nope.txt", "-p", hp.root], tmp)
+    code2, _, err2 = run(["check", "x.txt", "-p", os.path.join(tmp, "no_project_here")], tmp)
+    check("경로: 어디에도 없는 파일은 준 경로로 말한다(3) · -p가 프로젝트가 아니면(3)", code == 3 and "nope.txt" in err
+          and code2 == 3 and "찾지 못했습니다" in err2, err + err2)
+    os.makedirs(os.path.join(hp.root, "DATA", "raw", "inbox"), exist_ok=True)
+    shutil.copyfile(os.path.join(hp.root, "DATA", "raw", "toy_q.csv"), os.path.join(hp.root, "DATA", "raw", "inbox", "toy_q_2020Q1.csv"))
+    code, out, err = run(["data", "add", "DATA/raw/inbox/toy_q_2020Q1.csv", "--source", "na", "-p", hp.root], tmp)
+    check("경로: data add -p(다른 폴더에서) — data inbox가 알려 준 꼴(DATA/raw/inbox/…) 그대로", code == 0 and "[data add]" in out, (out + err)[-200:])
+    code, out, err = run(["data", "preview", "toy_q.csv"], os.path.join(hp.root, "DATA", "raw"))
+    code2, out2, _ = run(["note", "check", "data_check.md"], os.path.join(hp.root, "notes"))
+    check("경로: 하위 폴더에서 data preview toy_q.csv(DATA/raw/) · note check data_check.md(notes/)", code == 0 and "[data preview]" in out
+          and code2 == 0 and "notes/data_check.md" in out2, (out + err)[-200:])
+    os.makedirs(os.path.join(tmp, "elsewhere"), exist_ok=True)
+    code, out, err = run(["bundle", "make", "--out", "exports/b_rel.zip", "-p", hp.root], os.path.join(tmp, "elsewhere"))
+    check("경로: bundle make --out 상대 경로는 프로젝트 폴더 기준(export --xlsx와 같다)", code == 0
+          and os.path.isfile(os.path.join(hp.root, "exports", "b_rel.zip"))
+          and not os.path.exists(os.path.join(tmp, "elsewhere", "exports")), (out + err)[-200:])
+    code, out, err = run(["an", "list"], os.path.join(tmp, "elsewhere"))
+    code2, out2, _ = run(["an", "list", "--json"], os.path.join(tmp, "elsewhere"))
+    check("an list는 등록부만 본다 — 프로젝트 밖에서도(0)", code == 0 and "[an list]" in out and code2 == 0
+          and any(r["분석"] == "unitroot" for r in json.loads(out2)), err[-200:])
+
+
+def _busy_tests(tmp):
+    print("=" * 80)
+    print("I. 다른 프로그램이 쥔 파일·다른 명령이 고치는 중 — 트레이스백 대신 입력 오류(3)")
+    print("=" * 80)
+    from equion.cli import errors
+    from equion.work.lock import FileBusy, ProjectBusy, project_lock
+    e = PermissionError(13, "Permission denied", "C:/x/EQUATIONS/adopted.toml")
+    check("오류 글: 접근 거부(PermissionError) · FileBusy · ProjectBusy는 사람이 읽는 글, 다른 오류는 None(버그는 트레이스백 그대로)",
+          "adopted.toml" in (errors.busy_text(e) or "") and "다른 프로그램" in errors.busy_text(e)
+          and errors.busy_text(FileBusy("가", "a.txt")) == "가" and errors.busy_text(ProjectBusy("나")) == "나"
+          and errors.busy_text(ValueError("x")) is None and errors.busy_text(FileNotFoundError(2, "없음", "x")) is None)
+    bd = os.path.join(tmp, "busy")
+    quiet(eqn.Project.create, bd)
+    env = dict(ENV, EQUION_LOCK_TIMEOUT="1")
+    with project_lock(bd):
+        code, out, err = proc(["adopt", "est:none", "-p", bd, "--json"], env=env)
+    j = json.loads(out) if out.strip().startswith("{") else {}
+    check("잠금을 다른 명령이 쥐고 있으면 --json도 오류 JSON 하나(종료 코드 3 · kind input)",
+          code == 3 and j.get("error", {}).get("kind") == "input" and "고치는 중" in j["error"]["message"], (out + err)[-300:])
+    if os.name != "nt":
+        print("  (Windows가 아니라 쥔 파일 시험은 건너뜀)")
+        return
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.CreateFileW.restype = wintypes.HANDLE
+    k.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                              wintypes.HANDLE]
+    h = k.CreateFileW(os.path.join(bd, "equion.toml"), 0x80000000 | 0x40000000, 0, None, 3, 0x80, None)
+    try:
+        code, out, err = proc(["assemble", "main", "-p", bd])
+    finally:
+        k.CloseHandle(h)
+    check("equion.toml을 다른 프로그램이 독점으로 쥐고 있으면 — 트레이스백이 아니라 그 파일과 함께 입력 오류(3)",
+          code == 3 and "equion.toml" in err and "Traceback" not in err, err[-300:])
 
 
 def test_suite():

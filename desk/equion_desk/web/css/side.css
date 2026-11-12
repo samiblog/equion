@@ -32,12 +32,13 @@
 @container side (max-width: 250px) { .smpl-chip .k { display: none; } }
 
 .side-tabs { padding: 4px 8px 0; gap: 0; }
-.side-tabs button { display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; flex: 1 1 auto; justify-content: center; min-width: 0; }
+.side-tabs button { display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; flex: 1 1 auto; justify-content: center; min-width: 0; white-space: nowrap; }
 .side-tabs .tc { display: inline-flex; align-items: center; }
 .side-tabs .tc .n { font-size: var(--fs-xs); font-weight: 500; color: var(--ink-4); font-variant-numeric: tabular-nums; }
 .side-tabs .tc .n.new { color: var(--accent); font-weight: 700; }
 .side-tabs .dot.prop, .row-item .dot.prop, .segmented .dot.prop { background: var(--k-prop); }
 @container side (max-width: 310px) { .side-tabs .tc .n { display: none; } .side-tabs button { padding: 0 5px; } }
+@container side (max-width: 230px) { .side-tabs { padding: 4px 3px 0; } .side-tabs button { padding: 0 1px; font-size: var(--fs-s); } }
 
 .side-tools { display: flex; align-items: center; gap: 6px; padding: 8px 10px 6px; flex: none; min-width: 0; }
 .side-tools > svg.ic { width: 14px; height: 14px; color: var(--ink-4); flex: none; margin-right: -2px; }
@@ -176,6 +177,12 @@ button.rel:hover { box-shadow: inset 0 0 0 1px currentColor; }
 .term-head .term-title { flex: none; }
 .term-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .term-tabs::-webkit-scrollbar { display: none; }
+/* 터미널이 셋 이상이면 고르지 않은 탭은 번호만 — 그래도 넘치면 가장자리를 흐려 더 있다는 것을 보인다(휠로 옆으로) */
+.term-tabs.compact .term-tab:not(.on) .name, .term-tabs.compact .term-tab:not(.on) .x { display: none; }     /* 닫기는 고른 뒤에(또는 가운데 단추) */
+.term-tabs.compact .term-tab:not(.on) { padding: 0 8px; }
+.term-tabs.fade-r { -webkit-mask-image: linear-gradient(to right, var(--term-fg) calc(100% - 22px), transparent); mask-image: linear-gradient(to right, var(--term-fg) calc(100% - 22px), transparent); }
+.term-tabs.fade-l { -webkit-mask-image: linear-gradient(to right, transparent, var(--term-fg) 22px); mask-image: linear-gradient(to right, transparent, var(--term-fg) 22px); }
+.term-tabs.fade-l.fade-r { -webkit-mask-image: linear-gradient(to right, transparent, var(--term-fg) 22px, var(--term-fg) calc(100% - 22px), transparent); mask-image: linear-gradient(to right, transparent, var(--term-fg) 22px, var(--term-fg) calc(100% - 22px), transparent); }
 .term-tab {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 3px 0 8px; flex: none;
   border: 0; border-radius: 6px; background: transparent; color: var(--term-dim); font-size: var(--fs-xs);

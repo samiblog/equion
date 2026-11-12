@@ -13,6 +13,9 @@
 
 기록 이름은 `종류:이름`(`est:cons_c5` · `hs:hs_0003`). 기록은 고치지 않는다 — 다시 계산하면 새 기록이다. 쓰기는 임시 폴더에 다 쓴 뒤
 한 번에 옮긴다(반쯤 쓴 기록이 남지 않게).
+
+이름 정하기·기록 옮기기·log.jsonl에 줄 더하기는 프로젝트 잠금(lock.py) 안에서 한다 — 같은 명령을 여러 개 한꺼번에 돌려도
+이름이 겹치지 않는다. 기록 폴더가 보이는 것과 log.jsonl의 줄은 함께다(log.jsonl을 열 수 없으면 기록도 옮기지 않는다).
 """
 
 import json
@@ -20,11 +23,14 @@ import os
 import re
 import shutil
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List
+from typing import Callable, Dict, List
 
 import pandas as pd
+
+from .lock import as_busy, locked, project_lock, tmp_dir
 
 FORMAT = "equion-record"
 FORMAT_VERSION = 1
@@ -53,6 +59,31 @@ def move_into_place(tmp: str, final: str) -> None:
 
 class RecordError(ValueError):
     """기록 이름·찾기 문제(없는 기록·이미 있는 이름 등)."""
+
+
+class AutoName(str):
+    """저절로 정한 기록 이름(`next_name` 등) — 쓰기 전에 다른 명령이 그 이름을 먼저 쓰면 `WorkStore.write`가 `again()`으로 다음 이름을
+    받아 기록의 이름(`id`·`path`·카드)을 바꿔 쓴다. 사람이 준 이름(`--as`)은 보통 글자(str)라 겹치면 그대로 RecordError."""
+
+    def __new__(cls, value: str, again: Callable[[], str] = None):
+        s = super().__new__(cls, value)
+        s.again = again
+        return s
+
+
+def _renamed(kind: str, old: str, new: str, meta: dict, summary: str):
+    """기록 이름을 old → new로 — meta의 글자 값과 카드에서 `종류:old`·`work/종류/old`만(앞뒤가 이름 글자면 건드리지 않는다)."""
+    rx = re.compile(rf"(?<![A-Za-z0-9_\-])({re.escape(kind)}:|work/{re.escape(kind)}/){re.escape(old)}(?![A-Za-z0-9_\-])")
+
+    def sub(v):
+        if isinstance(v, str):
+            return rx.sub(lambda m: m[1] + new, v)
+        if isinstance(v, dict):
+            return {k: sub(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [sub(x) for x in v]
+        return v
+    return sub(meta), sub(summary)
 
 
 def detect_who(default: str = "python") -> str:
@@ -162,11 +193,44 @@ class WorkStore:
             return []
         return sorted(n for n in os.listdir(d) if os.path.isfile(os.path.join(d, n, "record.json")))
 
+    def used_names(self, kind: str) -> set:
+        """그 종류에서 한 번이라도 쓴 기록 이름 — 지금 있는 것과 log.jsonl에 남은 것(정리로 지운 기록도). 번호를 다시 쓰지 않게."""
+        out = set(self.names(kind))
+        p = os.path.join(self.base, "log.jsonl")
+        if os.path.isfile(p):
+            try:
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    lines = f.readlines()
+            except OSError as e:
+                raise as_busy(e, "work/log.jsonl", reading=True) from None
+            for line in lines:
+                try:
+                    rid = json.loads(line).get("id", "")
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+                k, sep, n = str(rid).partition(":")
+                if sep and k == kind:
+                    out.add(n)
+        return out
+
     def next_name(self, kind: str, prefix: str) -> str:
-        """prefix_0001, prefix_0002 … — 같은 앞글자의 가장 큰 번호 다음."""
+        """prefix_0001, prefix_0002 … — 같은 앞글자의 가장 큰 번호 다음. 정리(work clean)로 지운 기록의 번호도 다시 쓰지 않는다 —
+        보고서·노트·바뀜 기록에 남은 이름이 다른 계산을 가리키지 않게. 돌려주는 이름은 AutoName(쓰기 전에 다른 명령이 먼저 쓰면
+        write가 다음 번호로 바꾼다)."""
         rx = re.compile(rf"^{re.escape(prefix)}_(\d+)$")
-        nums = [int(m[1]) for n in self.names(kind) for m in [rx.match(n)] if m]
-        return f"{prefix}_{(max(nums) if nums else 0) + 1:04d}"
+        nums = [int(m[1]) for n in self.used_names(kind) for m in [rx.match(n)] if m]
+        return AutoName(f"{prefix}_{(max(nums) if nums else 0) + 1:04d}", again=lambda: self.next_name(kind, prefix))
+
+    @contextmanager
+    def naming(self, kind: str, as_name: str = None, prefix: str = None):
+        """새 기록 이름을 잡은 채로 — `with store.naming("est", as_name, "cn") as name: … store.write("est", name, …)`.
+
+        프로젝트 잠금을 쥔 채 이름을 정하고(as_name, 없으면 prefix의 다음 번호) 검사한다. 블록 안에서 그 이름으로 기록을 쓴다
+        — 같은 명령을 여러 개 한꺼번에 돌려도 이름이 겹치지 않는다. 계산은 블록 밖에서(잠금을 오래 쥐지 않게)."""
+        with project_lock(self.root):
+            name = as_name or self.next_name(kind, prefix)
+            self.check_new(kind, name)
+            yield name
 
     def check_new(self, kind: str, name: str):
         """새 기록 이름을 검사한다 — 글자가 틀리거나 이미 있으면 RecordError(기록은 고치지 않는다)."""
@@ -175,28 +239,24 @@ class WorkStore:
         if self.exists(kind, name):
             raise RecordError(f"이미 있는 기록 {kind}:{name} — 기록은 고치지 않습니다(다른 이름으로 --as)")
 
-    # ---- 쓰기 ----------------------------------------------------------
-    def write(self, kind: str, name: str, meta: dict, files: Dict[str, object], summary: str,
-              log: dict = None) -> Record:
-        """기록 하나를 쓴다 — files의 값은 글자·DataFrame(CSV)·dict(JSON). record.json·summary.md를 더하고 log.jsonl에 한 줄."""
-        self.check_new(kind, name)
-        d = self.dir(kind)
-        os.makedirs(d, exist_ok=True)
-        tmp = os.path.join(d, f".tmp-{name}")
-        shutil.rmtree(tmp, ignore_errors=True)
-        os.makedirs(tmp)
-        meta = dict(meta)
-        meta.setdefault("format", FORMAT)
-        meta.setdefault("format_version", FORMAT_VERSION)
-        meta["id"] = f"{kind}:{name}"
-        meta["kind"] = kind
-        meta.setdefault("created", now_iso())
-        run = os.environ.get("EQUION_RUN")            # 스크립트 실행(run:…) 안에서 만든 기록이면 그 실행
-        if run and kind != "run":
-            meta.setdefault("run", run)
-        out = dict(files)
-        out["record.json"] = meta
-        out["summary.md"] = summary
+    def _another(self, kind: str, name: "AutoName") -> str:
+        """저절로 정한 이름이 먼저 쓰였다 — 다음 이름(again()이 준 것, 그것도 쓰였으면 끝 번호를 하나씩 올림)."""
+        used = self.used_names(kind)
+
+        def free(c):
+            return c not in used and not os.path.lexists(os.path.join(self.dir(kind), c))
+        cand = str(name.again()) if name.again is not None else str(name)
+        if cand != str(name) and free(cand):
+            return cand
+        for _ in range(100000):
+            m = re.match(r"^(.*)_(\d+)$", cand)
+            cand = f"{m[1]}_{int(m[2]) + 1:0{len(m[2])}d}" if m else f"{cand}_2"
+            if free(cand):
+                return cand
+        raise RecordError(f"새 기록 이름을 정하지 못했습니다({kind}:{name}…)")
+
+    @staticmethod
+    def _fill(tmp: str, out: Dict[str, object]):
         for fn, v in out.items():
             parts = fn.replace("\\", "/").split("/")
             if os.path.isabs(fn) or ".." in parts:
@@ -214,17 +274,77 @@ class WorkStore:
             text = dumps(v) if isinstance(v, (dict, list)) else str(v)
             with open(p, "w", encoding="utf-8", newline="\n") as f:
                 f.write(text)
-        final = os.path.join(d, name)
-        move_into_place(tmp, final)
-        line = {"id": meta["id"], "created": meta["created"], "who": meta.get("who"), "command": meta.get("command"),
-                "kind": kind, "target": meta.get("target"), "path": os.path.relpath(final, self.root).replace(os.sep, "/")}
-        if meta.get("run"):
-            line["run"] = meta["run"]
-        line.update(log or {})
-        os.makedirs(self.base, exist_ok=True)
-        with open(os.path.join(self.base, "log.jsonl"), "a", encoding="utf-8", newline="\n") as f:
-            f.write(json.dumps(_jsonable(line), ensure_ascii=False) + "\n")
-        return Record(kind, name, final, meta)
+
+    # ---- 쓰기 ----------------------------------------------------------
+    def write(self, kind: str, name: str, meta: dict, files: Dict[str, object], summary: str,
+              log: dict = None) -> Record:
+        """기록 하나를 쓴다 — files의 값은 글자·DataFrame(CSV)·dict(JSON). record.json·summary.md를 더하고 log.jsonl에 한 줄.
+
+        임시 폴더(프로세스마다 다른 이름)에 다 쓴 뒤, 프로젝트 잠금 안에서 이름을 다시 확인하고 log.jsonl을 연 다음 기록을 옮기고
+        줄을 더한다 — log.jsonl을 다른 프로그램이 쥐고 있으면 기록도 옮기지 않는다(FileBusy). 저절로 정한 이름(AutoName)을
+        그사이 다른 명령이 먼저 썼으면 다음 이름으로 바꿔 쓴다. 사람이 준 이름이 이미 있으면 RecordError."""
+        if not isinstance(name, AutoName):
+            self.check_new(kind, name)
+        elif not NAME_RE.match(name or ""):
+            raise RecordError(f"기록 이름은 영문·숫자로 시작하고 영문·숫자·_·-만: {name!r}")
+        d = self.dir(kind)
+        meta = dict(meta)
+        meta.setdefault("format", FORMAT)
+        meta.setdefault("format_version", FORMAT_VERSION)
+        meta["id"] = f"{kind}:{name}"
+        meta["kind"] = kind
+        meta.setdefault("created", now_iso())
+        run = os.environ.get("EQUION_RUN")            # 스크립트 실행(run:…) 안에서 만든 기록이면 그 실행
+        if run and kind != "run":
+            meta.setdefault("run", run)
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError as e:
+            raise as_busy(e, os.path.relpath(d, self.root).replace(os.sep, "/")) from None
+        tmp = tmp_dir(d, name)
+        try:
+            try:
+                os.makedirs(tmp)
+                self._fill(tmp, dict(files))
+            except OSError as e:
+                raise as_busy(e, os.path.relpath(tmp, self.root).replace(os.sep, "/")) from None
+            with project_lock(self.root):
+                if isinstance(name, AutoName) and (self.exists(kind, name) or os.path.lexists(os.path.join(d, name))):
+                    new = self._another(kind, name)
+                    meta, summary = _renamed(kind, str(name), new, meta, summary)
+                    name = new
+                self.check_new(kind, name)
+                final = os.path.join(d, name)
+                rel = os.path.relpath(final, self.root).replace(os.sep, "/")
+                if meta.get("path") and str(meta["path"]).replace(os.sep, "/").rstrip("/").startswith(f"work/{kind}/"):
+                    meta["path"] = rel
+                self._fill(tmp, {"record.json": meta, "summary.md": summary})
+                line = {"id": meta["id"], "created": meta["created"], "who": meta.get("who"), "command": meta.get("command"),
+                        "kind": kind, "target": meta.get("target"), "path": rel}
+                if meta.get("run"):
+                    line["run"] = meta["run"]
+                line.update(log or {})
+                text = json.dumps(_jsonable(line), ensure_ascii=False) + "\n"
+                try:
+                    os.makedirs(self.base, exist_ok=True)
+                    lf = open(os.path.join(self.base, "log.jsonl"), "a", encoding="utf-8", newline="\n")
+                except OSError as e:
+                    raise as_busy(e, "work/log.jsonl") from None
+                with lf:
+                    try:
+                        move_into_place(tmp, final)
+                    except OSError as e:
+                        raise as_busy(e, rel) from None
+                    try:
+                        lf.write(text)
+                        lf.flush()
+                    except OSError as e:               # 줄을 더하지 못했으면 기록도 거둔다(목록에 없는 기록이 남지 않게)
+                        shutil.rmtree(final, ignore_errors=True)
+                        raise as_busy(e, "work/log.jsonl") from None
+        except BaseException:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+        return Record(kind, str(name), final, meta)
 
     # ---- 읽기 ----------------------------------------------------------
     def get(self, rid: str, kind: str = None) -> Record:
@@ -246,21 +366,25 @@ class WorkStore:
         if not os.path.isfile(p):
             return []
         out = []
-        with open(p, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    d = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                try:
-                    k, n = self.split(d.get("id", ""))
-                except RecordError:
-                    continue
-                if self.exists(k, n):
-                    out.append(d)
+        try:
+            with open(p, encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+        except OSError as e:
+            raise as_busy(e, "work/log.jsonl", reading=True) from None
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            try:
+                k, n = self.split(d.get("id", ""))
+            except RecordError:
+                continue
+            if self.exists(k, n):
+                out.append(d)
         return out
 
     def records(self, kind: str = None) -> List[Record]:
@@ -289,12 +413,11 @@ class WorkStore:
             return json.load(f)
 
     def _save_marks(self, m):
+        from .lock import write_bytes
         os.makedirs(self.base, exist_ok=True)
-        tmp = self._marks_path() + ".tmp"
-        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-            f.write(dumps(m))
-        move_into_place(tmp, self._marks_path())
+        write_bytes(self._marks_path(), dumps(m).encode("utf-8"), root=self.root)
 
+    @locked
     def mark(self, rid: str, pinned: bool = None, memo: str = None) -> dict:
         """고정(pinned)·메모 — 기록 자체는 그대로, marks.json에만."""
         self.get(rid)
@@ -308,6 +431,7 @@ class WorkStore:
         self._save_marks(m)
         return e
 
+    @locked
     def remove(self, rid: str):
         """기록 폴더를 지운다(정리 — 사람이 고를 때만). log.jsonl의 줄은 남고 목록에서 빠진다."""
         k, n = self.split(rid)

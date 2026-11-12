@@ -16,6 +16,8 @@ test_analysis.py — 분석 등록부·노트·보고서(D37 — 개발 계획 E
      손으로 고친 곳을 차이로 알린다·--force·--region --to·--dry-run)·new --from(바꿔 낄 기록 제안)
   H. 명령줄: an list·--help·<분석>·keep · note run·check · report new·add·check·update — 종료 코드·--json
   I. 분석 기획 자료의 시나리오(A1~A5)를 명령만으로
+  N. 손으로 고친 구역의 종료 코드(note run·report update — 3) · 블록 명령 실패(1) · 기록 없는 블록의 낡음(check와 run --stale이 같은 규칙) ·
+     분석 옵션의 한계(옵션 이름으로) · 표본을 받지 않는 분석
 자료는 예제 프로젝트(예제 자료 toy_q·toy_m)와 코드로 만든 합성 표만 쓴다.
 """
 
@@ -379,6 +381,46 @@ def _main(tmp, t0):
     check("check: 없는 기록", any(i["status"] == "없는 기록" and i["record"] == "an:uu" for i in c2.items))
     check("보고서가 쓴 기록은 정리에서 빠진다", "hs:hh" not in run(["work", "clean"], dg_)[1])
 
+    # '더 새 기록'은 같은 갈래의 계산을 다시 한 것만 — 실험·다른 후보·다른 회차에 묶은 것은 구역을 바꿔 끼지 않는다
+    r, dr = new_project(tmp, "rep_kind")
+    quiet(r.sim, as_name="b1")
+    quiet(r.hs, "main", record=True, as_name="h1")
+    quiet(r.est, "demand:CN", as_name="e1")
+    quiet(r.report_new, "kinds")
+    for rid, rows in (("sim:b1", ["Y"]), ("hs:h1", ["Y"]), ("est:e1", None)):
+        quiet(r.report_add, "kinds", rid, rows=rows)
+    raw = pd.read_csv(os.path.join(dr, "DATA", "raw", "toy_q.csv"), index_col=0)
+    raw.loc[raw.index[-1], "Y"] *= 1.001
+    raw.to_csv(os.path.join(tmp, "rep_kind_new.csv"))
+    v_old = r.vintage
+    quiet(r.data_add, os.path.join(tmp, "rep_kind_new.csv"), source="na")
+    quiet(r.data_build, use=True)
+    quiet(r.sim, as_name="old_pin", vintage=v_old)
+    quiet(r.hs, "main", record=True, swap={"demand:CN": "CN c Y"}, as_name="h_swap")
+    quiet(r.replay, "hs:h1", as_name="h_replay")
+    quiet(r.est, "CN = c(1) + c(2)*Y + c(3)*CN(-1)", part="demand:CN", as_name="e_nls")
+    quiet(r.est, "demand:CN", smpl="1990Q1:last", as_name="e_smpl")
+    ck = quiet(r.report_check, "kinds")
+    up = quiet(r.report_update, "kinds", dry_run=True)
+    check("보고서: 같은 갈래가 아닌 새 기록은 '더 새 기록'이 아니다 — 옛 회차에 묶은 전망·바꿔 끼운 HS·그때 그대로 다시·다른 식(NLS)·다른 표본",
+          all("더 새 기록" not in it["status"] for it in ck.items) and all(it["to"] == it["record"] for it in up.items),
+          str([(it["record"], it["status"]) for it in ck.items]))
+    quiet(r.sim, as_name="b2")
+    quiet(r.sim, as_name="pin_now", vintage=r.vintage)
+    quiet(r.hs, "main", record=True, as_name="h2")
+    re_cn = next(x["new"] for x in quiet(r.reestimate, "demand", adopt="never").rows if x["part"] == "demand:CN")
+    ck2 = quiet(r.report_check, "kinds")
+    check("보고서: 옛 회차의 보고서는 새 회차의 계산으로 바꿔 끼지 않는다 — '새 회차에 같은 계산'으로 알리고 report new --from을 권한다(fixF)",
+          all(it.get("to") is None and "새 회차에 같은 계산" in it["status"] and "--from" in it["detail"] for it in ck2.items),
+          str([(it.get("to"), it["status"]) for it in ck2.items]))
+    nr = quiet(r.report_new, "kinds_next", from_report="kinds")
+    ck3 = quiet(r.report_check, "kinds_next")
+    check("보고서: 같은 갈래로 다시 한 것은 '더 새 기록' — 새 회차의 보고서(--from: 머리의 회차를 지금 회차로)에서 지금 회차의 전망(지금 회차에 "
+          "묶은 것도)·같은 모형의 HS·같은 식을 다시 추정",
+          [it["to"] for it in ck3.items] == ["sim:pin_now", "hs:h2", re_cn] and any(r.vintage in x for x in nr.notes)
+          and f"자료 회차 {r.vintage}" in read(os.path.join(dr, "reports", "kinds_next.md")),
+          str([it.get("to") for it in ck3.items]) + str(nr.notes))
+
     print("=" * 80)
     print("H. 명령줄")
     print("=" * 80)
@@ -409,7 +451,7 @@ def _main(tmp, t0):
     write(os.path.join(dc, "notes", "b.md"), "```equion\nadopt est:x\n```\n")
     code, _, _ = run(["note", "run", "notes/b.md"], dc)
     code2, _, _ = run(["note", "check", "notes/b.md"], dc)
-    check("note: 허용 안 된 명령 — run 1 · check 3", code == 1 and code2 == 3)
+    check("note: 허용 안 된 명령 — run 3 · check 3(같은 입력 오류)", code == 3 and code2 == 3)
     run(["sim", "--as", "b1"], dc)
     code, out, _ = run(["report", "new", "r1"], dc)
     code2, out2, _ = run(["report", "add", "r1", "sim:b1", "--rows", "Y,CN", "--show", "yoy", "--annual"], dc)
@@ -663,11 +705,80 @@ def _main(tmp, t0):
     code3, out3, _ = run(["hs", "main"], pn.root)
     check("명령줄: est의 도구변수 c(n) 식은 NL-TSLS(기록에 그 이름) · an system --shared · 비선형 식으로 과거 재현",
           code == 0 and "NL-TSLS" in out and code2 == 0 and "비선형" in out2 and code3 == 0 and "정상 60" in out3, (out + out2)[:400])
+
+    _codes_and_staleness(tmp)
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:
         print("실패:", ", ".join(FAIL))
     return len(FAIL)
+
+
+def _codes_and_staleness(tmp):
+    print("=" * 80)
+    print("N. 노트·보고서 — 손으로 고친 구역의 종료 코드 · 기록 없는 블록의 낡음 · 분석 옵션의 한계")
+    print("=" * 80)
+    pz = quiet(Project.create, os.path.join(tmp, "codes_prj"))
+    dz = pz.root
+    zp = write(os.path.join(dz, "notes", "z.md"), "# z\n\n```equion\nan stats Y\n```\n\n```equion\nident demand:Y --check --range last-7:last\n```\n")
+    code, _, _ = run(["note", "run", "notes/z.md"], dz)
+    write(zp, read(zp).replace("**기술 통계", "**기술 통계(고침)", 1))
+    code1, out1, _ = run(["note", "run", "notes/z.md"], dz)
+    code2, out2, _ = run(["note", "run", "notes/z.md", "--json"], dz)
+    j2 = json.loads(out2) if out2.strip().startswith("{") else {}
+    check("note run: 손으로 고친 구역을 건너뛰면 3(사람이 정할 것) — 다른 블록은 돈다 · 글에 까닭 · --json에 error",
+          code == 0 and code1 == 3 and "덮지 않았습니다" in out1 and "--force" in out1 and "(고침)" in read(zp) and code2 == 3
+          and (j2.get("error") or {}).get("exit_code") == 3 and [b["status"] for b in j2.get("blocks", [])] == ["edited", "run"], out1[-300:])
+    code3, _, _ = run(["note", "run", "notes/z.md", "--force"], dz)
+    write(os.path.join(dz, "notes", "e.md"), "```equion\nan stats NOPE\n```\n")
+    code4, _, _ = run(["note", "run", "notes/e.md"], dz)
+    check("note run: --force면 덮고 0 · 블록의 명령이 실패하면 1", code3 == 0 and "(고침)" not in read(zp) and code4 == 1)
+
+    ck0 = quiet(pz.note_check, "notes/z.md")
+    new = pd.read_csv(os.path.join(dz, "DATA", "raw", "toy_q.csv"), index_col=0)
+    new.loc["2020Q1"] = new.iloc[-1] * 1.004
+    new.to_csv(os.path.join(tmp, "codes_new.csv"))
+    quiet(pz.data_add, os.path.join(tmp, "codes_new.csv"), source="na")
+    quiet(pz.data_build, use=True)
+    ck1 = quiet(pz.note_check, "notes/z.md")
+    rs = quiet(pz.note_run, "notes/z.md", stale=True)
+    ck2 = quiet(pz.note_check, "notes/z.md")
+    rs2 = quiet(pz.note_run, "notes/z.md", stale=True)
+    check("낡음 규칙 하나: 기록 없는 블록(ident)도 회차가 바뀌면 note check가 '낡음' — note run --stale이 다시 도는 것과 같다(돈 뒤엔 둘 다 정상·건너뜀)",
+          [b.status for b in ck0.blocks] == ["ok", "ok"] and [b.status for b in ck1.blocks] == ["stale", "stale"]
+          and "자료 회차" in ck1.blocks[1].detail and [b.status for b in rs.blocks] == ["run", "run"]
+          and [b.status for b in ck2.blocks] == ["ok", "ok"] and [b.status for b in rs2.blocks] == ["skip", "skip"],
+          f"{[b.status for b in ck1.blocks]} {[b.status for b in rs.blocks]} {[b.status for b in rs2.blocks]}")
+    blk = os.path.join(dz, "EQUATIONS", "demand.txt")
+    write(blk, read(blk) + "# 메모 한 줄\n")
+    ck3 = quiet(pz.note_check, "notes/z.md")
+    check("기록 없는 블록: 정의 파일(블록 파일 등)이 바뀌어도 낡음", ck3.blocks[1].status == "stale" and "정의 파일" in ck3.blocks[1].detail,
+          str([(b.status, b.detail) for b in ck3.blocks]))
+
+    run(["report", "new", "rz"], dz)
+    h1 = quiet(pz.hs, "main", record=True)
+    run(["report", "add", "rz", h1.id, "--rows", "Y,CN"], dz)
+    rpz = os.path.join(dz, "reports", "rz.md")
+    write(rpz, read(rpz).replace("| Y |", "| Y(고침) |", 1))
+    quiet(pz.hs, "main", record=True, as_name="hs_new")
+    c1, o1, _ = run(["report", "update", "rz", "--dry-run"], dz)
+    c2, o2, _ = run(["report", "update", "rz"], dz)
+    c3, o3, _ = run(["report", "update", "rz", "--json"], dz)
+    j3 = json.loads(o3) if o3.strip().startswith("{") else {}
+    kept = "(고침)" in read(rpz)
+    c4, _, _ = run(["report", "update", "rz", "--force"], dz)
+    check("report update: 손으로 고친 구역을 건너뛰면 3(note run과 같다) · --dry-run은 0 · --json에 error · --force면 0",
+          c1 == 0 and c2 == 3 and "바꾸지 않았습니다" in o2 and kept and c3 == 3
+          and (j3.get("error") or {}).get("exit_code") == 3 and c4 == 0 and "(고침)" not in read(rpz), o2[-300:])
+
+    code, _, err = run(["an", "unitroot", "Y", "--lags", "-5"], dz)
+    code2, _, err2 = run(["an", "coint", "core", "--det", "3"], dz)
+    code3, out3, _ = run(["an", "split", "--help"], dz)
+    check("분석 옵션: 한계를 옵션 이름으로(--lags는 0 이상 — 받은 값 -5) · --det은 -1~1 · split --help에 --smpl이 없다",
+          code == 3 and "--lags는 0 이상" in err and "-5" in err and "0~-5" not in err and code2 == 3 and "-1~1" in err2
+          and code3 == 0 and "--vars" in out3 and "--smpl" not in out3, err + err2)
+    check("분석 옵션: 표본을 받지 않는 분석(요인 나누기)은 API에서도 거절", raises(lambda: pz.an("split", "sim:a sim:b", smpl="2000Q1:2001Q1"),
+                                                                       ProjectError, "--smpl"))
 
 
 def test_suite():

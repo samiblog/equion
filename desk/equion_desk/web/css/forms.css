@@ -49,6 +49,12 @@ table.sc-table .segmented button { flex: 1; padding: 0 4px; }
 table.grid.sc-table th:first-child, table.grid.sc-table td:first-child { width: 26%; padding-left: 0; }
 table.sc-table th:last-child, table.sc-table td:last-child { width: 32px; }
 table.sc-table .icon-btn { width: 24px; height: 24px; }
+table.grid.sc-table tr.sc-msg td { padding: 0 6px 6px 0; white-space: normal; text-align: left; border-bottom: 0; }
+.sc-why { display: flex; gap: 6px; align-items: flex-start; font-size: var(--fs-xs); line-height: 1.5; }
+.sc-why .ic { flex: none; margin-top: 2px; }
+.sc-why.bad { color: var(--bad); }
+.sc-why.warn { color: var(--warn); }
+.sc-blocked { margin: 12px 0 0; }
 .sc-box > .btn { justify-self: start; }
 .sc-preview { margin-top: 14px; }
 .sc-preview h4 { margin: 0 0 6px; font-size: var(--fs-s); display: flex; align-items: center; gap: 8px; }
