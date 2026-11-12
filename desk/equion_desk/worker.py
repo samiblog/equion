@@ -23,7 +23,7 @@ import threading
 import time
 from typing import Any
 
-from . import dataops, jobs, modelops, reviewops, runtime, sideops, simops
+from . import dataops, formops, jobs, modelops, reviewops, runtime, sideops, simops
 from .records import read_series
 
 START_WAIT = 60.0     # 프로세스가 뜨고 equion을 불러올 때까지 기다리는 시간(초) — 느린 디스크·보안 프로그램
@@ -401,6 +401,35 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
     def catalog() -> dict:
         return sideops.catalog(holder.get())
 
+    # ---- 후보 묶음 · 시나리오 폼 · 노트 · 두 기록(formops.py) ----------------------------------------------------
+    def est_batch(part: str, texts: list, smpl: str | None = None, sim: bool = False, cov: str | None = None) -> dict:
+        return formops.est_batch(holder.get(), part, texts, smpl, sim, cov, notify)
+
+    def scenario_info() -> dict:
+        return formops.scenario_info(holder.get())
+
+    def scenario_define(name: str, desc: str | None = None, base: str | None = None, addfactors: str | None = None, model: str | None = None,
+                        shocks: list | None = None, addfactor: list | None = None, dry: bool = False) -> dict:
+        return formops.scenario_define(holder.get(), name, desc, base, addfactors, model, shocks, addfactor, dry)
+
+    def scenario_remove(name: str) -> dict:
+        return formops.scenario_remove(holder.get(), name)
+
+    def notes() -> dict:
+        return formops.notes(holder.get())
+
+    def note_view(path: str) -> dict:
+        return formops.note_view(holder.get(), path)
+
+    def note_run(path: str, block: int | None = None, stale: bool = False, force: bool = False) -> dict:
+        return formops.note_run(holder.get(), path, block, stale, force)
+
+    def note_add(note: str, lines: list | None = None, record: str | None = None, title: str | None = None) -> dict:
+        return formops.note_add(holder.get(), note, lines, record, title)
+
+    def an_history(record: str) -> dict:
+        return formops.an_history(holder.get(), record)
+
     def scan() -> dict | None:
         """명령 밖에서 고친 정의 파일을 '바깥' 바뀜으로 적는다(K7). 바뀐 것이 없으면 None."""
         change = holder.get().history.scan()
@@ -419,7 +448,9 @@ def _ops(holder: _Project, notify: Any = None) -> dict[str, Any]:
             "export": export,
             "proposal": proposal, "proposal_apply": proposal_apply, "proposal_drop": proposal_drop, "revert": revert, "mark": mark,
             "variables": variables, "analysis_list": analysis_list, "group_define": group_define, "group_remove": group_remove,
-            "part_add": part_add, "part_remove": part_remove, "line": line, "catalog": catalog}
+            "part_add": part_add, "part_remove": part_remove, "line": line, "catalog": catalog,
+            "est_batch": est_batch, "scenario_info": scenario_info, "scenario_define": scenario_define, "scenario_remove": scenario_remove,
+            "notes": notes, "note_view": note_view, "note_run": note_run, "note_add": note_add, "an_history": an_history}
 
 
 def _plain(value: Any) -> Any:

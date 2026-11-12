@@ -49,6 +49,8 @@ export class Side {
     this.reloadList = debounce(() => this.loadAnalysisList(), 400);
     this.reloadRegistry = debounce(() => this.loadRegistry(), 600);
     this.reloadChanges = debounce(() => { if (this.changes) this.loadChanges(); }, 300);
+    this.notes = null;           // 노트(notes/**/*.md)와 블록 상태의 수 — 분석 탭
+    this.reloadNotes = debounce(() => { if (this.notes) this.loadNotes(); }, 500);
     this.build();
   }
 
@@ -115,7 +117,7 @@ export class Side {
     for (const [k, pane] of Object.entries(this.panes)) pane.hidden = k !== name;
     this.p.el.classList.toggle('side-records', name === 'records');
     if (name === 'vars') { if (!this.vars) this.loadVars(); else this.drawVars(); }
-    if (name === 'analysis') { if (!this.alist) this.loadAnalysisList(); else this.drawAnalysis(); }
+    if (name === 'analysis') { if (!this.alist) this.loadAnalysisList(); else this.drawAnalysis(); if (!this.notes) this.loadNotes(); }
     if (name === 'records') { this.drawRecords(); if (this.recSub === 'changes' && !this.changes) this.loadChanges(); }
     if (name === 'files') this.p.openFiles();
     if (save) this.save();
@@ -143,6 +145,11 @@ export class Side {
   async loadAnalysisList() {
     try { this.alist = await this.p.get('analysis-list'); this.alistError = null; } catch (err) { this.alistError = err.message; }
     this.drawTabs();
+    if (this.tab === 'analysis') this.drawAnalysis();
+  }
+
+  async loadNotes() {
+    try { this.notes = (await this.p.get('notes')).notes; } catch { this.notes = this.notes || []; }
     if (this.tab === 'analysis') this.drawAnalysis();
   }
 
@@ -538,6 +545,18 @@ export class Side {
     sec('one', '한 변수의 분석', by('one').map(resRow), '변수 탭에서 하나를 골라 우클릭 — 기술 통계 · 자기상관 · 단위근 …');
     const other = a.results.filter((r) => !['many', 'one'].includes(r.scope));
     if (other.length) sec('other', '식·모형의 분석', other.map(resRow), '');
+    // 노트 — 블록을 매달 다시 실행하는 분석 묶음
+    const notes = this.notes || [];
+    sec('notes', '노트', notes.map((n) => {
+      const c = n.counts || {};
+      const old = (c.stale || 0) + (c.missing || 0);
+      const never = c.never || 0;
+      return h('button', { class: 'row-item', type: 'button', 'data-key': `note:${n.path}`, title: `${n.path}\n실행 블록 ${n.blocks}${n.error ? `\n${n.error}` : ''}`,
+        onclick: () => p.openTab({ type: 'note', path: n.path }) },
+      icon('doc'), h('span', { class: 'label' }, n.path.replace(/^notes\//, '')), h('span', { class: 'desc' }, n.error ? '읽지 못함' : `블록 ${n.blocks}`),
+      h('span', { class: 'tail' }, old ? h('span', { class: 'tag warn', title: '자료 회차나 정의가 바뀌어 다시 실행할 블록' }, `낡음 ${old}`) : null,
+        never ? h('span', { class: 'n', title: '아직 실행하지 않은 블록' }, `새 ${never}`) : null));
+    }), this.notes ? '분석 결과의 ‘노트에’나 후보 묶음의 ‘노트로 저장’으로 만듭니다 — 다음 회차에 노트 전체를 다시 실행합니다.' : '읽는 중…');
     p.markSide();
   }
 
@@ -618,6 +637,7 @@ export class Side {
     if (e.type === 'defs') this.reloadRegistry();
     if (e.type === 'record' && ['an', 'est'].includes(e.record?.kind)) this.reloadList();
     if (e.type === 'change') this.reloadChanges();
+    if (['change', 'tree', 'defs', 'data'].includes(e.type) || (e.type === 'record' && e.record?.kind === 'data')) this.reloadNotes();
     if (['record', 'records', 'proposal', 'change'].includes(e.type) && this.tab === 'records') this.drawRecords();
     if (['overview', 'record', 'records', 'proposal', 'change', 'data'].includes(e.type)) this.drawTabs();
     if (e.type === 'overview' && this.tab === 'analysis') this.drawAnalysis();

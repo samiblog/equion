@@ -183,3 +183,44 @@ print(p.report_update("전망", force=True).items[0]["status"])
 ```
 
 관련: [명령줄 튜토리얼](../tutorial/08-cli.md)
+
+## R62. 노트에 블록 더하기 — 후보 묶음을 매달 다시
+
+`note_add`(명령줄 `equion note add`)가 노트 끝에 ```` ```equion ```` 블록 하나를 더합니다. 명령 줄(lines)은 실행하지 않고 블록만 두고,
+기록(record)을 주면 그 명령과 결과 구역(카드)까지 담습니다. 노트가 없으면 만듭니다. 다음 회차에는 `note_run`으로 블록을 다시 돌립니다.
+
+```python
+p = eqn.Project.create("cand_prj", force=True)
+lines = [f"est '{t}' --for demand:I" for t in ("I c Y", "I c Y I(-1)", "I c Y(-1) I(-1)")]
+print(p.note_add("notes/invest.md", lines=lines, title="투자 후보").text())
+print(p.note_run("notes/invest.md").text())
+u = p.an("unitroot", "R")
+print(p.note_add("notes/invest.md", record=u.id).text())
+print(p.note_check("notes/invest.md").text())
+```
+<!-- out -->
+```text
+[cand_prj] 자료 회차 d2026-11a를 만들었습니다
+[cand_prj] 지금 자료 회차: d2026-11a
+[note add] notes/invest.md — 새 노트 · 블록 1
+  est 'I c Y' --for demand:I
+  est 'I c Y I(-1)' --for demand:I
+  est 'I c Y(-1) I(-1)' --for demand:I
+  다음   equion note run notes/invest.md --block 1
+  바뀜 기록  h0002
+[note run] notes/invest.md: 블록 1
+   1 equion 실행     est:i_0001 · est:i_0002 · est:i_0003
+  바뀜 기록  h0003
+[cand_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[note add] notes/invest.md · 블록 2
+  an unitroot R
+  결과 구역  an:unitroot_0001
+  바뀜 기록  h0004
+[note check] notes/invest.md: 블록 2
+   1 equion 정상     est:i_0001 · est:i_0002 · est:i_0003
+   2 equion 정상     an:unitroot_0001
+```
+
+Equion Desk에서는 식 작업대의 '후보 묶음'(고를 칸의 조합으로 식 여러 개)이 '노트로 저장'으로, 분석 결과와 카드의 '노트에'가 기록 담기로 같은 일을 합니다.
+
+관련: [R54](#r54-노트--명령-블록과-결과-구역)

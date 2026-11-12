@@ -4008,6 +4008,10 @@ s[:4].round(6).tolist()
 | [`part_add`](#projectpart_add) | `(block, text, desc=None, from_part=None, who=None, command=None)` | 블록에 식 한 줄을 더한다 — 블록 파일 끝에 적는다(다른 줄·주석은 그대로). 쓰기 전에 식 문법과 '한 블록에 목표 하나'를 본다. from_part를 주면 그 식을 옮긴다: 원래 블록의 그 줄을 빼고(채택표의 줄도) 이 블록에 더한다 — 모형에 안 든 블록의 개별 식을 모형의 블록으로 넣을 때. 두 파일이 바뀜 기록 하나에 남는다. |
 | [`part_remove`](#projectpart_remove) | `(part, who=None, command=None)` | 블록에서 식 한 줄을 뺀다 — 그 줄만 지우고(다른 줄·주석은 그대로) 채택표의 그 부품 줄도 함께 지운다. 바뀜 기록에 남긴다. |
 | [`desk_show`](#projectdesk_show) | `(name, who=None)` | Equion Desk(데스크톱 앱)에 "이 화면을 열어 달라"고 알린다 — 화면 이동만 하고 아무것도 계산하거나 바꾸지 않는다. |
+| [`scenarios`](#projectscenarios) | `()` | 시나리오 목록(`SCENARIOS/*.toml`, 이름순) — 이름·파일·설명·가정 세트·모형·충격·식 보정. 읽지 못한 파일은 `error`로. |
+| [`scenario_define`](#projectscenario_define) | `(name, desc=None, base=None, addfactors=None, model=None, shocks=None, addfactor=None, who=None, command=None)` | 시나리오를 더하거나 고친다 — `SCENARIOS/이름.toml`(명령줄 `equion scenario define`). 준 것만 바꾸고(글은 빈 글이면 그 키를 지움), shocks·addfactor는 목록을 주면 통째로 바꾼다. 쓰기 전에 새 내용 전체를 검사하고(자료에 없는 변수·없는 식·가정 세트·모형·기간), 주석은 그대로 두며 바뀜 기록에 남긴다. 시나리오는 풀지 않는다 — 풀기는 `sim`. |
+| [`scenario_remove`](#projectscenario_remove) | `(name, who=None, command=None)` | 시나리오 파일을 지운다(명령줄 `equion scenario remove`) — 바뀜 기록에 남아 되돌릴 수 있다. 그 시나리오로 푼 기록은 그대로다. |
+| [`note_add`](#projectnote_add) | `(note, lines=None, record=None, title=None, who=None, command=None)` | 노트 끝에 ```` ```equion ```` 블록 하나를 더한다(명령줄 `equion note add`) — lines(명령 줄들)는 실행하지 않고 블록만, record를 주면 그 기록을 만든 명령과 결과 구역(카드)을 함께. 노트가 없으면 만든다(제목 title). 블록의 줄은 노트가 부를 수 있는 명령(등록부의 계산·보기)이어야 한다. 바뀜 기록에 남긴다. 실행은 `note_run`. |
 | [`views`](#projectviews) | `()` | 저장한 보기(`VIEWS/*.toml`) — 어느 시리즈를 어떤 모양으로 볼지(이름순). 보기마다 name·title·series·show·range·file. |
 | [`view_define`](#projectview_define) | `(name, series=None, show=None, title=None, range=None, who=None, command=None)` | 보기 저장 — `VIEWS/이름.toml`에 시리즈와 보이기(level·qoq·yoy·annual·diff)·제목·구간을 적는다. 준 것만 바꾸고(None은 그대로, 빈 글은 그 키를 지움), 시리즈 이름이 자료에 있는지 본 뒤 쓴다. 바뀜 기록에 남긴다. 보기는 결과를 만들지 않는다 — 과거 재현·전망· 시나리오의 결과를 같은 시리즈·같은 모양으로 다시 보는 데 쓴다. |
 | [`parts`](#projectparts) | `(name=None)` | 부품(식·항등식) 목록 — name이 없으면 전부, 블록 이름이면 그 블록, 모형 이름이면 조립된 식들. |
@@ -4573,6 +4577,112 @@ p.desk_show("demand:CN")["kind"], p.desk_show("model:main")["kind"], p.desk_show
 관련  
 ```text
 propose · history
+```
+
+### Project.scenarios
+
+`scenarios()`
+
+시나리오 목록(`SCENARIOS/*.toml`, 이름순) — 이름·파일·설명·가정 세트·모형·충격·식 보정. 읽지 못한 파일은 `error`로.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+[(x["name"], [s["var"] for s in x["shocks"]]) for x in p.scenarios()]
+# [('oil20', ['POIL'])]
+```
+
+관련  
+```text
+scenario_define · sim
+```
+
+### Project.scenario_define
+
+`scenario_define(name, desc=None, base=None, addfactors=None, model=None, shocks=None, addfactor=None, who=None, command=None)`
+
+시나리오를 더하거나 고친다 — `SCENARIOS/이름.toml`(명령줄 `equion scenario define`). 준 것만 바꾸고(글은 빈 글이면 그 키를 지움), shocks·addfactor는 목록을 주면 통째로 바꾼다. 쓰기 전에 새 내용 전체를 검사하고(자료에 없는 변수·없는 식·가정 세트·모형·기간), 주석은 그대로 두며 바뀜 기록에 남긴다. 시나리오는 풀지 않는다 — 풀기는 `sim`.
+
+**매개변수**
+
+- `name`: 시나리오 이름(없으면 새로 — 'base'는 기준선 이름이라 쓰지 않는다)
+desc · base(가정 세트) · addfactors(보정항) · model: 글  
+- `shocks`: 충격 목록 — 사전 {var, pct 또는 value, from, to} 또는 글 "POIL=+20%" · "R=+0.5@start:start+3"
+- `addfactor`: 식 보정 목록 — 사전 {eq, value, from, to} 또는 글 "demand:CN=-0.2@start:start+3"
+
+**돌려주는 것**
+
+ScenarioChange — .name · .file · .new · .change(바뀜 기록) · .shocks · .addfactor  
+
+**오류**
+
+- `ProjectError`: 이름·꼴이 틀림·자료에 없는 변수·없는 식·가정 세트(아무것도 쓰지 않음)
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.scenario_define("rate1", desc="금리 1%p 인상", shocks=["R=+1@start:start+3"])
+r.new, r.file, r.shocks
+# (True, 'SCENARIOS/rate1.toml', 1)
+```
+
+관련  
+```text
+scenarios · scenario_remove · sim
+```
+
+### Project.scenario_remove
+
+`scenario_remove(name, who=None, command=None)`
+
+시나리오 파일을 지운다(명령줄 `equion scenario remove`) — 바뀜 기록에 남아 되돌릴 수 있다. 그 시나리오로 푼 기록은 그대로다.
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+p.scenario_remove("oil20").removed
+# True
+```
+
+### Project.note_add
+
+`note_add(note, lines=None, record=None, title=None, who=None, command=None)`
+
+노트 끝에 ```` ```equion ```` 블록 하나를 더한다(명령줄 `equion note add`) — lines(명령 줄들)는 실행하지 않고 블록만, record를 주면 그 기록을 만든 명령과 결과 구역(카드)을 함께. 노트가 없으면 만든다(제목 title). 블록의 줄은 노트가 부를 수 있는 명령(등록부의 계산·보기)이어야 한다. 바뀜 기록에 남긴다. 실행은 `note_run`.
+
+**매개변수**
+
+- `note`: 노트 경로(예: notes/invest.md — 프로젝트 안)
+- `lines`: 명령 줄 목록(앞의 equion은 빼도 된다) — 예: ["est 'I c Y' --for demand:I", "est 'I c Y I(-1)' --for demand:I"]
+- `record`: 기록 이름(an:… · est:… — 그 명령과 카드를 담는다)
+
+**돌려주는 것**
+
+NoteAdded — .file · .new · .block(더한 블록 번호) · .change  
+
+**예**
+
+<!-- skip -->
+```python
+import tempfile, os
+p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+r = p.note_add("notes/check.md", lines=["an unitroot R", "an stats Y"], title="자료 점검")
+r.new, r.file, r.block
+# (True, 'notes/check.md', 1)
+```
+
+관련  
+```text
+note_run · note_check
 ```
 
 ### Project.views
@@ -5828,6 +5938,7 @@ type(eng).__name__, sorted(eng.get_endogenous_variables())
 | `group` | --help | 프로젝트의 묶음 — equion.toml의 [group](이름 붙인 시리즈 묶음 — 분석의 대상) |
 | `desk` | --help | Equion Desk(데스크톱 앱)에 알린다 — 떠 있는 앱이 그 화면을 연다 |
 | `view` | --help | 프로젝트의 보기(VIEWS/*.toml) — 어느 시리즈를 어떤 모양으로 볼지 |
+| `scenario` | --help | 프로젝트의 시나리오(SCENARIOS/*.toml) — 목록·보기·쓰기·지우기(풀기는 equion sim) |
 | `ident` | --check --help --json --project --range --strict --tol | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |
 | `data` | --help | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 |
 | `est` | --adopt --adopted --as --cov --for --help --json --method --project --sim --smpl | 식 하나를 추정해 기록을 남긴다(부품 또는 식 글자 — 후보) |

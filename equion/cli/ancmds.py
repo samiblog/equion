@@ -82,6 +82,11 @@ def add_parsers(sub):
     nr.add_argument("--force", action="store_true", help="손으로 고친 결과 구역도 덮는다")
     nc = _common(nsub.add_parser("check", help="실행하지 않고 — 낡은 구역·없는 기록·손으로 고친 구역·허용 안 된 명령"))
     nc.add_argument("notes", nargs="+", metavar="노트")
+    na = _common(nsub.add_parser("add", help="노트 끝에 ```equion 블록 하나 — 명령 줄은 실행하지 않고 블록만, --record는 그 기록의 명령과 결과 구역까지(노트가 없으면 만든다)"))
+    na.add_argument("note", metavar="노트")
+    na.add_argument("--line", action="append", metavar="명령", help="블록에 넣을 명령 한 줄(여럿이면 거듭) — 예: --line \"est 'I c Y' --for demand:I\"")
+    na.add_argument("--record", metavar="기록", help="이 기록(an:… · est:…)의 명령과 카드를 결과 구역으로")
+    na.add_argument("--title", metavar="글", help="새 노트의 제목")
 
     r = sub.add_parser("report", help="보고서 — 결과만 보내기(명령 블록 없이) · 검사 · 새 기록으로 바꾸기")
     rsub = r.add_subparsers(dest="report_command", metavar="동작")
@@ -130,6 +135,9 @@ def dispatch(args, cmdline: str) -> int:
                 r = p.note_run(args.note, block=args.block, stale=args.stale, force=args.force, who=who, command=cmdline)
                 out = r.to_dict() if args.json else r.text()
                 code = EXIT_OK if r.ok else EXIT_SCRIPT
+            elif args.note_command == "add":
+                r = p.note_add(args.note, lines=args.line, record=args.record, title=args.title, who=who, command=cmdline)
+                out = r.to_dict() if args.json else r.text()
             else:
                 rs = [p.note_check(nm) for nm in args.notes]
                 out = [r.to_dict() for r in rs] if args.json else "\n".join(r.text() for r in rs)

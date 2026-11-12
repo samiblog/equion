@@ -513,6 +513,34 @@ def _main(tmp, t0):
     code2, out2, _ = run(["an", "list"], dj)
     check("명령줄: an corr · an list에 새 분석", code == 0 and "[an:corr_" in out and "상관" in out and code2 == 0
           and all(x in out2 for x in ("stats", "acf", "granger", "xcorr", "fevd", "stochastic")), out[:200])
+
+    print("=" * 80)
+    print("K. 노트에 블록 더하기 — note add (D57)")
+    print("=" * 80)
+    nf = os.path.join(dj, "notes", "inv.md")
+    add = pj.note_add("notes/inv.md", lines=["equion est 'I c Y I(-1)' --for demand:I", "est 'I c Y' --for demand:I"], title="투자 후보",
+                      who="tester", command="equion note add notes/inv.md …")
+    txt = read(nf)
+    check("새 노트: 제목과 ```equion 블록 하나(실행하지 않는다 — 결과 구역 없음) · 바뀜 기록",
+          add.new and add.block == 1 and txt.startswith("# 투자 후보") and "```equion\nest 'I c Y I(-1)' --for demand:I\nest 'I c Y' --for demand:I\n```" in txt
+          and "equion:out" not in txt and pj.history.get(add.change).who == "tester", txt)
+    run1 = quiet(pj.note_run, "notes/inv.md")
+    rec = run1.blocks[0].records[0]
+    add2 = pj.note_add("notes/inv.md", record=rec)
+    blocks = quiet(pj.note_check, "notes/inv.md").blocks
+    check("기록 담기: 그 기록의 명령과 결과 구역(카드)까지 — 둘째 블록은 실행하지 않아도 정상",
+          not add2.new and add2.block == 2 and add2.record == rec and [b.status for b in blocks] == ["ok", "ok"] and read(nf).count("<!-- equion:out") == 2,
+          str([b.to_dict() for b in blocks]))
+    check("거절: 노트가 부를 수 없는 명령(파일을 바꾸는 것) · 더할 것 없음 · md 아님 · 프로젝트 밖",
+          raises(lambda: pj.note_add("notes/inv.md", lines=["adopt est:x"]), ProjectError, "노트에서 부를 수 없습니다")
+          and raises(lambda: pj.note_add("notes/inv.md"), ProjectError, "더할 것이 없습니다")
+          and raises(lambda: pj.note_add("notes/inv.txt", lines=["an stats Y"]), ProjectError, ".md")
+          and raises(lambda: pj.note_add("../x.md", lines=["an stats Y"]), ProjectError, "프로젝트 밖"))
+    code, out, _ = run(["note", "add", "notes/n2.md", "--line", "an stats Y", "--line", "an acf Y --lags 4", "--title", "점검"], dj)
+    code2, out2, _ = run(["note", "add", "notes/n2.md", "--record", rec, "--json"], dj)
+    code3, _, err3 = run(["note", "add", "notes/n2.md", "--line", "group remove core"], dj)
+    check("명령줄: note add --line(거듭)·--title · --record --json · 허용 안 된 명령(3)",
+          code == 0 and "새 노트 · 블록 1" in out and code2 == 0 and json.loads(out2)["block"] == 2 and code3 == 3 and "넣을 수 없는 명령" in err3, out + err3)
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:

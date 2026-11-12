@@ -150,6 +150,15 @@ def main() -> int:
                   and got.get("code") == 0 and got.get("records") == ["an:corr_0001"] and any(r.get("analysis") == "corr" for r in alist.get("results", []))
                   and any(c.get("command") == "an corr" for c in cat.get("commands", [])),
                   f"{code} {code2} {code3} {code4} {str(got)[:200]}")
+            code, dry = http(f"/api/p/{pid}/scenario/define", {"name": "smoke", "shocks": ["POIL=+10%"], "dry": True})
+            code2, made = http(f"/api/p/{pid}/est-batch", {"part": "demand:I", "texts": ["I c Y", "I c Y I(-1)"]})
+            code3, added = http(f"/api/p/{pid}/note/add", {"note": "notes/smoke.md", "lines": ["an stats Y"]})
+            code4, ran = http(f"/api/p/{pid}/note/run", {"path": "notes/smoke.md"})
+            dry, made, added, ran = (x if isinstance(x, dict) else {} for x in (dry, made, added, ran))
+            check("9-5 2차판 폼과 노트 — 시나리오 미리보기, 후보 묶음, 노트에 담기·실행",
+                  (code, code2, code3, code4) == (200,) * 4 and "--shock POIL=+10%" in str(dry.get("command")) and len((made.get("result") or {}).get("made", [])) == 2
+                  and (added.get("result") or {}).get("block") == 1 and (ran.get("result") or {}).get("ok") is True,
+                  f"{code} {code2} {code3} {code4} {str(dry)[:120]} {str(ran)[:160]}")
         finally:
             server.terminate()
             try:

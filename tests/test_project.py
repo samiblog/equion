@@ -369,6 +369,7 @@ def _main(tmp, t0):
     _view_tests(tmp)
     _desk_request_tests(tmp)
     _group_part_tests(tmp)
+    _scenario_tests(tmp)
 
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
@@ -1013,6 +1014,61 @@ def _group_part_tests(tmp):
           code == 0 and "새 묶음" in out and code2 == 0 and [g["name"] for g in json.loads(out2)] == ["core", "rates"]
           and code3 == 0 and json.loads(out3)["part"] == "single:Q" and code4 == 3 and "이미 목표" in err4
           and code5 == 0 and "[block remove] single:Q" in out5 and code6 == 3 and "자료에 없는" in err6, out + err4)
+
+
+def _scenario_tests(tmp):
+    print("=" * 80)
+    print("N. 시나리오 쓰기 — scenario define·remove·list·show (D55)")
+    print("=" * 80)
+    from equion.projects.scenarios import parse_addfactor, parse_shock, shock_word
+    P, d = new_project(tmp, "scen")
+    check("충격 글: 변수=크기[%][@처음[:끝]] — %면 pct, 아니면 value, 기간을 빼면 start~end",
+          parse_shock("POIL=+20%") == {"var": "POIL", "pct": 20.0, "from": "start", "to": "end"}
+          and parse_shock("R=-0.5@start:start+3") == {"var": "R", "value": -0.5, "from": "start", "to": "start+3"}
+          and parse_shock("WY=2%@2020Q1") == {"var": "WY", "pct": 2.0, "from": "2020Q1", "to": "end"}
+          and parse_addfactor("demand:CN=-0.2@start:start+1") == {"eq": "demand:CN", "value": -0.2, "from": "start", "to": "start+1"}
+          and shock_word({"var": "R", "value": -0.5, "from": "start", "to": "start+3"}) == "R=-0.5@start:start+3"
+          and raises(lambda: parse_shock("POIL+20"), ProjectError, "변수=크기"))
+    sf = os.path.join(d, "SCENARIOS", "risk.toml")
+    r = P.scenario_define("risk", desc="유가와 금리", base="base", shocks=["POIL=+20%", {"var": "R", "value": 0.5, "from": "start", "to": "start+3"}],
+                          addfactor=["demand:CN=-0.2@start:start+1"], who="tester", command="equion scenario define risk …")
+    text = read(sf)
+    ch = P.history.get(r.change)
+    check("쓰기: 새 시나리오 — [[shock]]·[[addfactor]], 정수는 정수로, to=end는 적지 않는다 · 바뀜 기록(누가·명령)",
+          r.new and r.shocks == 2 and r.addfactor == 1 and 'pct = 20\n' in text and 'to = "start+3"' in text and 'to = "end"' not in text
+          and ch.who == "tester" and list(ch.files) == ["SCENARIOS/risk.toml"], text)
+    write(sf, "# 손으로 적은 주석\n" + read(sf))
+    r2 = P.scenario_define("risk", desc="유가·금리 충격")
+    rows = {x["name"]: x for x in P.scenarios()}
+    check("고치기: 준 것만 — 설명만 바꾸면 충격은 그대로, 주석은 남는다 · 목록(oil20·risk)",
+          not r2.new and r2.shocks == 2 and read(sf).startswith("# 손으로 적은 주석") and rows["risk"]["desc"] == "유가·금리 충격"
+          and [s["var"] for s in rows["risk"]["shocks"]] == ["POIL", "R"] and set(rows) == {"oil20", "risk"})
+    r3 = P.scenario_define("risk", shocks=["POIL=+10%"], addfactor=[])
+    check("고치기: 목록을 주면 통째로 — 충격 하나, 빈 목록은 식 보정을 지운다", r3.shocks == 1 and r3.addfactor == 0 and "[[addfactor]]" not in read(sf))
+    before = read(sf)
+    check("거절(아무것도 쓰지 않음): 자료에 없는 변수 · 없는 식 · 없는 가정 세트 · 틀린 기간 · 이름 base",
+          raises(lambda: P.scenario_define("risk", shocks=["NOPE=+1"]), ProjectError, "자료에 없는 변수 NOPE")
+          and raises(lambda: P.scenario_define("risk", addfactor=["demand:ZZ=1"]), ProjectError, "없는 식")
+          and raises(lambda: P.scenario_define("risk", base="nope"), ProjectError, "없는 가정 세트")
+          and raises(lambda: P.scenario_define("risk", shocks=["R=1@2020X9"]), ProjectError, "기간 라벨")
+          and raises(lambda: P.scenario_define("base", shocks=["R=1"]), ProjectError, "기준선") and read(sf) == before)
+    sim = quiet(P.sim, "risk")
+    check("쓴 시나리오를 그대로 푼다(sim)", sim.meta.get("scenario") == "risk" and "POIL +10%" in sim.text(), sim.text()[:300])
+    rm = P.scenario_remove("risk")
+    check("지우기: 파일을 지우고 바뀜 기록(되돌릴 수 있다) · 없는 것은 거절", rm.removed and not os.path.exists(sf) and rm.change
+          and raises(lambda: P.scenario_remove("risk"), ProjectError, "없습니다"))
+    P.history.revert(rm.change, "tester", "equion history revert")
+    check("되돌리면 파일이 돌아온다", os.path.isfile(sf) and "POIL" in read(sf))
+    code, out, _ = run(["scenario", "define", "rate1", "--desc", "금리 1%p", "--shock", "R=+1@start:start+3"], d)
+    code2, out2, _ = run(["scenario", "list", "--json"], d)
+    code3, out3, _ = run(["scenario", "show", "rate1"], d)
+    code4, _, err4 = run(["scenario", "define", "rate1", "--shock", "R+1"], d)
+    code5, out5, _ = run(["scenario", "define", "rate1", "--clear", "--shock", "R=+2"], d)
+    code6, out6, _ = run(["scenario", "remove", "rate1", "--json"], d)
+    check("명령줄: scenario define·list(--json)·show · 틀린 꼴(3) · --clear · remove(--json)",
+          code == 0 and "새 시나리오" in out and code2 == 0 and "rate1" in [x["name"] for x in json.loads(out2)]
+          and code3 == 0 and "R +1 · start~start+3" in out3 and code4 == 3 and "변수=크기" in err4
+          and code5 == 0 and "충격 1" in out5 and code6 == 0 and json.loads(out6)["removed"] is True, out + out3 + err4)
 
 
 def test_suite():

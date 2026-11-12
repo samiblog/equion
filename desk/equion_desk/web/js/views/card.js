@@ -5,8 +5,9 @@
 // 변수마다 전후 RMSPE 를 먼저 보인다 — '이 후보로 과거 재현'을 누른 사람이 맨 먼저 알고 싶은 것이다.
 
 import { renderDoc } from '../md.js';
-import { bytes, clear, cmdText, copyText, h, icon, kindPill, when, whoLabel } from '../util.js';
+import { bytes, clear, cmdText, copyText, flash, h, icon, kindPill, when, whoLabel } from '../util.js';
 import { claudeButton } from '../claude.js';
+import { addToNote } from '../noteops.js';
 import { exportXlsx, sendToReport } from './send.js';
 
 /** 전후 비교(변수마다 RMSPE 가 얼마에서 얼마로) — 좋아진 것은 초록, 나빠진 것은 붉게 */
@@ -78,6 +79,15 @@ export function cardView(project, desc) {
           onclick: () => project.openTab({ type: 'model', model: m.model, shown: id }) }, icon('cube'), '모형 작업대에서') : null,
         ['est', 'hs', 'sim', 'an'].includes(kind) ? h('button', { class: 'btn quiet', type: 'button', 'data-act': 'to-report', title: '이 기록의 표를 보고서의 한 구역으로 보낸다', onclick: () => sendToReport(project, id) }, icon('doc'), '보고서로') : null,
         ['est', 'hs', 'sim'].includes(kind) ? h('button', { class: 'btn quiet', type: 'button', 'data-act': 'to-xlsx', title: '값·값의 종류·출처를 엑셀로', onclick: () => exportXlsx(project, [id]) }, icon('table'), '엑셀로') : null,
+        kind === 'an' ? h('button', { class: 'btn quiet', type: 'button', 'data-act': 'compare-prev', title: '같은 분석·같은 대상의 이전 기록과 나란히 — 판단이 바뀐 줄을 강조',
+          onclick: async () => {
+            try {
+              const hist = await project.get(`an-history?id=${encodeURIComponent(id)}`);
+              if (hist.previous) project.openTab({ type: 'ancompare', a: hist.previous, b: id });
+              else flash('같은 분석·같은 대상의 이전 기록이 없습니다');
+            } catch (err) { project.notify({ level: 'error', text: err.message }); }
+          } }, icon('diff'), '이전과') : null,
+        ['est', 'hs', 'sim', 'an'].includes(kind) ? h('button', { class: 'btn quiet', type: 'button', 'data-act': 'to-note', title: '이 기록의 명령과 결과를 노트의 블록으로 — 다음 회차에 노트에서 다시 실행', onclick: () => addToNote(project, { record: id }) }, icon('doc'), '노트에') : null,
         h('button', { class: 'btn quiet', type: 'button', title: '이름 복사', onclick: () => copyText(id, `${id} — 복사했습니다`) }, icon('copy'), '이름'),
         canMark ? pin : null,
         claudeButton(project, () => ({ name: id, summary: row()?.metric || '' })))));

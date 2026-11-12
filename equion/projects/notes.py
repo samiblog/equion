@@ -395,6 +395,86 @@ def append_block(p, note: str, cmd: str, rid: str, who: str = None):
     history_of(p).write_files({rel: new}, _who(who), f"an … --note {rel}", note=f"블록 + {rid}")
 
 
+@dataclass
+class NoteAdded:
+    """노트에 블록을 더한 결과 — `.file` · `.new`(노트를 새로 만들었나) · `.block`(더한 블록 번호) · `.lines` · `.change`."""
+
+    file: str
+    new: bool
+    block: int
+    lines: List[str] = field(default_factory=list)
+    change: Optional[str] = None
+    record: Optional[str] = None
+
+    def text(self) -> str:
+        """명령줄에 보이는 짧은 글."""
+        head = f"[note add] {self.file}" + (" — 새 노트" if self.new else "") + f" · 블록 {self.block}"
+        body = "".join(f"\n  {line}" for line in self.lines)
+        tail = f"\n  결과 구역  {self.record}" if self.record else f"\n  다음   equion note run {self.file} --block {self.block}"
+        return head + body + tail + (f"\n  바뀜 기록  {self.change}" if self.change else "")
+
+    def to_dict(self) -> dict:
+        """명령줄 --json과 같은 사전."""
+        return {"file": self.file, "new": self.new, "block": self.block, "lines": self.lines, "record": self.record, "change": self.change}
+
+
+def _clean_line(line: str) -> str:
+    """명령 한 줄 → 노트 블록의 줄(앞의 equion과 --note 빼기). 허용 목록 밖이면 ProjectError."""
+    try:
+        toks = shlex.split(str(line).strip())
+    except ValueError as e:
+        raise ProjectError(f"명령 줄을 읽을 수 없습니다: {line!r} — {e}") from None
+    if toks and toks[0] == "equion":
+        toks = toks[1:]
+    clean, skip = [], False
+    for t in toks:
+        if skip:
+            skip = False
+            continue
+        if t == "--note":
+            skip = True
+            continue
+        if t.startswith("--note="):
+            continue
+        clean.append(t)
+    if not clean:
+        raise ProjectError("빈 명령 줄")
+    why = reg.allowed(clean)
+    if why:
+        raise ProjectError(f"노트 블록에 넣을 수 없는 명령 {shlex.join(clean)!r}: {why}")
+    return shlex.join(clean)
+
+
+def add_block(p, note: str, lines=None, record: str = None, title: str = None, who: str = None, command: str = None) -> NoteAdded:
+    """노트 끝에 ```equion 블록 하나 — lines는 실행하지 않고 블록만, record는 그 명령과 결과 구역(카드)까지. 노트가 없으면 만든다."""
+    from .config import project_path
+    if not lines and not record:
+        raise ProjectError("더할 것이 없습니다 — 명령 줄(lines) 또는 기록(record)")
+    path = project_path(p.root, note, "노트")
+    if not path.lower().endswith(".md"):
+        raise ProjectError(f"노트는 .md 파일 — {note!r}")
+    rel = os.path.relpath(path, p.root).replace(os.sep, "/")
+    new = not os.path.isfile(path)
+    clean = [_clean_line(x) for x in (lines or []) if str(x).strip()]
+    region = []
+    if record:
+        try:
+            rec = store_of(p).get(record)
+        except RecordError as e:
+            raise ProjectError(str(e)) from None
+        cmd = rec.meta.get("command")
+        if not cmd:
+            raise ProjectError(f"{record}에는 명령이 적혀 있지 않습니다 — 노트에 담을 수 없습니다")
+        clean.append(_clean_line(cmd))
+        region = _region_text([record], card_for_note(rec, os.path.dirname(path)), (rec.meta.get("data") or {}).get("id") or p.vintage)
+    cur = read_text(path) if not new else f"# {title or os.path.splitext(os.path.basename(path))[0]}\n"
+    text = cur.rstrip("\n") + "\n\n```equion\n" + "\n".join(clean) + "\n```\n" + ("\n" + "\n".join(region) + "\n" if region else "")
+    n = len(parse(text))
+    ch = history_of(p).write_files({rel: text}, _who(who), command or f"note add {rel}",
+                                   note=f"블록 {n}" + (f" + {record}" if record else "") + (" 새 노트" if new else ""))
+    return NoteAdded(rel, new, n, clean, ch.id if ch else None, record)
+
+
 def region_diff(old: str, new: str, label: str = "구역") -> str:
     """두 구역 본문의 차이(unified diff)."""
     a = [x + "\n" for x in old.strip().split("\n")]

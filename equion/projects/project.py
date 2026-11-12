@@ -738,6 +738,114 @@ class Project:
         from .deskreq import request_show
         return request_show(self, name, who=who)
 
+    def scenarios(self) -> List[dict]:
+        """시나리오 목록(`SCENARIOS/*.toml`, 이름순) — 이름·파일·설명·가정 세트·모형·충격·식 보정. 읽지 못한 파일은 `error`로.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> [(x["name"], [s["var"] for s in x["shocks"]]) for x in p.scenarios()]
+            [('oil20', ['POIL'])]
+
+        관련
+            scenario_define · sim
+        """
+        from .scenarios import FOLDER
+        from .sim import load_scenario
+        out = []
+        folder = os.path.join(self.root, FOLDER)
+        names = sorted(os.path.splitext(f)[0] for f in os.listdir(folder) if f.lower().endswith(".toml")) if os.path.isdir(folder) else []
+        for n in names:
+            try:
+                sc = load_scenario(self, n)
+                out.append({k: sc[k] for k in ("name", "file", "desc", "base", "addfactors", "model", "shocks", "addfactor")})
+            except ProjectError as e:
+                out.append({"name": n, "file": f"{FOLDER}/{n}.toml", "error": str(e)})
+        return out
+
+    def scenario_define(self, name: str, desc: str = None, base: str = None, addfactors: str = None, model: str = None,
+                        shocks=None, addfactor=None, who: str = None, command: str = None):
+        """시나리오를 더하거나 고친다 — `SCENARIOS/이름.toml`(명령줄 `equion scenario define`). 준 것만 바꾸고(글은 빈 글이면 그 키를 지움),
+        shocks·addfactor는 목록을 주면 통째로 바꾼다. 쓰기 전에 새 내용 전체를 검사하고(자료에 없는 변수·없는 식·가정 세트·모형·기간),
+        주석은 그대로 두며 바뀜 기록에 남긴다. 시나리오는 풀지 않는다 — 풀기는 `sim`.
+
+        매개변수
+            name: 시나리오 이름(없으면 새로 — 'base'는 기준선 이름이라 쓰지 않는다)
+            desc · base(가정 세트) · addfactors(보정항) · model: 글
+            shocks: 충격 목록 — 사전 {var, pct 또는 value, from, to} 또는 글 "POIL=+20%" · "R=+0.5@start:start+3"
+            addfactor: 식 보정 목록 — 사전 {eq, value, from, to} 또는 글 "demand:CN=-0.2@start:start+3"
+
+        돌려주는 것
+            ScenarioChange — .name · .file · .new · .change(바뀜 기록) · .shocks · .addfactor
+
+        오류
+            ProjectError: 이름·꼴이 틀림·자료에 없는 변수·없는 식·가정 세트(아무것도 쓰지 않음)
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.scenario_define("rate1", desc="금리 1%p 인상", shocks=["R=+1@start:start+3"])
+            >>> r.new, r.file, r.shocks
+            (True, 'SCENARIOS/rate1.toml', 1)
+
+        관련
+            scenarios · scenario_remove · sim
+        """
+        from .records import history_of
+        from .scenarios import ScenarioChange, scenario_text
+        text, new, raw = scenario_text(self, name, desc=desc, base=base, addfactors=addfactors, model=model, shocks=shocks,
+                                       addfactor=addfactor)
+        rel = f"SCENARIOS/{name}.toml"
+        ch = history_of(self).write_files({rel: text}, who or detect_who("python"), command or f"scenario define {name}",
+                                          note=rel + (" 새 시나리오" if new else ""))
+        return ScenarioChange(name, rel, new=new, change=ch.id if ch else None, shocks=len(raw.get("shock") or []),
+                              addfactor=len(raw.get("addfactor") or []))
+
+    def scenario_remove(self, name: str, who: str = None, command: str = None):
+        """시나리오 파일을 지운다(명령줄 `equion scenario remove`) — 바뀜 기록에 남아 되돌릴 수 있다. 그 시나리오로 푼 기록은 그대로다.
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> p.scenario_remove("oil20").removed
+            True
+        """
+        from .records import history_of
+        from .scenarios import FOLDER, ScenarioChange
+        if not isinstance(name, str) or not name or "/" in name or "\\" in name:
+            raise ProjectError(f"시나리오 이름 {name!r}")
+        rel = f"{FOLDER}/{name}.toml"
+        if not os.path.isfile(os.path.join(self.root, FOLDER, f"{name}.toml")):
+            raise ProjectError(f"시나리오가 없습니다: {rel}")
+        ch = history_of(self).write_files({rel: None}, who or detect_who("python"), command or f"scenario remove {name}", note=f"{rel} 지움")
+        return ScenarioChange(name, rel, removed=True, change=ch.id if ch else None)
+
+    def note_add(self, note: str, lines=None, record: str = None, title: str = None, who: str = None, command: str = None):
+        """노트 끝에 ```` ```equion ```` 블록 하나를 더한다(명령줄 `equion note add`) — lines(명령 줄들)는 실행하지 않고 블록만,
+        record를 주면 그 기록을 만든 명령과 결과 구역(카드)을 함께. 노트가 없으면 만든다(제목 title). 블록의 줄은 노트가 부를 수 있는
+        명령(등록부의 계산·보기)이어야 한다. 바뀜 기록에 남긴다. 실행은 `note_run`.
+
+        매개변수
+            note: 노트 경로(예: notes/invest.md — 프로젝트 안)
+            lines: 명령 줄 목록(앞의 equion은 빼도 된다) — 예: ["est 'I c Y' --for demand:I", "est 'I c Y I(-1)' --for demand:I"]
+            record: 기록 이름(an:… · est:… — 그 명령과 카드를 담는다)
+
+        돌려주는 것
+            NoteAdded — .file · .new · .block(더한 블록 번호) · .change
+
+        예
+            >>> import tempfile, os
+            >>> p = eqn.Project.create(os.path.join(tempfile.mkdtemp(), "demo"))
+            >>> r = p.note_add("notes/check.md", lines=["an unitroot R", "an stats Y"], title="자료 점검")
+            >>> r.new, r.file, r.block
+            (True, 'notes/check.md', 1)
+
+        관련
+            note_run · note_check
+        """
+        from .notes import add_block
+        return add_block(self, note, lines=lines, record=record, title=title, who=who, command=command)
+
     def views(self) -> List[dict]:
         """저장한 보기(`VIEWS/*.toml`) — 어느 시리즈를 어떤 모양으로 볼지(이름순). 보기마다 name·title·series·show·range·file.
 

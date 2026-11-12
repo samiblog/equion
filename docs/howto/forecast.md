@@ -154,3 +154,66 @@ period
 
 새 자료 회차로 바꾼 뒤 `p.sim(vs="sim:base_1")`이면 지난 전망과 연간 증가율을 견주고, `p.sim(vintage="d…")`는 옛 회차로 같은 가정을 풀어
 자료 개정의 몫만 따로 봅니다.
+
+## R61. 시나리오를 명령으로 쓰기 — 충격 표
+
+시나리오 파일(`SCENARIOS/이름.toml`)은 손으로 써도 되고 `scenario_define`(명령줄 `equion scenario define`)으로 써도 됩니다. 충격 한 줄은
+`변수=크기[%][@처음[:끝]]` — `%`가 있으면 경로를 그만큼 % 올리고, 없으면 그 값을 더합니다. 기간을 빼면 전망 구간 처음부터 끝까지입니다.
+쓰기 전에 변수·식·가정 세트·기간을 검사하고, 준 것만 바꾸며(충격 목록은 주면 통째로), 바뀜 기록에 남깁니다. 풀기는 그대로 `sim`.
+
+```python
+p = eqn.Project.create("sc_prj", force=True)
+r = p.scenario_define("oil_rate", desc="유가와 금리 동반 상승", shocks=["POIL=+20%", "R=+0.5@start:start+3"],
+                      addfactor=["demand:CN=-0.2@start:start+1"])
+print(r.text())
+with open(f"{p.root}/SCENARIOS/oil_rate.toml", encoding="utf-8") as f:
+    print(f.read())
+print(p.sim("oil_rate").text())
+```
+<!-- out -->
+```text
+[sc_prj] 자료 회차 d2026-11a를 만들었습니다
+[sc_prj] 지금 자료 회차: d2026-11a
+[sc_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[scenario define] SCENARIOS/oil_rate.toml — 새 시나리오
+  충격 2 · 식 보정 1
+  바뀜 기록  h0002
+  다음   equion sim oil_rate
+desc = "유가와 금리 동반 상승"
+
+[[shock]]
+var = "POIL"
+from = "start"
+pct = 20
+
+[[shock]]
+var = "R"
+from = "start"
+to = "start+3"
+value = 0.5
+
+[[addfactor]]
+eq = "demand:CN"
+from = "start"
+to = "start+1"
+value = -0.2
+
+[sc_prj] 열기 series.csv — 분기(Quarterly) 1970Q1~2019Q4 · 시리즈 13
+[main] 채택 기록 없이 지금 자료로 추정: demand:CN, demand:I, price:P, finance:RL, finance:M2
+[sc_prj] 기간 확장 → 2021Q4 (+8)
+[main] baseline(_0) dynamic 2020Q1~2021Q4: 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
+[main] oil_rate(_1) dynamic 2020Q1~2021Q4: 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
+[sim:2026-11_oil_rate] main · oil_rate · 2020Q1~2021Q4 dynamic · 정상 8 · 일부식 제외 0 · 실패대체 0 · 실패 0
+  연간 증가율  2020: Y 0.46% · CN 0.46% · I -1.05% · P 2.66% │ 2021: Y 1.96% · CN 1.84% · I 2.48% · P 2.63%
+  가정   base: G·POIL 16칸 · 채움(last) R 8칸
+  보정항  base: demand:CN last(+0.654) · demand:I decay
+  시나리오  oil_rate (유가와 금리 동반 상승): POIL +20% start~end · R +0.5 start~start+3 · 보정 demand:CN -0.2 start~start+1
+  기준선 대비(끝 기 수준)  Y -0.12% · CN -0.12% · I -0.16% · P +0.22% · RL +0.11% · M2 +0.07%
+  알아서 한 것  구간 next:8 → 2020Q1~2021Q4 · 채택 기록 없이 지금 자료로 추정: demand:CN, demand:I, price:P, finance:RL, finance:M2 · 보정항 규칙 값 16칸 · 가정 16칸(G, POIL) · 외생 R 8칸을 채움(last)
+  기록   sim:2026-11_oil_rate (work/sim/2026-11_oil_rate/)
+```
+
+명령줄로는 `equion scenario define oil_rate --shock POIL=+20% --shock R=+0.5@start:start+3`, 목록은 `equion scenario list`, 지우기는
+`equion scenario remove 이름`(바뀜 기록에서 되돌릴 수 있습니다). Equion Desk의 시나리오 폼이 같은 일을 표로 합니다.
+
+관련: [R51](#r51-전망-기록--가정-세트보정항시나리오) · [파일 형식](../reference/formats.md#가정보정항시나리오assumptionsaddfactorsscenarios)

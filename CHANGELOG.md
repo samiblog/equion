@@ -6,6 +6,11 @@ Equion의 판별 변경 기록. 새것이 위에 있습니다. 설계 결정은 
 ## 미공개
 
 ### 추가
+- **시나리오를 명령으로(D55)**: `equion scenario list · show · define 이름 --shock POIL=+20% --shock R=+0.5@start:start+3 --addfactor demand:CN=-0.2 · remove 이름`
+  (`p.scenarios()`·`p.scenario_define`·`p.scenario_remove`)이 `SCENARIOS/이름.toml`을 씁니다 — 충격 한 줄은 `변수=크기[%][@처음[:끝]]`, 준 것만 바꾸고 주석은 그대로,
+  쓰기 전에 변수·식·가정 세트·모형·기간을 검사합니다. 바뀜 기록에 남습니다. 풀이(`sim`)가 시나리오를 읽을 때도 같은 검사를 씁니다. 레시피 R61.
+- **노트에 블록 더하기(D57)**: `equion note add 노트 --line "est 'I c Y' --for demand:I" --record an:… --title 글`(`p.note_add`)이 노트 끝에 ```` ```equion ```` 블록을
+  더합니다 — 명령 줄은 실행하지 않고 블록만, 기록은 그 명령과 결과 구역까지. 노트가 없으면 만듭니다. 레시피 R62.
 - **기초 통계 분석(D50)**: `equion an stats`(기술 통계 — 관측치·평균·표준편차·사분위·왜도·첨도·Jarque-Bera) · `an corr`(상관 — 피어슨·스피어만, p값,
   색 격자 차트) · `an acf`(자기상관·편자기상관·Ljung-Box Q, 막대 차트와 띠) · `an granger`(쌍별 그랜저 인과 — 시차 지정, 쌍마다 공통 표본) ·
   `an hist`(히스토그램) · `an xcorr`(교차상관 corr(x_t, y_{t−k})) — 계산은 `equion.stats`의 `describe`·`correlation`·`acf`·`pacf`·`correlogram`·

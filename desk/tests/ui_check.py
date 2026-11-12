@@ -12,7 +12,8 @@
 열 ↔ 시리즈 · **무엇이 적히는지 보고 저장** — D2b-2) → 회차 바꾼 뒤 할 일 · 모형 작업대(조립 · 새 모형 · **과거 재현 · 원인 따라가기** ·
 이 블록만 풀기) · 블록 파일 고치기 · 흐름 화면(**스크립트를 화면에서 실행** — D3) → **터미널에서 친 명령의 기록이
 띠에 뜨고 카드로 열린다** → 전망과 작업 줄 → 밖에서 고친 정의 파일의 바뀜 알림과 차이 → **닫았다 열면 이어진다** → 어두운 바탕 →
-DESK_V2(세 열 1/3 · **변수에서 출발** — 여럿 고르기 · 메뉴 · 묶음 · 변수 창 · 분석 탭과 개별 식 · **명령 창** · 터미널 여러 개 · 기록 탭).
+DESK_V2(세 열 1/3 · **변수에서 출발** — 여럿 고르기 · 메뉴 · 묶음 · 변수 창 · 분석 탭과 개별 식 · **명령 창** · 터미널 여러 개 · 기록 탭) →
+2차판 폼(**후보 묶음** · **시나리오 폼** · **노트 화면** · 같은 분석의 두 기록).
 서버·작업 프로세스 시험은 `test_app.py`, 이 파일은 화면까지 이어 본다(pytest 가 모으지 않는다 — 브라우저가 있어야 한다).
 """
 from __future__ import annotations
@@ -1034,6 +1035,84 @@ def run(shots: str | None) -> int:
                 head = page.inner_text(".var-menu .menu-head")
                 page.keyboard.press("Escape")
                 check("N15 계수표의 변수 이름을 우클릭해도 같은 변수 메뉴", head.strip() == "Y", head)
+                page.close()
+            finally:
+                server.terminate()
+                server.wait(10)
+
+            print("O. 2차판 폼과 노트 — 후보 묶음 · 시나리오 폼 · 노트 화면 · 같은 분석의 두 기록")
+            server = start_server(env)
+            try:
+                page = open_page(browser)
+                page.wait_for_selector("#status .dot.ok", timeout=30000)
+                page.click(f"{active} .side-tabs [data-side='models']")
+                page.click(f"{active} .side .row-item[data-key='bench:demand:I']")
+                page.click(f"{pane} [data-act='batch']")
+                page.wait_for_selector(f"{pane} .batch-form [data-slot='0']")
+                page.fill(f"{pane} [data-slot='0']", "Y | Y(-1)")
+                page.fill(f"{pane} [data-slot='1']", "(없음) | I(-1)")
+                eqs = page.locator(f"{pane} .batch-row").all_inner_texts()
+                page.click(f"{pane} .batch-row >> nth=3")                   # 넷째 식을 끈다
+                check("O1 후보 묶음 — 고를 칸의 조합이 식으로 글자 그대로 보이고(2×2=4), 끈 식은 빠진다",
+                      len(eqs) == 4 and any("I c Y(-1) I(-1)" in x for x in eqs) and page.inner_text(f"{pane} [data-act='run-batch']").strip() == "모두 추정 (3)", str(eqs))
+                shot(page, "19-batch")
+                before = len(os.listdir(os.path.join(folder, "work", "est")))
+                page.click(f"{pane} [data-act='run-batch']")
+                page.wait_for_selector(f"{pane} .banner.ok", timeout=60000)
+                check("O2 모두 추정 — 셋이 그 부품의 후보로 쌓인다", len(os.listdir(os.path.join(folder, "work", "est"))) == before + 3)
+                page.click(f"{pane} [data-act='batch-note']")
+                page.wait_for_selector(".dialog select")
+                page.click(".dialog .btn.primary")
+                page.wait_for_selector(f"{pane} .note-view .nb-bar", timeout=20000)
+                note = [f for f in os.listdir(os.path.join(folder, "notes")) if f.startswith("candidates_")]
+                check("O3 노트로 저장 — est 줄들이 노트의 블록 하나로(실행하지 않는다), 노트 화면이 열린다",
+                      note and "```equion\nest 'I c Y' --for demand:I --sim" in open(os.path.join(folder, "notes", note[0]), encoding="utf-8").read()
+                      and page.inner_text(f"{pane} .nb-bar .tag").strip() == "실행 안 함", str(note))
+                page.click(f"{pane} [data-act='run-block']")
+                page.wait_for_selector(f"{pane} .nb-bar .tag.ok", timeout=60000)
+                check("O4 노트 블록 ▶ 실행 — 블록의 줄마다 새 기록, 상태는 정상", page.locator(f"{pane} .nb-bar .cmd-chip").count() == 3)
+                shot(page, "20-note")
+                page.click(f"{active} .side-tabs [data-side='models']")
+                page.click(f"{active} [data-act='new-scenario']")
+                page.wait_for_selector(f"{pane} .sc-box [data-field='name']")
+                page.fill(f"{pane} [data-field='name']", "oil_rate")
+                page.fill(f"{pane} [data-field='desc']", "유가와 금리")
+                page.fill(f"{pane} .sc-table [aria-label='변수']", "POIL")
+                page.fill(f"{pane} .sc-table [aria-label='크기']", "20")
+                page.click(f"{pane} [data-act='add-shock']")
+                page.fill(f"{pane} .sc-table tr[data-row='1'] [aria-label='변수']", "R")
+                page.fill(f"{pane} .sc-table tr[data-row='1'] [aria-label='크기']", "0.5")
+                page.click(f"{pane} .sc-table tr[data-row='1'] .segmented button >> nth=1")
+                page.fill(f"{pane} .sc-table tr[data-row='1'] [aria-label='끝']", "start+3")
+                page.wait_for_function("() => (document.querySelector('.project:not([hidden]) .pane:not([hidden]) .sc-preview .cmdline')?.textContent || '').includes('R=+0.5@start:start+3')", timeout=10000)
+                cmdtext = page.inner_text(f"{pane} .sc-preview .cmdline")
+                check("O5 시나리오 폼 — 충격 표를 적으면 바뀔 파일의 차이와 같은 일을 하는 명령이 바로 보인다(아직 쓰지 않는다)",
+                      "--shock POIL=+20%" in cmdtext and "--shock R=+0.5@start:start+3" in cmdtext and not os.path.exists(os.path.join(folder, "SCENARIOS", "oil_rate.toml")), cmdtext)
+                shot(page, "21-scenario")
+                page.click(f"{pane} [data-act='save-solve']")
+                page.wait_for_selector(f"{active} .tabbar .tab[aria-selected='true']:has-text('전망')", timeout=60000)
+                page.wait_for_selector(f"{pane} .result-head", timeout=30000)
+                check("O6 저장하고 풀기 — 시나리오 파일이 생기고 기준선과 함께 풀어 전망 화면에 결과(고른 시나리오도 그대로)",
+                      os.path.isfile(os.path.join(folder, "SCENARIOS", "oil_rate.toml")) and "oil_rate" in page.inner_text(f"{pane} .result-head")
+                      and page.get_attribute(f"{pane} [data-scenario='oil_rate']", "aria-pressed") == "true")
+                cmd = f"{active} .cmd-input"
+                page.fill(cmd, "an unitroot core")
+                page.press(cmd, "Enter")
+                page.wait_for_selector(f"{active} .tabbar .tab[aria-selected='true']:has-text('unitroot')", timeout=30000)
+                page.fill(cmd, "an unitroot core --smpl 1990Q1:last")
+                page.press(cmd, "Enter")
+                page.wait_for_selector(f"{active} .tabbar .tab[aria-selected='true']:has-text('unitroot')", timeout=30000)
+                page.wait_for_selector(f"{pane} [data-act='compare-prev']", timeout=20000)      # 명령이 연 결과 카드의 '이전과'
+                page.click(f"{pane} [data-act='compare-prev']")
+                page.wait_for_selector(f"{pane} table.cmp-lines tbody tr", timeout=20000)
+                banner = page.inner_text(f"{pane} .an-compare .banner")
+                check("O7 이전 기록과 비교 — 같은 분석·같은 대상의 두 기록을 나란히, 무엇이 달랐는지(표본)와 바뀐 줄",
+                      page.locator(f"{pane} .cmp-cols .of-record").count() == 2 and "표본" in banner and page.locator(f"{pane} table.cmp-lines tr.changed").count() >= 1, banner)
+                shot(page, "22-compare")
+                page.click(f"{active} .side-tabs [data-side='analysis']")
+                page.wait_for_selector(f"{active} .side .row-item[data-key^='note:']", timeout=20000)
+                notes = page.locator(f"{active} .side .row-item[data-key^='note:']").count()
+                check("O8 분석 탭의 노트 — 노트마다 블록 수와 낡음·새 블록", notes >= 2, str(notes))
                 page.close()
             finally:
                 server.terminate()

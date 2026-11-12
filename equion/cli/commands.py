@@ -202,6 +202,28 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
         sp.add_argument("--json", action="store_true", help="결과를 JSON으로")
 
+    sc = sub.add_parser("scenario", help="프로젝트의 시나리오(SCENARIOS/*.toml) — 목록·보기·쓰기·지우기(풀기는 equion sim)")
+    scsub = sc.add_subparsers(dest="scenario_command", metavar="동작")
+    scsub.required = True
+    scl = scsub.add_parser("list", help="시나리오 목록")
+    scs = scsub.add_parser("show", help="시나리오 하나 — 충격과 식 보정")
+    scs.add_argument("name", metavar="이름")
+    scd = scsub.add_parser("define", help="시나리오를 더하거나 고친다 — 준 것만 바꾸고, --shock·--addfactor를 주면 그 목록을 통째로 바꾼다")
+    scd.add_argument("name", metavar="이름", help="시나리오 이름(없으면 새로)")
+    scd.add_argument("--desc", metavar="글", help="설명(빈 글이면 지움)")
+    scd.add_argument("--base", metavar="가정", help="가정 세트(ASSUMPTIONS/이름.csv)")
+    scd.add_argument("--addfactors", metavar="보정항", help="보정항(ADDFACTORS/이름.toml)")
+    scd.add_argument("--model", metavar="모형", help="풀 모형")
+    scd.add_argument("--shock", action="append", metavar="변수=크기[%][@처음[:끝]]",
+                     help="외생 충격 — POIL=+20%%(끝까지) · R=+0.5@start:start+3 · WY=-2%%@2026Q1:2026Q4 (여럿이면 거듭)")
+    scd.add_argument("--addfactor", action="append", metavar="블록:목표=값[@처음[:끝]]", help="식 보정 — demand:CN=-0.2@start:start+3 (여럿이면 거듭)")
+    scd.add_argument("--clear", action="store_true", help="충격과 식 보정을 모두 지우고 준 것만 둔다")
+    scr = scsub.add_parser("remove", help="시나리오 파일을 지운다(바뀜 기록에 남는다 — 푼 기록은 그대로)")
+    scr.add_argument("name", metavar="이름")
+    for sp in (scl, scs, scd, scr):
+        sp.add_argument("--project", "-p", default=".", metavar="폴더", help="프로젝트 폴더(기본: 지금 폴더)")
+        sp.add_argument("--json", action="store_true", help="결과를 JSON으로")
+
     d = sub.add_parser("ident", help="프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다")
     d.add_argument("part", help="항등식 이름 블록:목표(예: demand:Y)")
     d.add_argument("--check", action="store_true", help="실측으로 좌변·우변을 계산해 견준다")
@@ -686,6 +708,48 @@ def cmd_view(args) -> int:
     return EXIT_OK
 
 
+def cmd_scenario(args) -> int:
+    """equion scenario list · show · define · remove — 시나리오(SCENARIOS/*.toml)."""
+    from ..projects import ProjectError
+    from ..projects.scenarios import addfactor_word, shock_word
+    from ..work.store import detect_who
+    try:
+        p = _open_project(args.project)
+        act = args.scenario_command
+        if act == "list":
+            rows = p.scenarios()
+            out = rows if args.json else (f"[scenario list] {p.name} — 시나리오 {len(rows)}" + "".join(
+                f"\n  {r['name']:<14} " + (f"읽지 못함 — {r['error']}" if r.get("error") else
+                                           " · ".join([shock_word(dict(s, **{('pct' if s['kind'] == 'pct' else 'value'): s['value']})) for s in r["shocks"]]
+                                                      + [addfactor_word(a) for a in r["addfactor"]]) + (f"  — {r['desc']}" if r["desc"] else ""))
+                for r in rows))
+        elif act == "show":
+            row = next((r for r in p.scenarios() if r["name"] == args.name), None)
+            if row is None:
+                raise ProjectError(f"시나리오가 없습니다: SCENARIOS/{args.name}.toml")
+            if row.get("error"):
+                raise ProjectError(row["error"])
+            out = row if args.json else "\n".join(
+                [f"[scenario] {row['file']}" + (f" — {row['desc']}" if row["desc"] else ""),
+                 f"  가정 세트 {row['base'] or '(기준선과 같음)'} · 보정항 {row['addfactors'] or '-'} · 모형 {row['model'] or '(기본)'}"]
+                + [f"  충격   {s['var']} {s['value']:+g}{'%' if s['kind'] == 'pct' else ''} · {s['from']}~{s['to']}" for s in row["shocks"]]
+                + [f"  식 보정 {a['eq']} {a['value']:+g} · {a['from']}~{a['to']}" for a in row["addfactor"]])
+        elif act == "remove":
+            res = p.scenario_remove(args.name, who=detect_who("terminal"), command=_cmdline(_ARGV))
+            out = res.to_dict() if args.json else res.text()
+        else:
+            shocks = [] if args.clear and not args.shock else args.shock
+            addf = [] if args.clear and not args.addfactor else args.addfactor
+            res = p.scenario_define(args.name, desc=args.desc, base=args.base, addfactors=args.addfactors, model=args.model,
+                                    shocks=shocks, addfactor=addf, who=detect_who("terminal"), command=_cmdline(_ARGV))
+            out = res.to_dict() if args.json else res.text()
+    except (ProjectError, KeyError, ValueError) as e:
+        fail(f"{e.args[0] if isinstance(e, KeyError) else e}")
+        return EXIT_INPUT
+    print(json.dumps(out, ensure_ascii=False, indent=2) if args.json else out)
+    return EXIT_OK
+
+
 def cmd_define(args) -> int:
     """equion model define · equion block define — 설정(equion.toml)의 모형·블록을 쓴다."""
     from ..projects import ProjectError
@@ -958,6 +1022,8 @@ def _main(argv) -> int:
             return cmd_define(args)
         if args.command == "view":
             return cmd_view(args)
+        if args.command == "scenario":
+            return cmd_scenario(args)
         if args.command == "desk":
             return cmd_desk(args)
         if args.command == "group":

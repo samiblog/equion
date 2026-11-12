@@ -1427,6 +1427,73 @@ def section_side(tmp: str) -> None:
         state.close()
 
 
+def section_forms(tmp: str) -> None:
+    print("R. 2차판 폼과 노트 — 후보 묶음·시나리오 폼(미리보기·쓰기·거절·지우기)·노트(목록·보기·더하기·실행)·같은 분석의 두 기록")
+    from equion_desk.server import create_app
+
+    folder = example(tmp, "forms")
+
+    def read(*parts: str) -> str:
+        with open(os.path.join(folder, *parts), encoding="utf-8") as f:
+            return f.read()
+
+    state, pid = new_state(tmp, folder, "r.json")
+    api = f"/api/p/{pid}"
+    try:
+        c = create_app(state).test_client()
+        c.get(f"{api}/overview")
+        r = c.post(f"{api}/est-batch", json={"part": "demand:I", "texts": ["I c Y", "I c Y I(-1)", "I c NOPE"], "sim": True}).json["result"]
+        cand = c.get(f"{api}/candidates?part=demand:I").json
+        too_many = c.post(f"{api}/est-batch", json={"part": "demand:I", "texts": ["I c Y"] * 65})
+        check("R1 후보 묶음 — 식마다 그 부품의 후보로(누가 Desk), 틀린 식은 그 줄만 까닭과 함께, 64개까지",
+              [m["text"] for m in r["made"]] == ["I c Y", "I c Y I(-1)"] and len(r["failed"]) == 1 and "NOPE" in r["failed"][0]["error"]
+              and r["lines"][0] == "est 'I c Y' --for demand:I --sim" and too_many.status_code == 400
+              and json.load(open(os.path.join(folder, "work", "est", "i_0001", "record.json"), encoding="utf-8"))["who"] == "desk", str(r)[:300] + str(cand)[:100])
+        info = c.get(f"{api}/scenario-info").json
+        dry = c.post(f"{api}/scenario/define", json={"name": "rr", "desc": "금리", "shocks": ["R=+1@start:start+3", "POIL=+10%"], "addfactor": ["demand:CN=-0.2"], "dry": True}).json
+        check("R2 시나리오 폼의 재료와 미리보기 — 쓰지 않고 차이·명령(명령줄 꼴 그대로)",
+              [x["name"] for x in info["scenarios"]] == ["oil20"] and "base" in info["assumptions"] and "main" in info["models"] and "POIL" in info["series"]
+              and dry["new"] is True and '+var = "R"' in dry["diff"] and "--shock R=+1@start:start+3 --shock POIL=+10%" in dry["command"]
+              and "--addfactor demand:CN=-0.2" in dry["command"] and not os.path.exists(os.path.join(folder, "SCENARIOS", "rr.toml")), str(dry)[:300])
+        w = c.post(f"{api}/scenario/define", json={"name": "rr", "desc": "금리", "shocks": ["R=+1@start:start+3"]}).json["result"]
+        bad = c.post(f"{api}/scenario/define", json={"name": "rr", "shocks": ["NOPE=+1"]})
+        badform = c.post(f"{api}/scenario/define", json={"name": "rr", "shocks": ["R+1"]})
+        nobase = c.post(f"{api}/scenario/define", json={"name": "base", "shocks": ["R=+1"]})
+        check("R3 시나리오 쓰기(바뀜 기록 · 누가 Desk) · 자료에 없는 변수(422) · 틀린 꼴(400) · 이름 base(422)",
+              w["new"] is True and w["change"] and 'to = "start+3"' in read("SCENARIOS", "rr.toml") and c.get(f"{api}/change?id={w['change']}").json["who"] == "desk"
+              and bad.status_code == 422 and "NOPE" in bad.json["error"] and badform.status_code == 400 and nobase.status_code == 422, str(w))
+        rm = c.post(f"{api}/scenario/remove", json={"name": "rr"}).json["result"]
+        check("R4 시나리오 지우기 — 파일이 없어지고 바뀜 기록", rm["removed"] is True and rm["change"] and not os.path.exists(os.path.join(folder, "SCENARIOS", "rr.toml")))
+        na = c.post(f"{api}/note/add", json={"note": "notes/cand.md", "lines": r["lines"][:2], "title": "후보"}).json["result"]
+        lst = c.get(f"{api}/notes").json["notes"]
+        view = c.get(f"{api}/note?path=notes/cand.md").json
+        check("R5 노트에 담기(새 노트 · 블록 1) · 노트 목록(블록 상태의 수) · 노트 보기(블록마다 상태·명령)",
+              na["new"] is True and na["block"] == 1 and {n["path"] for n in lst} == {"notes/cand.md", "notes/data_check.md"}
+              and next(n for n in lst if n["path"] == "notes/cand.md")["counts"] == {"never": 1}
+              and view["blocks"][0]["status"] == "never" and view["blocks"][0]["commands"] == r["lines"][:2] and view["text"].startswith("# 후보"), str(view)[:300])
+        ran = c.post(f"{api}/note/run", json={"path": "notes/cand.md", "block": 1}).json["result"]
+        after = c.get(f"{api}/note?path=notes/cand.md").json["blocks"][0]
+        who = json.load(open(os.path.join(folder, "work", "est", ran["records"][0].split(":")[1], "record.json"), encoding="utf-8"))["who"]
+        check("R6 노트 블록 실행 — 블록마다 새 기록(누가 Desk), 그 뒤 상태는 정상",
+              ran["ok"] is True and len(ran["records"]) == 2 and after["status"] == "ok" and who == "desk", f"{ran} {who}")
+        rec_add = c.post(f"{api}/note/add", json={"note": "notes/cand.md", "record": ran["records"][0]}).json["result"]
+        denied = c.post(f"{api}/note/add", json={"note": "notes/cand.md", "lines": ["adopt est:i_0001"]})
+        outside = c.post(f"{api}/note/add", json={"note": "../x.md", "lines": ["an stats Y"]})
+        nomd = c.get(f"{api}/note?path=README.txt")
+        check("R7 기록 담기(블록 2 · 결과 구역까지) · 노트가 부를 수 없는 명령(422) · 프로젝트 밖(403) · md 아님(400)",
+              rec_add["block"] == 2 and rec_add["record"] == ran["records"][0] and denied.status_code == 422 and outside.status_code == 403 and nomd.status_code == 400)
+        a1 = c.post(f"{api}/line", json={"line": "an unitroot Y"}).json["result"]["records"][0]
+        a2 = c.post(f"{api}/line", json={"line": "an unitroot Y --smpl 1990Q1:last"}).json["result"]["records"][0]
+        other = c.post(f"{api}/line", json={"line": "an unitroot CN"}).json["result"]["records"][0]
+        hist = c.get(f"{api}/an-history?id={a2}").json
+        first = c.get(f"{api}/an-history?id={a1}").json
+        check("R8 같은 분석·같은 대상의 기록들 — 이전 기록(대상이 다른 것은 빼고), 처음 것은 이전이 없다",
+              hist["previous"] == a1 and [x["id"] for x in hist["records"]] == [a1, a2] and other not in [x["id"] for x in hist["records"]]
+              and first["previous"] is None and first["next"] == a2 and hist["records"][0]["lines"], str(hist)[:300])
+    finally:
+        state.close()
+
+
 def section_instance(tmp: str, folder: str) -> None:
     print("I. 창은 하나 — 또 실행하면 폴더를 떠 있는 창에 넘긴다")
     from equion_desk import instance
@@ -1464,6 +1531,7 @@ def run() -> int:
         section_forecast(tmp)
         section_review(tmp)
         section_side(tmp)
+        section_forms(tmp)
         section_instance(tmp, folder)
     bad = [n for n, ok, _ in RESULTS if not ok]
     print(f"\nEquion Desk 앱 시험 {len(RESULTS) - len(bad)}/{len(RESULTS)}")

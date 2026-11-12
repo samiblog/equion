@@ -45,7 +45,7 @@ Y = CN + I + G
 | `ASSUMPTIONS/` · `ADDFACTORS/` · `SCENARIOS/` | 가정 CSV · 보정항 TOML · 시나리오 TOML | 사람 |
 | `VIEWS/*.toml` | 보기 — 어느 시리즈를 어떤 모양으로 볼지 | 사람 · `view define` |
 | `FLOWS/*.eqs` | 스크립트 — `equion-script` | 사람 · `script new` |
-| `notes/*.md` · `reports/*.md`(+ `<보고서>_data/`) | 노트·보고서 — 글과 결과 구역 | 글은 사람·Claude · 구역은 `note run` · `report add·update` |
+| `notes/*.md` · `reports/*.md`(+ `<보고서>_data/`) | 노트·보고서 — 글과 결과 구역 | 글은 사람·Claude · 블록은 `note add` · 구역은 `note run` · `report add·update` |
 | `CLAUDE.md` | Claude Code에게 — 먼저 `equion guide` | 사람(예제가 만든다) |
 | `work/data/<회차>/` | 자료 회차 — `equion-data-vintage` | `data build` |
 | `work/<est·hs·sim·an·run>/<이름>/` · `work/log.jsonl` · `work/marks.json` | 작업 기록 — `equion-record` | 명령(덧붙이기만) · `work pin·memo` |
@@ -286,6 +286,8 @@ pct = 20
 ```
 
 시나리오는 같은 가정·보정항의 기준선도 함께 풀어 차이(`diff.csv` — 수준 차이와 %)를 적습니다. 시나리오 이름 `base`는 파일이 없어도 됩니다(기준선).
+시나리오 파일은 명령으로도 씁니다 — `equion scenario define 이름 --shock POIL=+20% --shock R=+0.5@start:start+3 --addfactor demand:CN=-0.2`
+(충격 한 줄은 `변수=크기[%][@처음[:끝]]`, 준 것만 바꾸고 주석은 그대로) · `scenario list · show · remove`.
 
 ## 보기(`VIEWS/*.toml`)
 

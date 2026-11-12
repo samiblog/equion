@@ -946,6 +946,108 @@ def create_app(state: AppState) -> Flask:
         """명령 창의 자동 완성 재료 — 명령·옵션과 프로젝트의 이름들."""
         return ask(pid, "catalog")
 
+    # ---- 프로젝트: 후보 묶음 · 시나리오 폼 · 노트 · 같은 분석의 두 기록 (2차판) ------------------------------------------
+
+    SHOCK = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,60}=[+\-0-9.eE]{1,30}%?(?:@[A-Za-z0-9+\-]{1,20}(?::[A-Za-z0-9+\-]{1,20})?)?")
+    ADDF = re.compile(r"[^\s:=]{1,60}:[^\s:=]{1,60}=[+\-0-9.eE]{1,30}(?:@[A-Za-z0-9+\-]{1,20}(?::[A-Za-z0-9+\-]{1,20})?)?")
+    AN_RECORD = re.compile(r"an:[A-Za-z0-9][A-Za-z0-9_\-.]{0,160}")
+    NOTE_RECORD = re.compile(r"(?:an|est|hs|sim):[A-Za-z0-9][A-Za-z0-9_\-.]{0,160}")
+
+    def note_path(pid: str, value: Any, must_exist: bool = True) -> str:
+        """노트 경로 — 프로젝트 안의 .md(없어도 되면 must_exist=False)."""
+        if not isinstance(value, str) or not value.strip() or len(value) > 300 or "\\" in value:
+            abort(400)
+        if not value.lower().endswith(".md"):
+            abort(400, description=t("노트는 .md 파일입니다: {name}", name=value[:80]))
+        s = session(pid)
+        try:
+            path = s.resolve(value)
+        except Outside:
+            abort(403)
+        if must_exist and not path.is_file():
+            abort(404)
+        return path.relative_to(Path(s.root).resolve()).as_posix()
+
+    @app.post("/api/p/<pid>/est-batch")
+    def api_est_batch(pid: str) -> Any:
+        """{part, texts, smpl?, sim?, cov?} — 후보 묶음: 식 여럿을 차례로 추정해 그 부품의 후보로(작업 하나 — 진행을 알린다)."""
+        data = body()
+        part, texts = pick(data, "part", PART), data.get("texts")
+        if part is None or not isinstance(texts, list) or not 0 < len(texts) <= 64 or any(not isinstance(x, str) or not x.strip() or len(x) > 2000 or "\n" in x for x in texts):
+            abort(400, description=t("부품과 식(1~64개, 한 줄씩)이 있어야 합니다"))
+        return run(pid, "est_batch", t("후보 묶음 {part} — {n}개", part=part, n=len(texts)), part=part, texts=[x.strip() for x in texts],
+                   smpl=text_arg(data, "smpl", 60), sim=data.get("sim") is True, cov=pick(data, "cov", allowed=COV))
+
+    @app.get("/api/p/<pid>/scenario-info")
+    def api_scenario_info(pid: str) -> Any:
+        """시나리오 폼의 재료 — 시나리오들·가정 세트·보정항·모형·변수·식."""
+        return ask(pid, "scenario_info")
+
+    @app.post("/api/p/<pid>/scenario/define")
+    def api_scenario_define(pid: str) -> Any:
+        """{name, desc?, base?, addfactors?, model?, shocks?, addfactor?, dry?} — 시나리오 쓰기(`equion scenario define`). dry 면 차이만."""
+        data = body()
+        name = pick(data, "name", NAME)
+        if name is None:
+            abort(400, description=t("시나리오 이름(영문으로 시작 — 영문·숫자·_)이 있어야 합니다"))
+        args = dict(name=name, desc=text_arg(data, "desc", 200), base=text_arg(data, "base", 60), addfactors=text_arg(data, "addfactors", 60),
+                    model=text_arg(data, "model", 60), shocks=names_arg(data, "shocks", SHOCK, 60), addfactor=names_arg(data, "addfactor", ADDF, 60))
+        for key in ("base", "addfactors", "model"):
+            if args[key] and not NAME.fullmatch(args[key]):
+                abort(400, description=t("받을 수 없는 값입니다: {key}", key=key))
+        if data.get("dry") is True:
+            return ask(pid, "scenario_define", dry=True, **args)
+        return run(pid, "scenario_define", t("시나리오 {name}", name=name), **args)
+
+    @app.post("/api/p/<pid>/scenario/remove")
+    def api_scenario_remove(pid: str) -> Any:
+        name = pick(body(), "name", NAME)
+        if name is None:
+            abort(400)
+        return run(pid, "scenario_remove", t("시나리오 지우기 {name}", name=name), name=name)
+
+    @app.get("/api/p/<pid>/notes")
+    def api_notes(pid: str) -> Any:
+        """노트 목록(notes/**/*.md)과 블록 상태의 수 — 실행하지 않는다."""
+        return ask(pid, "notes")
+
+    @app.get("/api/p/<pid>/note")
+    def api_note(pid: str) -> Any:
+        """노트 하나 — 글과 블록마다 상태·명령·기록."""
+        return ask(pid, "note_view", path=note_path(pid, request.args.get("path")))
+
+    @app.post("/api/p/<pid>/note/run")
+    def api_note_run(pid: str) -> Any:
+        """{path, block?, stale?, force?} — 노트의 블록을 실행(`equion note run`) — 블록마다 새 기록."""
+        data = body()
+        path = note_path(pid, data.get("path"))
+        block = data.get("block")
+        if block is not None and (not isinstance(block, int) or isinstance(block, bool) or not 0 < block < 1000):
+            abort(400)
+        label = t("노트 {path}", path=path) + (f" #{block}" if block else "")
+        return run(pid, "note_run", label, path=path, block=block, stale=data.get("stale") is True, force=data.get("force") is True)
+
+    @app.post("/api/p/<pid>/note/add")
+    def api_note_add(pid: str) -> Any:
+        """{note, lines?, record?, title?} — 노트 끝에 블록 하나(`equion note add`). 노트가 없으면 만든다."""
+        data = body()
+        note = note_path(pid, data.get("note"), must_exist=False)
+        lines = data.get("lines")
+        if lines is not None and (not isinstance(lines, list) or len(lines) > 80 or any(not isinstance(x, str) or not x.strip() or len(x) > 2000 or "\n" in x for x in lines)):
+            abort(400)
+        record = pick(data, "record", NOTE_RECORD)
+        if not lines and not record:
+            abort(400, description=t("더할 것이 없습니다 — 명령 줄 또는 기록"))
+        return run(pid, "note_add", t("노트에 담기 {path}", path=note), note=note, lines=lines, record=record, title=text_arg(data, "title", 120))
+
+    @app.get("/api/p/<pid>/an-history")
+    def api_an_history(pid: str) -> Any:
+        """같은 분석·같은 대상의 기록들 — 이전 기록과 비교."""
+        record = request.args.get("id", "")
+        if not AN_RECORD.fullmatch(record):
+            abort(400)
+        return ask(pid, "an_history", record=record)
+
     @app.post("/api/p/<pid>/cancel")
     def api_cancel(pid: str) -> Any:
         return jsonify(cancelled=session(pid).worker.cancel())

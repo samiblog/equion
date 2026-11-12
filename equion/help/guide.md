@@ -57,6 +57,7 @@
 | `group` | 프로젝트의 묶음 — equion.toml의 [group](이름 붙인 시리즈 묶음 — 분석의 대상) | list · define · remove |
 | `desk` | Equion Desk(데스크톱 앱)에 알린다 — 떠 있는 앱이 그 화면을 연다 | show |
 | `view` | 프로젝트의 보기(VIEWS/*.toml) — 어느 시리즈를 어떤 모양으로 볼지 | list · define |
+| `scenario` | 프로젝트의 시나리오(SCENARIOS/*.toml) — 목록·보기·쓰기·지우기(풀기는 equion sim) | list · show · define · remove |
 | `ident` | 프로젝트의 항등식을 보이거나(--check) 실측으로 계산해 견준다 |  |
 | `data` | 프로젝트의 자료 회차 — 목록·원자료 넣기·만들기·바꾸기·차이·영향 | list · add · build · inbox · preview · define · use · diff · impact |
 | `est` | 식 하나를 추정해 기록을 남긴다(부품 또는 식 글자 — 후보) |  |
@@ -69,7 +70,7 @@
 | `work` | 작업 기록 — 목록·보기·고정·메모·정리 | list · show · pin · unpin · memo · clean |
 | `history` | 바뀜 기록 — 정의 파일이 누가·언제·어떻게 바뀌었나, 되돌리기 | list · show · revert |
 | `an` | 분석 — 등록부의 분석 하나 = 기록 하나(an:) · 목록·남기기 | list · keep · <분석>(아래 표) |
-| `note` | 노트 — ```equion 블록을 실행해 결과 구역을 채운다 · 검사 | run · check |
+| `note` | 노트 — ```equion 블록을 실행해 결과 구역을 채운다 · 검사 | run · check · add |
 | `report` | 보고서 — 결과만 보내기(명령 블록 없이) · 검사 · 새 기록으로 바꾸기 | new · add · check · update |
 | `script` | 스크립트(.eqs) — 작업 기록으로 초안 · 같은 일을 하는 Python으로 | new · export |
 | `guide` | Claude(AI)용 모형 작업 안내 · Claude Code 스킬 초안 |  |

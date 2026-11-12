@@ -59,3 +59,12 @@ print(b.text())
 print(b.flags.loc["2019Q4":"2020Q2", ["Y", "G", "POIL", "R"]])
 o = p.sim("oil20", as_name="oil_1", vs="sim:base_1")
 print(o.text())
+
+# %% R61. 시나리오를 명령으로 쓰기 — 충격 표
+p = eqn.Project.create("sc_prj", force=True)
+r = p.scenario_define("oil_rate", desc="유가와 금리 동반 상승", shocks=["POIL=+20%", "R=+0.5@start:start+3"],
+                      addfactor=["demand:CN=-0.2@start:start+1"])
+print(r.text())
+with open(f"{p.root}/SCENARIOS/oil_rate.toml", encoding="utf-8") as f:
+    print(f.read())
+print(p.sim("oil_rate").text())

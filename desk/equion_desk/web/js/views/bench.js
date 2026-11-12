@@ -88,6 +88,8 @@ export function benchView(project, desc) {
       },
     }, icon('pin'), '개별 식으로 남기기')) : null;
     put(head, h('div', {}, title, sub), keep, name ? h('div', { class: 'tools' },
+      p && p.kind !== 'identity' ? h('button', { class: 'btn quiet', type: 'button', 'data-act': 'batch', title: '고를 칸의 조합으로 식 여러 개를 만들어 한꺼번에 추정한다 — 이 부품의 후보로',
+        onclick: () => project.openTab({ type: 'batch', part: name }) }, icon('layers'), '후보 묶음') : null,
       h('button', { class: 'btn quiet', type: 'button', title: '이름 복사', onclick: () => copyText(name, `${name} — 복사했습니다`) }, icon('copy'), '이름'),
       claudeButton(project, () => { const r = project.records.find((x) => x.id === st.selected); return { name, summary: r ? `후보 ${r.id}${r.metric ? ` (${r.metric})` : ''}` : (p?.text || '') }; })) : null);
   }

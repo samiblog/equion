@@ -1,0 +1,84 @@
+/* 2차판의 폼과 노트 — 후보 묶음 · 시나리오 폼 · 노트 화면 · 같은 분석의 두 기록. 색은 tokens.css 의 이름만 쓴다. */
+
+/* ---- 후보 묶음 ----------------------------------------------------------------------------------- */
+.batch-form { display: grid; gap: 12px; padding: 14px 16px; }
+.batch-top { display: flex; gap: 14px; flex-wrap: wrap; }
+.batch-top .opt .mini-input.dep { width: 160px; font-family: var(--font-mono); }
+.batch-top .opt .mini-input.always { width: 140px; font-family: var(--font-mono); }
+.batch-slots { display: grid; gap: 6px; }
+.batch-slots .cap-line { font-size: var(--fs-s); color: var(--ink-2); }
+.batch-slots .cap-line .muted { font-size: var(--fs-xs); }
+.slot-row { display: flex; align-items: center; gap: 8px; }
+.slot-n { width: 20px; height: 20px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font: 700 11px/1 var(--font-mono); }
+.slot-row .mini-input.slot { flex: 1; min-width: 0; font-family: var(--font-mono); }
+.slot-row .icon-btn { width: 24px; height: 24px; }
+.batch-slots > .btn { justify-self: start; }
+.batch-list { margin-top: 16px; }
+.batch-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; font-size: var(--fs-s); }
+.batch-head .link { font-size: var(--fs-xs); margin-left: 8px; }
+.batch-rows { display: grid; max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); }
+.batch-row { display: flex; align-items: center; gap: 9px; padding: 5px 12px; border-bottom: 1px solid var(--line-2); cursor: pointer; }
+.batch-row:last-child { border-bottom: 0; }
+.batch-row:hover { background: var(--raised); }
+.batch-row .n { width: 22px; text-align: right; color: var(--ink-4); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.batch-row code { font-size: var(--fs-s); color: var(--ink); background: none; padding: 0; }
+.batch-row.off code { color: var(--ink-4); text-decoration: line-through; }
+.batch-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.cmdline.flat { flex: 1 1 260px; min-width: 0; margin: 0; cursor: default; }
+.cmdline.flat .cmd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-failed { margin: 6px 0 0; padding-left: 18px; font-size: var(--fs-s); }
+.batch-failed code { font-size: var(--fs-xs); }
+
+/* ---- 시나리오 폼 --------------------------------------------------------------------------------- */
+.sc-box { display: grid; gap: 8px; padding: 14px 16px; }
+.sc-grid { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.sc-grid .opt { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-size: var(--fs-s); color: var(--ink-2); }
+.sc-grid .opt.wide { flex: 1 1 300px; }
+.sc-grid .opt.wide .mini-input { flex: 1; min-width: 0; }
+.sc-grid .opt .mini-input.mono { width: 150px; }
+.sc-box h3.cap { margin: 10px 0 2px; }
+.sc-box h3.cap small { font-weight: 400; color: var(--ink-3); }
+table.sc-table { width: 100%; table-layout: fixed; }
+table.sc-table td { padding: 3px 6px 3px 0; vertical-align: middle; }
+table.sc-table th { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; text-align: left; padding: 0 6px 2px 0; }
+table.sc-table .mini-input { width: 100%; min-width: 0; }
+table.sc-table .mini-input.num { text-align: right; }
+table.sc-table .mini-input.when { font-family: var(--font-mono); }
+table.sc-table .segmented { width: 100%; display: flex; }
+table.sc-table .segmented button { flex: 1; padding: 0 4px; }
+table.grid.sc-table th:first-child, table.grid.sc-table td:first-child { width: 26%; padding-left: 0; }
+table.sc-table th:last-child, table.sc-table td:last-child { width: 32px; }
+table.sc-table .icon-btn { width: 24px; height: 24px; }
+.sc-box > .btn { justify-self: start; }
+.sc-preview { margin-top: 14px; }
+.sc-preview h4 { margin: 0 0 6px; font-size: var(--fs-s); display: flex; align-items: center; gap: 8px; }
+.sc-preview .cmdline { margin-top: 10px; }
+.sc-acts { display: flex; gap: 8px; margin-top: 14px; }
+
+/* ---- 노트 화면 ----------------------------------------------------------------------------------- */
+.note-view .view-head h1 svg.ic { width: 18px; height: 18px; color: var(--ink-3); }
+.note-view .view-head .sub .tag { height: 18px; }
+.note-doc { margin-top: 6px; }
+.nb-bar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 18px 0 -1px; padding: 6px 8px 6px 12px;
+  border: 1px solid var(--line); border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; background: var(--raised); font-size: var(--fs-s);
+}
+.nb-bar .nb-n { font-weight: 700; color: var(--ink-2); font-size: var(--fs-xs); }
+.nb-bar .tag { height: 18px; }
+.nb-bar .btn { flex: none; }
+.note-doc pre.nb-code { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+
+/* ---- 같은 분석의 두 기록 ----------------------------------------------------------------------------- */
+table.cmp-lines { width: 100%; margin: 12px 0 18px; table-layout: fixed; }
+table.grid.cmp-lines th, table.grid.cmp-lines td, table.grid.cmp-lines td:first-child { text-align: left; }
+table.grid.cmp-lines td, table.grid.plain.cmp-lines td:first-child { font: var(--fs-xs)/1.55 var(--font-mono); font-weight: 400; white-space: pre-wrap; word-break: break-word; vertical-align: top; }
+table.cmp-lines tr.changed td:last-child { background: var(--warn-soft); }
+table.grid.cmp-lines tr.flipped td { background: var(--warn-soft); font-weight: 600; }
+table.cmp-lines .tag { margin-left: 8px; height: 17px; font-family: var(--font-ui); }
+.cmp-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+.cmp-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; color: var(--ink-3); font-size: var(--fs-xs); }
+@container pane (max-width: 780px) { .cmp-cols { grid-template-columns: minmax(0, 1fr); } }
+
+/* 모형 탭의 '새 시나리오…' 줄 */
+.row-item.add .label { color: var(--ink-3); }
+.row-item.add:hover .label { color: var(--accent); }

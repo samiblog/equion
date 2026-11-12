@@ -164,24 +164,16 @@ def load_scenario(p, name: str) -> dict:
             raw = tomllib.load(f)
     except tomllib.TOMLDecodeError as e:
         raise ProjectError(f"{rel} 문법 오류: {e}") from None
-    problems = []
-    for k in raw:
-        if k not in ("desc", "base", "addfactors", "model", "shock", "addfactor"):
-            problems.append(f"{rel}: 알 수 없는 키 {k} — desc · base · addfactors · model · [[shock]] · [[addfactor]]")
-    for k, s in enumerate(raw.get("shock") or [], 1):
-        if not s.get("var") or ("pct" in s) == ("value" in s):
-            problems.append(f"{rel} [[shock]] {k}번째: var와 pct 또는 value(둘 중 하나)가 있어야 합니다")
-            continue
-        out["shocks"].append({"var": str(s["var"]), "from": str(s.get("from", "start")), "to": str(s.get("to", "end")),
-                              "kind": "pct" if "pct" in s else "level", "value": float(s.get("pct", s.get("value")))})
-    for k, a in enumerate(raw.get("addfactor") or [], 1):
-        if not a.get("eq") or "value" not in a:
-            problems.append(f"{rel} [[addfactor]] {k}번째: eq(블록:목표)와 value가 있어야 합니다")
-            continue
-        out["addfactor"].append({"eq": str(a["eq"]), "from": str(a.get("from", "start")), "to": str(a.get("to", "end")),
-                                 "value": float(a["value"])})
+    from .scenarios import check_raw                # 쓰기(scenario define)와 같은 검사
+    problems = check_raw(raw, rel, freq=p.config.freq)
     if problems:
         raise ProjectError(problems)
+    for s in raw.get("shock") or []:
+        out["shocks"].append({"var": str(s["var"]), "from": str(s.get("from", "start")), "to": str(s.get("to", "end")),
+                              "kind": "pct" if "pct" in s else "level", "value": float(s.get("pct", s.get("value")))})
+    for a in raw.get("addfactor") or []:
+        out["addfactor"].append({"eq": str(a["eq"]), "from": str(a.get("from", "start")), "to": str(a.get("to", "end")),
+                                 "value": float(a["value"])})
     out.update(file=rel, sha256=_sha(path), desc=str(raw.get("desc", "")), base=raw.get("base"),
                addfactors=raw.get("addfactors"), model=raw.get("model"))
     return out

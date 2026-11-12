@@ -10,6 +10,8 @@ import { TermDeck } from './terminal.js';
 import { bindVarClicks } from './varmenu.js';
 import { clear, debounce, flash, h, icon, kindClass, WHO } from './util.js';
 import { analysisView } from './views/analysis.js';
+import { ancompareView } from './views/ancompare.js';
+import { batchView } from './views/batch.js';
 import { benchView } from './views/bench.js';
 import { cardView } from './views/card.js';
 import { dataView } from './views/data.js';
@@ -21,11 +23,13 @@ import { homeView } from './views/home.js';
 import { importView } from './views/importer.js';
 import { changesView, recordsView } from './views/lists.js';
 import { modelView } from './views/model.js';
+import { noteView } from './views/note.js';
 import { proposalsView } from './views/proposals.js';
 import { reportsView } from './views/reports.js';
+import { scenarioView } from './views/scenario.js';
 import { variableView } from './views/variable.js';
 
-const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView, model: modelView, flow: flowView, forecast: forecastView, reports: reportsView, proposals: proposalsView, help: helpView, var: variableView };
+const FACTORY = { home: homeView, bench: benchView, record: cardView, file: fileView, records: recordsView, changes: changesView, data: dataView, analysis: analysisView, import: importView, model: modelView, flow: flowView, forecast: forecastView, reports: reportsView, proposals: proposalsView, help: helpView, var: variableView, batch: batchView, scenario: scenarioView, note: noteView, ancompare: ancompareView };
 const MAX_TABS = 24;       // 가운데 탭 — 넘으면 가장 오래된 것부터 닫는다(작업대가 늘어 14에서 올렸다)
 const FILE_ICON = { md: 'doc', csv: 'table', toml: 'code', txt: 'equation', eqs: 'play', json: 'code', xlsx: 'table' };
 
@@ -276,10 +280,16 @@ export class Project {
     if (desc.type === 'model') return `model:${desc.model}`;
     if (desc.type === 'flow') return `flow:${desc.path}`;
     if (desc.type === 'var') return `var:${desc.group ? `@${desc.group}` : (desc.names || []).join(',')}`;
+    if (desc.type === 'batch') return `batch:${desc.part}`;
+    if (desc.type === 'scenario') return `scenario:${desc.name || '~new'}`;
+    if (desc.type === 'note') return `note:${desc.path}`;
+    if (desc.type === 'ancompare') return `ancompare:${desc.b}`;
     return desc.type;
   }
 
   openTab(desc, { activate = true, save = true, replace = false } = {}) {
+    // 노트(notes/*.md)는 노트 화면으로 — 블록마다 상태와 ▶ 실행. 글을 고칠 때(edit)만 파일 보기
+    if (desc.type === 'file' && !desc.edit && /^notes\/.+\.md$/i.test(desc.path || '')) desc = { type: 'note', path: desc.path };
     if (desc.type === 'bench' && !desc.part && desc.free == null) desc = { ...desc, free: ++this.free };
     const key = this.keyOf(desc);
     let tab = this.tabs.get(key);
@@ -452,7 +462,10 @@ export class Project {
     }, icon(kind), h('span', { class: 'label' }, label), h('span', { class: 'desc' }, path));
     const more = [
       ...o.assumptions.map((n) => fileRow(n, `ASSUMPTIONS/${n}.csv`, 'table')),
-      ...o.scenarios.map((n) => fileRow(n, `SCENARIOS/${n}.toml`, 'layers')),
+      ...o.scenarios.map((n) => h('button', { class: 'row-item', type: 'button', 'data-key': `scenario:${n}`, title: `SCENARIOS/${n}.toml — 충격 표로 고친다`,
+        onclick: () => this.openTab({ type: 'scenario', name: n }) }, icon('layers'), h('span', { class: 'label' }, n), h('span', { class: 'desc' }, `SCENARIOS/${n}.toml`))),
+      h('button', { class: 'row-item add', type: 'button', 'data-key': 'scenario:~new', 'data-act': 'new-scenario', title: '충격 표로 새 시나리오를 만든다(equion scenario define)',
+        onclick: () => this.openTab({ type: 'scenario' }) }, icon('plus'), h('span', { class: 'label' }, '새 시나리오…')),
       ...o.scripts.map((n) => h('button', { class: 'row-item', type: 'button', 'data-key': `flow:FLOWS/${n}.eqs`, title: `FLOWS/${n}.eqs — 단계를 보고 실행한다`,
         onclick: () => this.openTab({ type: 'flow', path: `FLOWS/${n}.eqs` }) }, icon('play'), h('span', { class: 'label' }, n), h('span', { class: 'desc' }, `FLOWS/${n}.eqs`))),
     ];

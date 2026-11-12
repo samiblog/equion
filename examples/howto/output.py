@@ -60,3 +60,12 @@ p.sim(as_name="base_2", range="next:12")                     # 새 전망
 print(p.report_check("전망").text())
 print(p.report_update("전망").text())                         # 손으로 고친 구역은 고친 곳만 보이고 그대로
 print(p.report_update("전망", force=True).items[0]["status"])
+
+# %% R62. 노트에 블록 더하기 — 후보 묶음을 매달 다시
+p = eqn.Project.create("cand_prj", force=True)
+lines = [f"est '{t}' --for demand:I" for t in ("I c Y", "I c Y I(-1)", "I c Y(-1) I(-1)")]
+print(p.note_add("notes/invest.md", lines=lines, title="투자 후보").text())
+print(p.note_run("notes/invest.md").text())
+u = p.an("unitroot", "R")
+print(p.note_add("notes/invest.md", record=u.id).text())
+print(p.note_check("notes/invest.md").text())

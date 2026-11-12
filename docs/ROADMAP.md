@@ -139,6 +139,9 @@ Equion Desk 개발 계획(`DESK_DEVPLAN.md`)의 단계 E. 끝나면 Desk 없이�
       변수 여럿 고르기와 우클릭 메뉴(등록부의 count) · 묶음 · 변수 창 · 그룹 창 · 분석 탭(개별 식 · 낡음 · 다시 돌리기 · 모형에 넣기) · 터미널 다섯 · 명령 창 ·
       패키지 기초 통계 분석 아홉(`stats`·`corr`·`acf`·`granger`·`hist`·`xcorr` + 등록만 `fevd`·`convert`·`stochastic`) · `group`·`block add·remove` · `equion.cli.line`
 
+- [x] 2차판 — 혼자 하는 폼과 노트(2026-11-12, D55~D58): 후보 묶음(고를 칸의 조합 → 모두 추정 → 노트로 저장) · 시나리오 폼(충격 표 — 패키지 `equion scenario
+      list·show·define·remove`) · 노트 화면(블록마다 상태·▶ 실행·노트 전체 실행·낡은 것만 — 패키지 `equion note add`) · 같은 분석의 두 기록 비교(판단이 바뀐 줄)
+
 **2차판 나머지** — 노트 ▶ 실행 화면, 후보 묶음·시나리오 폼, 기초 분석(기술 통계·히스토그램·상관·ACF·PACF), 두 기록 비교, 회차 비교 요인 나누기 화면,
 시점이 열인 표 불러오기, 묶어 보내기·이정표, Lectern 수정(LC1~LC6), 영문 화면
 

@@ -10,6 +10,7 @@
 // 화면이 아는 분석은 없다: 이름·대상·옵션·도움말이 모두 등록부(`equion.registry`)에서 온다 — 분석이 늘면 여기도 늘어난다.
 
 import { confirmDialog } from '../dialog.js';
+import { addToNote } from '../noteops.js';
 import { toModel } from '../partops.js';
 import { renderDoc } from '../md.js';
 import { clear, cmdText, copyText, debounce, flash, h, icon, kindPill, put, when, whoLabel } from '../util.js';
@@ -405,6 +406,8 @@ export function analysisView(project, desc) {
         m.data?.id && vintage && m.data.id !== vintage ? h('span', { class: 'tag warn', title: `이 기록은 자료 회차 ${m.data.id} 로 계산했습니다 — 지금 회차는 ${vintage}` }, `다른 회차 ${m.data.id}`) : null),
       h('span', { class: 'grow' }),
       mk && !st.kept ? h('button', { class: 'btn small primary', type: 'button', 'data-act': 'keep', title: `equion an keep ${id} — 무엇이 어디에 적히는지 먼저 보입니다`, onclick: keep }, icon('pin'), keepLabel) : null,
+      h('button', { class: 'btn small quiet', type: 'button', 'data-act': 'compare-prev', title: '같은 분석·같은 대상의 이전 기록과 나란히 — 판단이 바뀐 줄을 강조', onclick: () => comparePrev(id) }, icon('diff'), '이전과'),
+      h('button', { class: 'btn small quiet', type: 'button', 'data-act': 'to-note', title: '이 기록의 명령과 결과를 노트의 블록으로 담는다 — 다음 회차에 노트에서 다시 실행', onclick: () => addToNote(project, { record: id }) }, icon('doc'), '노트에'),
       h('button', { class: 'btn small quiet', type: 'button', title: '이 기록을 만든 명령을 복사', onclick: () => copyText(cmdText(m.command), '명령을 복사했습니다') }, icon('copy'), '명령')));
     if (st.kept) {
       const k = st.kept;
@@ -425,6 +428,14 @@ export function analysisView(project, desc) {
     outBox.append(doc);
     if (rec.summary) renderDoc(doc, rec.summary, { pid: project.id, dir: rec.path, openFile: (path) => project.openTab({ type: 'file', path }) });
     else doc.append(h('div', { class: 'empty-state' }, '이 기록에는 카드(summary.md)가 없습니다.'));
+  }
+
+  async function comparePrev(id) {
+    try {
+      const hist = await project.get(`an-history?id=${encodeURIComponent(id)}`);
+      if (!hist.previous) { flash('같은 분석·같은 대상의 이전 기록이 없습니다 — 다음 회차에 다시 돌리면 견줄 수 있습니다'); return; }
+      project.openTab({ type: 'ancompare', a: hist.previous, b: id });
+    } catch (err) { project.notify({ level: 'error', text: err.message }); }
   }
 
   function drawRecent() {

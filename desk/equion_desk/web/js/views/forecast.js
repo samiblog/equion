@@ -413,8 +413,9 @@ export function forecastView(project, desc) {
     el.append(h('div', { class: 'view-head' },
       h('div', {}, h('h1', {}, '전망'), h('div', { class: 'sub' }, '가정을 적고, 기준선과 시나리오를 풉니다. 가정을 고쳐도 저절로 다시 풀지 않습니다.')),
       info ? h('div', { class: 'tools' },
-        info.scenarios.length ? h('button', { class: 'btn quiet', type: 'button', title: '시나리오 파일을 연다 — 충격(어느 변수를 얼마나)을 적는 정의 파일', onclick: (e) => popMenu(e.currentTarget, [h('div', { class: 'menu-title' }, '시나리오 파일'),
-          ...info.scenarios.map((s) => ({ label: s.name, hint: s.desc || s.file, onPick: () => project.openTab({ type: 'file', path: s.file, edit: true }) }))], { cls: 'plain', align: 'right' }) }, icon('layers'), '시나리오', icon('chevron', 'down')) : null,
+        h('button', { class: 'btn quiet', type: 'button', 'data-act': 'scenarios', title: '시나리오 — 충격 표로 만들고 고친다(SCENARIOS/*.toml)', onclick: (e) => popMenu(e.currentTarget, [h('div', { class: 'menu-title' }, '시나리오'),
+          ...info.scenarios.map((s) => ({ label: s.name, hint: s.desc || s.file, onPick: () => project.openTab({ type: 'scenario', name: s.name }) })),
+          { label: '새 시나리오…', hint: '충격 표로', onPick: () => project.openTab({ type: 'scenario' }) }], { cls: 'plain', align: 'right' }) }, icon('layers'), '시나리오', icon('chevron', 'down')),
         h('button', { class: 'btn quiet', type: 'button', onclick: () => project.openTab({ type: 'reports' }) }, icon('doc'), '보고서'),
         claudeButton(project, () => ({ name: st.shown || `모형 ${st.model} 의 전망`, summary: st.view && st.shown ? `${st.view.meta.scenario === 'base' ? '기준선' : `시나리오 ${st.view.meta.scenario}`} ${st.view.meta.range?.join('~') || ''}` : '' }))) : null));
     if (st.error) el.append(h('div', { class: 'banner error' }, icon('alert'), h('div', { class: 'grow' }, st.error)));
@@ -431,7 +432,8 @@ export function forecastView(project, desc) {
     show() { if (!loaded) load(); },
     open(next) {
       if (next.model && next.model !== st.model) { Object.assign(st, { model: next.model, shown: next.shown || null, view: null, series: null, open: null, col: null }); st.compare.clear(); if (loaded) load(); return; }
-      if (next.shown) { if (loaded) showRecord(next.shown); else st.shown = next.shown; }
+      if (Array.isArray(next.scenarios) && next.scenarios.length) st.picks = new Set(next.scenarios);      // 시나리오 폼의 '저장하고 풀기'
+      if (next.shown) { if (loaded) { if (next.scenarios) load().then(() => showRecord(next.shown)); else showRecord(next.shown); } else st.shown = next.shown; }
     },
     event(e) {
       if ((e.type === 'record' && e.record?.kind === 'sim') || e.type === 'defs') { if (loaded && !project.busy) load(); else if (loaded) st.stale = true; }
