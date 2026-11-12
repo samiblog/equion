@@ -22,6 +22,12 @@ from .config import ProjectError
 
 ADOPTED = "EQUATIONS/adopted.toml"
 METHOD_KO = {"ols": "OLS", "tsls": "TSLS", "nls": "NLS", "fixed": "고정", "wls": "WLS", "gmm": "GMM", "liml": "LIML"}
+
+
+def _method_label(eq) -> str:
+    """추정법의 보이는 이름 — c(n) 식의 도구변수 추정은 NL-TSLS(D64)."""
+    lab = (getattr(eq, "statistics", None) or getattr(eq, "stats", None) or {}).get("method")
+    return lab if lab == "NL-TSLS" else METHOD_KO.get(eq.method, str(eq.method).upper())
 DIAG_KEYS = (("계열상관 LM", "lm"), ("White", "white"), ("Breusch-Pagan", "bp"), ("Ljung-Box", "lb"),
              ("ARCH", "arch"), ("Jarque-Bera", "jb"), ("RESET", "reset"))
 DIAG_LABEL = {"lm": "LM(2)", "white": "White", "bp": "BP", "lb": "LB(4)", "arch": "ARCH", "jb": "JB", "reset": "RESET"}
@@ -246,7 +252,7 @@ class EstRecord:
 def est_text(m: dict) -> str:
     st = m["stats"]
     s, e = m["sample"]
-    head = (f"[{m['id']}] {METHOD_KO.get(m['method'], m['method'].upper())} {m['dependent']} · {s}~{e} · n={m['n']}   "
+    head = (f"[{m['id']}] {m.get('method_label') or METHOD_KO.get(m['method'], m['method'].upper())} {m['dependent']} · {s}~{e} · n={m['n']}   "
             f"R²adj {short(st.get('adj_r_squared'))} · SE {short(st.get('se_regression'))} · "
             f"DW {short(st.get('durbin_watson'))} · AIC {short(st.get('aic'))} · BIC {short(st.get('bic'))}")
     L = [head]
@@ -429,6 +435,7 @@ def _write_est(p, store, obj, text, expr, pt, tv, name, req, notes, sim, who, co
     meta = {
         "who": _who(who), "command": command, "project": p.name, "equion": _version(),
         "target": tv, "part": pt.id if pt else None, "text": text, "expr": expr, "method": eq.method,
+        "method_label": _method_label(eq),
         "dependent": eq.dependent_var, "sample": [s, e], "n": int(obj.nobs),
         "stats": {k: st.get(k) for k in ("r_squared", "adj_r_squared", "se_regression", "durbin_watson",
                                           "log_likelihood", "aic", "bic", "f_statistic", "f_pvalue")},
@@ -478,7 +485,7 @@ def _est_md(m, ctab, has_sim) -> str:
                                                                             f"{m['target']} 실측 · 단독 모의")))
     sections.append(("실측과 적합", md.vega_line("series.csv", "period", ["actual", "fitted"], f"{m['dependent']}")))
     sections.append(("알아서 한 것", md.bullets(m.get("implicit") or [])))
-    head = [("식", m["text"]), ("부품", m.get("part")), ("추정법", METHOD_KO.get(m["method"], m["method"])),
+    head = [("식", m["text"]), ("부품", m.get("part")), ("추정법", m.get("method_label") or METHOD_KO.get(m["method"], m["method"])),
             ("표본", f"{m['sample'][0]}~{m['sample'][1]} (관측치 {m['n']})"), ("자료", data_label(m["data"])),
             ("만든 때", m.get("created") or now_iso()), ("누가", WHO_KO.get(m["who"], m["who"])), ("명령", m["command"]),
             ("equion", m["equion"])]

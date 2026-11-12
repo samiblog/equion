@@ -592,9 +592,9 @@ def main():
         check("저장·열기: 시스템 객체(식·도구·추정법) 다시 추정해 같은 계수", close(w3.obj("over").coefs, ov.coefs, 1e-8)
               and w3.obj("over").method == "fiml")
     bad = ws.system("bad")
-    check("시스템 오류: 항등식·비선형 계수·같은 목표·ar 항·도구 없는 3SLS",
+    check("시스템 오류: 항등식·같은 목표·ar 항·도구 없는 3SLS(계수에 비선형인 식은 D64부터 받는다)",
           raises(lambda: bad.append("Y1 = Y2 + X1").ols(), ValueError, "항등식")
-          and raises(lambda: ws.system("b2").append("Y1 = c(1)*c(2)*X1").ols(), ValueError, "선형")
+          and quiet(ws.system("b2").append("Y1 = c(1)*c(2)*X1", "Y2 c X2").ols).nonlinear
           and raises(lambda: ws.system("b3").append("Y1 c X1", "Y1 c X2").ols(), ValueError, "목표변수")
           and raises(lambda: ws.system("b4").append("Y1 c X1 ar(1)").ols(), ValueError, "ar")
           and raises(lambda: ws.system("b5").append("Y1 c Y2").three_sls(), ValueError, "도구"))
@@ -759,6 +759,73 @@ def main():
     check("Granger 표: 순서 있는 쌍마다 한 줄(셋이면 여섯) · 시차가 모자라면 오류",
           len(gtab) == 6 and gtab.set_index(["원인", "결과"]).loc[("x", "y"), "인과(5%)"]
           and raises(lambda: eqn.stats.granger_causality(gy[:8], gx[:8], 3), ValueError, "모자랍"))
+
+    print("\n" + "=" * 80)
+    print("K. 비선형 추정 — NL-2SLS · 비선형 시스템(NL-OLS·SUR·2SLS·3SLS) · 비선형 FIML (D64)")
+    print("=" * 80)
+    from equion.stats import system as SY
+    rng = np.random.default_rng(64)
+    n = 2000
+    z1, z2 = rng.normal(size=n), rng.normal(size=n)
+    u = rng.normal(scale=0.3, size=n)
+    xk = np.exp(0.5 + 0.6 * z1 + 0.5 * z2 + 0.5 * u + rng.normal(scale=0.1, size=n))       # 오차와 상관된 설명변수(내생)
+    yk = 1.0 + 2.0 * xk ** 0.5 + u
+    X0 = pd.DataFrame({"const": 1.0, "x": xk})
+    Zk = pd.DataFrame({"const": 1.0, "z1": z1, "z2": z2, "z1sq": z1 ** 2, "z2sq": z2 ** 2, "z12": z1 * z2})
+    t_lin = R.tsls(pd.Series(yk), X0, Zk)
+    nl_lin = R.nltsls(pd.Series(yk), t_lin.params, X0 @ t_lin.params, X0.to_numpy(), Zk)
+    check("NL-2SLS: 계수에 선형인 식이면 TSLS와 같은 표준오차, Sargan(자유도 = 도구 − 계수)",
+          close(nl_lin.bse, t_lin.bse, 1e-10) and nl_lin.extra["sargan_df"] == 4 and np.isfinite(nl_lin.extra["sargan_statistic"]))
+    from scipy.optimize import least_squares
+    Q = np.linalg.svd(Zk.to_numpy(), full_matrices=False)[0]
+    f = lambda c: c[0] + c[1] * xk ** c[2]                                          # noqa: E731
+    Jf = lambda c: np.column_stack([np.ones(n), xk ** c[2], c[1] * xk ** c[2] * np.log(xk)])   # noqa: E731
+    c_iv = least_squares(lambda c: Q.T @ (yk - f(c)), [0.5, 1.0, 1.0], jac=lambda c: -Q.T @ Jf(c), method="lm").x
+    c_ls = least_squares(lambda c: yk - f(c), [0.5, 1.0, 1.0], jac=lambda c: -Jf(c), method="lm").x
+    check("NL-2SLS: 내생 설명변수가 있으면 NLS는 치우치고 NL-2SLS는 참값(1, 2, 0.5) 가까이",
+          np.max(np.abs(c_iv - [1, 2, 0.5])) < 0.05 and abs(c_ls[0] - 1) > 0.2 and abs(c_ls[2] - 0.5) > abs(c_iv[2] - 0.5),
+          f"{c_iv.round(3)} {c_ls.round(3)}")
+
+    wfk = eqn.datasets.load("klein_like")
+    sk = wfk.system("kl")
+    quiet(sk.append, "CONS c PR PR(-1) WP+WG", "I c PR PR(-1) K(-1)", "WP c X X(-1) A", "@inst G T WG A PR(-1) K(-1) X(-1)")
+    worst = 0.0
+    for meth in ("ols", "sur", "tsls", "3sls"):
+        ak = sk._arrays(None, need_inst=meth in ("tsls", "3sls"))
+        ys_, Xs_ = ak["ys"], ak["Xs"]
+        lin = SY.fit_linear(ys_, Xs_, meth, Zs=ak["Zs"])
+        nl = SY.fit_nonlinear(lambda b: np.column_stack([ys_[i] - Xs_[i] @ b for i in range(len(ys_))]), lambda b: Xs_,
+                              np.zeros(Xs_[0].shape[1]), meth, Zs=ak["Zs"])
+        worst = max(worst, float(np.max(np.abs(lin.params - nl.params))), float(np.max(np.abs(lin.cov - nl.cov)) / float(np.max(np.abs(lin.cov)))))
+    check("비선형 시스템: 계수에 선형인 식이면 OLS·SUR·2SLS·3SLS 모두 선형 추정과 같은 계수·공분산(Klein형)", worst < 1e-9, f"{worst:.2e}")
+    wq = eqn.datasets.load("toy_q")
+    sq = wq.system("s2")
+    quiet(sq.append, "I c Y(-1) R", "RL c R")
+    aq = sq._arrays(None, need_jac=True)
+    ys_, Xs_, A_, B_ = aq["ys"], aq["Xs"], aq["A"], aq["B"]
+    st_ = SY.fit_linear(ys_, Xs_, "ols").params
+    fl = SY.fit_fiml(ys_, Xs_, A_, B_, st_)
+    fn = SY.fit_fiml_nonlinear(lambda b: np.column_stack([ys_[i] - Xs_[i] @ b for i in range(len(ys_))]), lambda b: Xs_,
+                               lambda b: A_ + np.einsum("ktij,k->tij", B_, b), lambda b: B_, st_)
+    check("비선형 FIML: 계수에 선형인 식이면 선형 FIML과 같은 계수·로그우도", close(fl.params, fn.params, 1e-8) and abs(fl.loglik - fn.loglik) < 1e-8,
+          f"{np.max(np.abs(fl.params - fn.params)):.2e}")
+    T = 3000
+    xs = rng.uniform(1, 4, size=T)
+    e = rng.multivariate_normal([0, 0], [[0.04, 0.03], [0.03, 0.05]], size=T)
+    y1 = 1 + 2 * xs ** 0.6 + e[:, 0]
+    y2 = 3 + 2 * np.log(xs) + e[:, 1]                    # 두 식이 계수 2(b[1])를 함께 쓴다
+    res_ = lambda b: np.column_stack([y1 - b[0] - b[1] * xs ** b[2], y2 - b[3] - b[1] * np.log(xs)])   # noqa: E731
+    jac_ = lambda b: [np.column_stack([np.ones(T), xs ** b[2], b[1] * xs ** b[2] * np.log(xs), np.zeros(T)]),   # noqa: E731
+                      np.column_stack([np.zeros(T), np.log(xs), np.zeros(T), np.ones(T)])]
+    fo = SY.fit_nonlinear(res_, jac_, [0, 1, 1, 0], "ols")
+    fs = SY.fit_nonlinear(res_, jac_, [0, 1, 1, 0], "sur")
+    fi = SY.fit_nonlinear(res_, jac_, [0, 1, 1, 0], "sur", iterate=True)
+    check("비선형 SUR: 공유 계수까지 참값(1, 2, 0.6, 3) 가까이 · 식 사이 상관을 쓰면 표준오차가 OLS보다 작다 · 반복하면 수렴",
+          np.max(np.abs(fs.params - [1, 2, 0.6, 3])) < 0.05 and np.all(np.sqrt(np.diag(fs.cov)) <= np.sqrt(np.diag(fo.cov)) * 1.0001)
+          and fi.iterations > 1 and fi.extra["converged"], f"{fs.params.round(3)}")
+    check("비선형 시스템: 도구가 계수보다 적으면 식별 불가 · 알 수 없는 추정법",
+          raises(lambda: SY.fit_nonlinear(res_, jac_, [0, 1, 1, 0], "tsls", Zs=[np.ones((T, 1)), np.ones((T, 1))]), ValueError, "식별")
+          and raises(lambda: SY.fit_nonlinear(res_, jac_, [0, 1, 1, 0], "gmm"), ValueError, "알 수 없는"))
 
     print("\n" + "=" * 80)
     print("I. 의존성")

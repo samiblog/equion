@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""연립(시스템) 추정 — 계수에 선형인 식 여러 개를 함께 추정한다 (DECISIONS D22).
+"""연립(시스템) 추정 — 식 여러 개를 함께 추정한다 (DECISIONS D22, 계수에 비선형인 식은 D64 — fit_nonlinear · fit_fiml_nonlinear).
 
 식 i(= 1…m)는 yᵢ = Xᵢ b + εᵢ 꼴로 받는다. b는 시스템 전체의 계수 벡터(K개)이고, 식마다 쓰지 않는 계수의 열은 0이다 —
 여러 식이 같은 계수를 쓰면(c(n) 공유) 그것이 곧 식 사이 제약이다. 일반 선형 제약 R·b = q는 b = b₀ + Nθ(N은 R의 영공간)로
@@ -238,6 +238,234 @@ def fit_fiml(ys: List[np.ndarray], Xs: List[np.ndarray], A: np.ndarray, B: np.nd
     return fit
 
 
+# ---------------------------------------------------------------------------
+# 계수에 비선형인 시스템 (0.9 — D64)
+# ---------------------------------------------------------------------------
+def _basis(Z: np.ndarray) -> np.ndarray:
+    """도구의 열공간 직교 기저 Q(Z = Q·R) — 유사역행렬과 같은 잣대로 계수를 정한다(겹친 도구는 하나로)."""
+    u, s, _ = np.linalg.svd(np.asarray(Z, dtype=float), full_matrices=False)
+    r = int(np.sum(s > (s[0] if s.size else 0.0) * RCOND)) if s.size else 0
+    return u[:, :r]
+
+
+def fit_nonlinear(resid_fn, jac_fn, start, method: str = "ols", Zs: List[np.ndarray] = None, R=None, q=None,
+                  iterate: bool = False, maxiter: int = 500, tol: float = 1e-10) -> SystemFit:
+    """계수에 비선형인 시스템 추정. resid_fn(b) → (T, m) 구조 잔차 εᵢₜ = 좌변 − fᵢ(b), jac_fn(b) → 식마다 (T, K)의 ∂fᵢ/∂b.
+
+    ols   Σᵢ‖εᵢ‖² 최소(같은 계수 공유 반영)
+    sur   εᵀ(Σ̂⁻¹⊗I)ε — Σ̂는 NL-OLS 잔차에서, iterate=True면 Σ̂·계수를 수렴할 때까지
+    tsls  Σᵢ εᵢᵀP_Zᵢ εᵢ (식마다 도구)
+    3sls  mᵀS⁻¹m, m = [Qᵢᵀεᵢ], S = [σ̂ᵢⱼQᵢᵀQⱼ](Qᵢ = 도구 Zᵢ의 직교 기저, Σ̂는 NL-2SLS 잔차에서) — 도구가 모든 식에 같으면 εᵀ(Σ̂⁻¹⊗P_Z)ε
+    풀이는 해석적 기울기로 Levenberg-Marquardt(scipy least_squares), 선형 제약 R·b = q는 b = b₀ + Nθ. 공분산은 선형 시스템과 같은 정의를
+    해에서의 기울기 Gᵢ = ∂fᵢ/∂b로 — 계수에 선형인 식이면 fit_linear와 같은 값이다(시험에서 확인).
+
+    예
+        >>> from equion.stats.system import fit_nonlinear
+        >>> rng = np.random.default_rng(1)
+        >>> x = rng.uniform(1, 3, size=200)
+        >>> y1 = 1 + 2 * x ** 0.5 + rng.normal(scale=0.1, size=200)
+        >>> y2 = 3 + 2 * x + rng.normal(scale=0.1, size=200)          # 두 식이 계수 b[1] = 2를 함께 쓴다
+        >>> resid = lambda b: np.column_stack([y1 - b[0] - b[1] * x ** b[2], y2 - b[3] - b[1] * x])
+        >>> jac = lambda b: [np.column_stack([np.ones(200), x ** b[2], b[1] * x ** b[2] * np.log(x), np.zeros(200)]),
+        ...                  np.column_stack([np.zeros(200), x, np.zeros(200), np.ones(200)])]
+        >>> fit = fit_nonlinear(resid, jac, [0, 1, 1, 0], "sur")
+        >>> np.round(fit.params, 1).tolist()
+        [1.0, 2.0, 0.5, 3.0]
+    """
+    from scipy.linalg import solve_triangular
+    from scipy.optimize import least_squares
+    method = method.lower()
+    if method not in ("ols", "sur", "tsls", "3sls"):
+        raise ValueError(f"알 수 없는 시스템 추정법: {method}")
+    start = np.asarray(start, dtype=float).ravel()
+    K = start.size
+    b0, N = restriction_basis(R, q, K)
+    E0 = np.asarray(resid_fn(start), dtype=float)
+    m = E0.shape[1]
+    Qs = None
+    if method in ("tsls", "3sls"):
+        if Zs is None or any(z is None for z in Zs):
+            raise ValueError(f"{method}에는 도구변수가 필요합니다")
+        Qs = [_basis(Z) for Z in Zs]
+        for i, G in enumerate(jac_fn(start)):
+            used = np.flatnonzero(np.any(np.asarray(G) != 0, axis=0))
+            if Qs[i].shape[1] < len(used):
+                raise ValueError(f"식 {i + 1}: 도구변수({Qs[i].shape[1]}개)가 계수({len(used)}개)보다 적어 식별 불가")
+
+    def b_of(th):
+        return b0 + N @ th
+
+    def E_of(th):
+        E = np.asarray(resid_fn(b_of(th)), dtype=float)
+        return np.where(np.isfinite(E), E, 1e6)
+
+    def GN_of(th):
+        return [np.where(np.isfinite(g), g, 0.0) @ N for g in jac_fn(b_of(th))]
+
+    def solve(vfun, jfun, th0):
+        n_res = len(vfun(th0))
+        sol = least_squares(vfun, th0, jac=jfun, method="lm" if n_res > len(th0) else "trf",
+                            xtol=1e-15, ftol=1e-15, gtol=1e-15, max_nfev=400 * (len(th0) + 1))
+        if not sol.success or not np.all(np.isfinite(sol.x)):
+            raise ValueError(f"비선형 시스템 추정({method}) 수렴 실패: {sol.message} — 시작값(start=…, 식의 @start)을 확인하세요")
+        return sol
+
+    # 목적 벡터 — 제곱합이 목적함수가 되게
+    def v_ols(th):
+        return E_of(th).T.ravel()
+
+    def j_ols(th):
+        return -np.concatenate(GN_of(th), axis=0)
+
+    def v_iv(th):
+        E = E_of(th)
+        return np.concatenate([Qs[i].T @ E[:, i] for i in range(m)])
+
+    def j_iv(th):
+        G = GN_of(th)
+        return -np.concatenate([Qs[i].T @ G[i] for i in range(m)], axis=0)
+
+    def sur_fns(W):
+        return (lambda th: _whiten([E_of(th)[:, [i]] for i in range(m)], W)[:, 0],
+                lambda th: -_whiten(GN_of(th), W))
+
+    def SZ(S):
+        return np.block([[S[i, j] * (Qs[i].T @ Qs[j]) for j in range(m)] for i in range(m)])
+
+    def three_fns(L):
+        return (lambda th: solve_triangular(L, v_iv(th), lower=True),
+                lambda th: solve_triangular(L, j_iv(th), lower=True))
+
+    th = np.linalg.lstsq(N, start - b0, rcond=None)[0]
+    sol = solve(v_ols, j_ols, th) if method in ("ols", "sur") else solve(v_iv, j_iv, th)
+    th, nfev, it = sol.x, int(sol.nfev), 1
+    b = b_of(th)
+    E = np.asarray(resid_fn(b), dtype=float)
+    S = _sigma(E)
+    if method in ("ols", "tsls"):
+        G = [np.asarray(g, dtype=float) for g in jac_fn(b)]
+        Xr = G if method == "ols" else [Qs[i] @ (Qs[i].T @ G[i]) for i in range(m)]
+        P, _ = pinv_svd(np.concatenate([X @ N for X in Xr], axis=0))
+        cov = _cov_sandwich(Xr, N, P @ P.T, S)
+        fit = SystemFit(method, b, cov, E, S, it)
+        fit.extra.update({"nonlinear": True, "converged": True, "nfev": nfev})
+        return fit
+    S_used = S
+    while True:                                             # NL-SUR · NL-3SLS: Σ̂로 다시(반복 가능)
+        S_used = S
+        if method == "sur":
+            vf, jf = sur_fns(_inv_sqrt(S))
+        else:
+            try:
+                L = np.linalg.cholesky(SZ(S))
+            except np.linalg.LinAlgError:
+                raise ValueError("3SLS: 잔차 공분산이 특이합니다(식이 서로 같거나 잔차가 0인 식) — 식을 확인하세요") from None
+            vf, jf = three_fns(L)
+        sol = solve(vf, jf, th)
+        nfev += int(sol.nfev)
+        it += 1
+        b_new = b_of(sol.x)
+        moved = float(np.max(np.abs(b_new - b)))
+        th, b = sol.x, b_new
+        E = np.asarray(resid_fn(b), dtype=float)
+        S_new = _sigma(E)
+        if not iterate or moved <= tol * (1 + float(np.max(np.abs(b)))) or it > maxiter:
+            break
+        S = S_new
+    GN = [np.asarray(g, dtype=float) @ N for g in jac_fn(b)]
+    if method == "sur":
+        P, _ = pinv_svd(_whiten(GN, _inv_sqrt(S_used)))
+        cov = N @ (P @ P.T) @ N.T
+    else:
+        D = np.concatenate([Qs[i].T @ GN[i] for i in range(m)], axis=0)
+        A = D.T @ np.linalg.solve(SZ(S_used), D)
+        try:
+            cov = N @ np.linalg.inv(A) @ N.T
+        except np.linalg.LinAlgError:
+            cov = N @ np.linalg.pinv(A) @ N.T
+    fit = SystemFit(method, b, cov, E, S_new, it - 1)
+    fit.extra.update({"sigma_used": S_used, "nonlinear": True, "converged": bool(it <= maxiter + 1), "nfev": nfev})
+    if method == "sur":
+        fit.loglik = gaussian_loglik(E)
+    return fit
+
+
+def fit_fiml_nonlinear(resid_fn, jac_fn, J_fn, dJ_fn, start, R=None, q=None, maxiter: int = 2000,
+                       gtol: float = 1e-9) -> SystemFit:
+    """완전정보 최우(계수·내생변수에 비선형인 식). 집중 로그우도 −(T/2)log|Σ̂(b)| + Σₜ log|det Jₜ(b)|를 최대화한다.
+
+    resid_fn(b) → (T, m) 구조 잔차, jac_fn(b) → 식마다 (T, K)의 ∂fᵢ/∂b, J_fn(b) → (T, m, m) Jₜ = ∂εₜ/∂yₜ(현시점 내생변수),
+    dJ_fn(b) → (K, T, m, m) ∂Jₜ/∂bₖ. 기울기는 해석적 — ∂/∂bₖ = tr(Σ̂⁻¹ÊᵀXₖ) + Σₜ tr(Jₜ⁻¹∂Jₜ/∂bₖ)(Xₖ = ∂f/∂bₖ),
+    공분산은 관측 정보(해석적 기울기의 중앙 차분 헤시안). 계수에 선형인 식이면 fit_fiml과 같은 값이다."""
+    from scipy.optimize import minimize
+    start = np.asarray(start, dtype=float).ravel()
+    K = start.size
+    b0, N = restriction_basis(R, q, K)
+
+    def parts(b):
+        E = np.asarray(resid_fn(b), dtype=float)
+        J = np.asarray(J_fn(b), dtype=float)
+        return E, J
+
+    def negll(theta):
+        b = b0 + N @ theta
+        E, J = parts(b)
+        if not np.all(np.isfinite(E)) or not np.all(np.isfinite(J)):
+            return np.inf
+        sgn, ld = np.linalg.slogdet(J)
+        if np.any(sgn == 0):
+            return np.inf
+        val = gaussian_loglik(E, float(np.sum(ld)))
+        return -val if np.isfinite(val) else np.inf
+
+    def grad_b(b):
+        E, J = parts(b)
+        Xk = np.stack([np.column_stack([np.asarray(g)[:, k] for g in jac_fn(b)]) for k in range(K)])   # (K, T, m)
+        Sinv = np.linalg.inv(_sigma(E))
+        g1 = np.einsum("ti,ij,ktj->k", E, Sinv, Xk)
+        g2 = np.einsum("tij,ktji->k", np.linalg.inv(J), np.asarray(dJ_fn(b), dtype=float))
+        return g1 + g2
+
+    def neggrad(theta):
+        return -(N.T @ grad_b(b0 + N @ theta))
+    th0 = np.linalg.lstsq(N, start - b0, rcond=None)[0]
+    if not np.isfinite(negll(th0)):
+        raise ValueError("FIML: 시작값에서 로그우도를 계산할 수 없습니다(야코비안이 특이하거나 잔차가 수가 아님) — start를 확인하세요")
+    res = minimize(negll, th0, jac=neggrad, method="BFGS", options={"gtol": gtol, "maxiter": maxiter})
+    if not np.isfinite(res.fun):
+        raise ValueError("FIML: 로그우도를 계산할 수 없습니다(야코비안이 특이) — 시작값·식을 확인하세요")
+    theta = res.x
+
+    def hessian(th):
+        h = 1e-5 * np.maximum(1.0, np.abs(th))
+        I = np.eye(len(th))
+        H = np.column_stack([(neggrad(th + h[j] * I[j]) - neggrad(th - h[j] * I[j])) / (2 * h[j]) for j in range(len(th))])
+        return (H + H.T) / 2
+    for _ in range(20):
+        g = neggrad(theta)
+        if np.max(np.abs(g)) < 1e-10:
+            break
+        try:
+            step = np.linalg.solve(hessian(theta), g)
+        except np.linalg.LinAlgError:
+            break
+        cand = theta - step
+        if not negll(cand) <= negll(theta) + 1e-12 * abs(negll(theta)):
+            break
+        theta = cand
+    H = hessian(theta)
+    try:
+        cov_t = np.linalg.inv(H)
+    except np.linalg.LinAlgError:
+        cov_t = np.linalg.pinv(H)
+    b = b0 + N @ theta
+    E, _ = parts(b)
+    fit = SystemFit("fiml", b, N @ cov_t @ N.T, E, _sigma(E), int(res.nit), loglik=-float(negll(theta)))
+    gnorm = float(np.max(np.abs(neggrad(theta))))
+    fit.extra.update({"converged": bool(gnorm < 1e-6), "message": str(res.message), "gradient_norm": gnorm, "nonlinear": True})
+    return fit
+
+
 def wald(fit: SystemFit, R: np.ndarray, q: np.ndarray, df_resid: float = None):
     """시스템 계수의 선형 제약 Wald: χ²(r)와 F(r, df) — df_resid가 없으면 χ²만."""
     R = np.atleast_2d(np.asarray(R, dtype=float))
@@ -260,4 +488,5 @@ def wald(fit: SystemFit, R: np.ndarray, q: np.ndarray, df_resid: float = None):
     return out
 
 
-__all__ = ["METHODS", "SystemFit", "fit_linear", "fit_fiml", "gaussian_loglik", "restriction_basis", "wald", "RCOND"]
+__all__ = ["METHODS", "SystemFit", "fit_linear", "fit_fiml", "fit_nonlinear", "fit_fiml_nonlinear", "gaussian_loglik",
+           "restriction_basis", "wald", "RCOND"]

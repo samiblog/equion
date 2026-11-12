@@ -451,6 +451,44 @@ def nls(y: pd.Series, params: pd.Series, fitted: pd.Series, J: np.ndarray) -> Re
     return r
 
 
+def nltsls(y: pd.Series, params: pd.Series, fitted: pd.Series, J: np.ndarray, Z) -> Results:
+    """비선형 2단계 최소제곱(NL-2SLS)의 결과 객체 — 잔차 e를 도구 Z의 열공간에 투영한 제곱합 eᵀP_Z e를 최소화한 해(params)에서,
+    공분산 σ̂²(ĴᵀĴ)⁻¹(Ĵ = P_Z J, σ̂² = eᵀe/(n−k))와 Sargan 과대식별 검정 n·eᵀP_Z e / eᵀe(자유도 = 도구의 계수 − 계수 수)를 낸다.
+    J는 해에서의 기울기 ∂f/∂c(관측치 × 계수). 계수에 선형인 식이면 TSLS와 같다.
+
+    예
+        >>> rng = np.random.default_rng(0)
+        >>> z = rng.normal(size=200)
+        >>> x = z + rng.normal(size=200)
+        >>> X = pd.DataFrame({"const": 1.0, "x": x})
+        >>> y = pd.Series(1 + 2 * x + rng.normal(size=200))
+        >>> Z = pd.DataFrame({"const": 1.0, "z": z})
+        >>> t = eqn.stats.tsls(y, X, Z)
+        >>> r = eqn.stats.nltsls(y, t.params, X @ t.params, X.to_numpy(), Z)    # 선형 식이면 TSLS와 같다
+        >>> bool(np.allclose(r.bse, t.bse))
+        True
+    """
+    n, k = len(y), len(params)
+    Zv = np.asarray(Z, dtype=float)
+    Pz, _ = pinv_svd(Zv)
+    Jhat = Zv @ (Pz @ np.asarray(J, dtype=float))
+    e = (y - fitted).to_numpy(dtype=float)
+    try:
+        bread = np.linalg.inv(Jhat.T @ Jhat)
+    except np.linalg.LinAlgError:
+        bread = np.full((k, k), np.nan)
+    r = Results("NL-TSLS", params, y, fitted, n - k, (float(e @ e) / (n - k)) * bread, bread=bread, G=Jhat)
+    _info_criteria(r, n, k)
+    L = int(np.linalg.matrix_rank(Zv))
+    pe = Zv @ (Pz @ e)
+    ee = float(e @ e)
+    sargan = n * float(e @ pe) / ee if ee > 0 else np.nan
+    df = L - k
+    r.extra = {"sargan_statistic": sargan, "sargan_df": df,
+               "sargan_pvalue": float(stats.chi2.sf(sargan, df)) if df > 0 and np.isfinite(sargan) else np.nan}
+    return r
+
+
 def fixed(y: pd.Series, params: pd.Series, fitted: pd.Series) -> Results:
     """고정(외부) 계수의 결과 객체 — 표준오차 없음, 적합도 통계만.
 

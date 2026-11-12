@@ -577,24 +577,56 @@ def _vecm(p, target, lags_diff=1, rank=1, det="ci"):
                  makes={"kind": "candidate", "equations": _eq_payload(quiet(v.make_equations))})
 
 
-def _system(p, target, method="sur", inst=None):
+_CNUM = re.compile(r"(?i)\bc\(\s*(\d+)\s*\)")
+
+
+def _renumber(exprs, shared: bool):
+    """블록 파일의 c(n)은 식마다 따로다 — 시스템에 넣을 때 식마다 번호를 이어 붙여(c(1)·c(2) → c(4)·c(5)) 우연히 공유되지 않게.
+    shared=True면 그대로(같은 번호 = 같은 계수 — 식 사이 제약)."""
+    if shared:
+        return list(exprs), []
+    out, top, moved = [], 0, []
+    for e in exprs:
+        nums = [int(m[1]) for m in _CNUM.finditer(e)]
+        if not nums:
+            out.append(e)
+            continue
+        off = top
+        out.append(_CNUM.sub(lambda m: f"c({int(m[1]) + off})", e) if off else e)
+        if off:
+            moved.append(e)
+        top = off + max(nums)
+    return out, moved
+
+
+def _system(p, target, method="sur", inst=None, shared=False):
     wf = p.workfile
     if target not in p.config.blocks:
         raise ProjectError(f"시스템 추정의 대상은 블록입니다(있는 블록: {', '.join(p.blocks)})")
     eqs = [x for x in p.parts(target) if x.kind == "equation"]
     if len(eqs) < 2:
         raise ProjectError(f"블록 {target}의 추정식이 둘 이상이어야 합니다")
+    if "an_sys" in wf._objects:                    # 같은 프로젝트 객체로 다시 부르면 지난 식이 남아 있다 — 새로
+        quiet(wf.delete, "an_sys")
     s = wf.system("an_sys")
-    s.append(*[x.expr for x in eqs])
+    exprs, moved = _renumber([x.expr for x in eqs], shared)
+    s.append(*exprs)
     if inst:
         s.append("@inst " + " ".join(_tokens(inst.replace(",", " "))))
     fn = {"ols": s.ols, "sur": s.sur, "tsls": s.tsls, "3sls": s.three_sls, "fiml": s.fiml}[method]
     quiet(fn)
+    nonlinear = s.nonlinear
     tabs = [(f"시스템 추정 {method.upper()}", s.output().data), ("식마다", s.equation_stats())]
-    lines = [f"{method.upper()} · 식 {len(eqs)}: " + " · ".join(x.id for x in eqs)]
-    return AnOut("시스템 추정", f"블록 {target}", None, tabs, [], lines,
-                 ([] if inst or method in ("ols", "sur", "fiml") else ["도구변수는 식의 @inst로"]),
-                 {"method": method}, makes={"kind": "candidate", "equations": _eq_payload(quiet(s.make_equations))},
+    lines = [f"{method.upper()}{' · 비선형' if nonlinear else ''} · 식 {len(eqs)}: " + " · ".join(x.id for x in eqs)]
+    implicit = [] if inst or method in ("ols", "sur", "fiml") else ["도구변수는 식의 @inst로"]
+    if nonlinear:
+        implicit.append("계수에 비선형인 식이 있어 비선형 추정(시작값은 식 끝의 @start, 없으면 0)")
+    if moved:
+        implicit.append("c(n)은 식마다 따로 — 시스템에서는 번호를 이어 붙였다(같은 계수로 묶으려면 --shared)")
+    elif shared:
+        implicit.append("--shared: 같은 c(n) 번호는 식 사이에 같은 계수(식 사이 제약)")
+    return AnOut("시스템 추정", f"블록 {target}", None, tabs, [], lines, implicit,
+                 {"method": method, "nonlinear": nonlinear}, makes={"kind": "candidate", "equations": _eq_payload(quiet(s.make_equations))},
                  inputs={"files": definition_hashes(p)})
 
 
@@ -904,8 +936,9 @@ register(Analysis("vecm", "VECM", "부품을 내는 분석", ("group", "expr"),
                   "α·β·Γ 표", "an keep이 식마다 식 후보로", "equion an vecm \"RL R\" --rank 1", _vecm, count="many"))
 register(Analysis("system", "시스템 추정", "부품을 내는 분석", ("block",),
                   [Opt("method", "choice", "sur", ("ols", "sur", "tsls", "3sls", "fiml"), "추정법"),
-                   Opt("inst", "str", None, help="모든 식의 도구변수(쉼표·공백)", metavar="변수들")], "candidate",
-                  "계수·식마다 통계 표", "블록의 추정식을 한 번에 — an keep이 식마다 식 후보로",
+                   Opt("inst", "str", None, help="모든 식의 도구변수(쉼표·공백)", metavar="변수들"),
+                   Opt("shared", "bool", False, help="같은 c(n) 번호를 식 사이에 같은 계수로(식 사이 제약 — 기본은 식마다 따로)")], "candidate",
+                  "계수·식마다 통계 표", "블록의 추정식을 한 번에(계수에 비선형인 식도 — D64) — an keep이 식마다 식 후보로",
                   "equion an system demand --method sur", _system))
 
 register(Analysis("stats", "기술 통계", "기초 통계", ("series", "group", "expr"), [], None,

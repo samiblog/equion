@@ -75,7 +75,7 @@ export function renderSingle(box, rec, ctx) {
     crit ? h('span', { class: `tag ${crit.pass ? 'ok' : 'warn'}`, title: crit.pass ? '판단 기준([criteria])을 통과했습니다' : (crit.reasons || []).join('\n') },
       crit.pass ? '기준 통과' : `걸러짐 — ${(crit.reasons || []).join(', ')}`) : null,
     flags,
-    h('span', { class: 'meta' }, h('span', {}, String(rec.method || '').toUpperCase()), h('span', {}, `${rec.sample?.[0]} – ${rec.sample?.[1]}`), h('span', {}, `관측 ${rec.n}`),
+    h('span', { class: 'meta' }, h('span', {}, rec.method_label || String(rec.method || '').toUpperCase()), h('span', {}, `${rec.sample?.[0]} – ${rec.sample?.[1]}`), h('span', {}, `관측 ${rec.n}`),
       whoLabel(rec.who), h('span', {}, when(rec.created))),
     ctx.timing ? h('span', { class: 'timing', title: '누른 뒤 화면에 그리기까지 · 엔진이 계산한 시간' }, `화면까지 ${seconds(ctx.timing.total)} · 계산 ${seconds(ctx.timing.compute)}`) : null),
   h('div', { class: 'result-actions' },

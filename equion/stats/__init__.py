@@ -17,13 +17,13 @@ from .describe import (Correlation, acf, ccf, correlation, correlogram, describe
 from .diagnostics import (arch_lm, breusch_godfrey, breusch_pagan, chow, cusum, jarque_bera, ljung_box, nested,
                           parse_restrictions, recursive, reset, wald, wald_linear, white)
 from .forecast import diebold_mariano, evaluate as forecast_evaluate, evaluate_many as forecast_table
-from .regression import GMM_WEIGHTS, Results, constant_info, fixed, gmm, liml, nls, ols, pinv_svd, tsls, wls
+from .regression import GMM_WEIGHTS, Results, constant_info, fixed, gmm, liml, nls, nltsls, ols, pinv_svd, tsls, wls
 from .result import TestResult
 from .robust import COV_TYPES, newey_west_lags, normalize_cov_type
 from .unitroot import adf, engle_granger, johansen, kpss, mackinnon_crit, mackinnon_p
 
 __all__ = [
-    "Results", "ols", "wls", "tsls", "gmm", "liml", "nls", "fixed", "pinv_svd", "constant_info", "GMM_WEIGHTS",
+    "Results", "ols", "wls", "tsls", "gmm", "liml", "nls", "nltsls", "fixed", "pinv_svd", "constant_info", "GMM_WEIGHTS",
     "COV_TYPES", "newey_west_lags", "normalize_cov_type", "TestResult",
     "breusch_godfrey", "ljung_box", "white", "breusch_pagan", "arch_lm", "jarque_bera", "reset",
     "wald", "wald_linear", "parse_restrictions", "chow", "recursive", "cusum", "nested",

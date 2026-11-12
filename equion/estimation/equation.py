@@ -13,7 +13,8 @@
   tsls  : 2단계 최소제곱(도구변수)          — `Y c X1 X2 @inst Z1 Z2` (EViews식 `@`도 가능)
   gmm   : 선형 GMM(도구변수)                — gmm_weight='white'|'hac'(lags), iterate=True면 반복 GMM, J 통계량
   liml  : 제한정보 최우(도구변수)           — k-class κ
-  nls   : 비선형 최소제곱(계수 c(n) 명시)   — `Y = c(1) + c(2)*X^c(3)`  (`@start` 시작값)
+  nls   : 비선형 최소제곱(계수 c(n) 명시)   — `Y = c(1) + c(2)*X^c(3)`  (`@start` 시작값). `@inst`를 붙이면 비선형 2단계 최소제곱
+          (NL-2SLS — 잔차를 도구에 투영한 제곱합을 최소화, Sargan 과대식별 검정, 도구에는 상수항이 늘 든다)
   fixed : 외부 계수 고정(재추정 없음)       — `Y c X1 @coef 0.3 0.8` 또는 set_coefficients()
 
 AR(p) 오차: 선형 추정식에 `ar(1) ar(2)`(또는 `ar(1 to 4)`) — yₜ = xₜb + uₜ, uₜ = Σρₚuₜ₋ₚ + εₜ를 조건부 최소제곱
@@ -154,7 +155,7 @@ class Equation:
         elif self.fixed_coefs is not None:
             method = "fixed"
         elif kind == "nls":
-            method = "nls"
+            method = "tsls" if self.instruments else "nls"
         elif self.instruments:
             method = "tsls"
         elif self.weights_expr:
@@ -165,8 +166,8 @@ class Equation:
             raise DSLError(f"{method}에는 도구변수(@inst ...)가 필요합니다")
         if method == "wls" and not self.weights_expr:
             raise DSLError("wls에는 가중치 식(weights=...)이 필요합니다")
-        if kind == "nls" and method not in ("nls", "fixed"):
-            raise DSLError("c(n) 계수식은 nls 또는 fixed로만 추정할 수 있습니다")
+        if kind == "nls" and method not in ("nls", "tsls", "fixed"):
+            raise DSLError("c(n) 계수식은 nls · tsls(도구변수 @inst — 비선형 2단계 최소제곱) · fixed로만 추정할 수 있습니다")
         if ar_lags and method not in ("ols", "fixed"):
             raise DSLError(f"ar(...) 오차항은 ls(최소제곱)·fixed에서만 쓸 수 있습니다(지금: {method})")
         if method == "gmm" and self.cov_type != "nonrobust":
@@ -452,7 +453,7 @@ class Equation:
             Z = pd.DataFrame({name: self._series(node, name)
                               for name, node in zip([z for z in self.instruments if z != "c"],
                                                     self.instrument_irs)}, index=df.index)
-            if self.has_constant or "c" in self.instruments:
+            if self.has_constant or "c" in self.instruments or self.kind == "nls":
                 Z.insert(0, "const", 1.0)
 
         parts = [self._y.rename("__y__"), X]
@@ -548,7 +549,7 @@ class Equation:
             "se_regression": math.sqrt(ssr / (n - k)) if n > k else np.nan,
             "durbin_watson": float(np.sum(np.diff(e) ** 2) / ssr) if ssr > 0 else np.nan,
             "log_likelihood": float(getattr(res, "llf", np.nan)),
-            "method": self.method.upper(),
+            "method": "NL-TSLS" if (self.kind == "nls" and self.method == "tsls") else self.method.upper(),
             "cov_type": res.cov_type,
             "cov_label": res.cov_label,
         }
@@ -691,6 +692,8 @@ class Equation:
         self._results = _reg.wls(self._y, self._X, self._W.to_numpy(dtype=float))
 
     def _fit_tsls(self):
+        if self.kind == "nls":
+            return self._fit_nls(Z=self._Z)
         self._results = _reg.tsls(self._y, self._X, self._Z)
 
     def _fit_gmm(self):
@@ -714,7 +717,9 @@ class Equation:
                 .loc[self._y.index].to_numpy(dtype=float) for node in self._nls_deriv_nodes]
         return np.column_stack(cols)
 
-    def _fit_nls(self):
+    def _fit_nls(self, Z=None):
+        """비선형 최소제곱 — Z(도구)를 주면 비선형 2단계 최소제곱: 잔차를 도구의 열공간(직교 기저 Q)에 투영한 Qᵀr을 최소화한다.
+        시작값은 @start, 없으면 0. 도구가 있는데 @start가 없으면 NLS 해에서 시작한다."""
         from scipy.optimize import least_squares
         y = self._y
         k = len(self._coef_numbers)
@@ -722,19 +727,44 @@ class Equation:
         if len(x0) != k:
             raise DSLError(f"@start 값 {len(x0)}개 ≠ 계수 {k}개")
         self._nls_deriv_nodes = [ir.deriv(self.rhs_template, ir.Coef(num)) for num in self._coef_numbers]
+        Q = None
+        if Z is not None:
+            U, sv, _ = np.linalg.svd(np.asarray(Z, dtype=float), full_matrices=False)
+            rank = int(np.sum(sv > sv[0] * 1e-12)) if sv.size else 0
+            if rank < k:
+                raise ValueError(f"도구변수 {rank}개(상수항 포함) < 계수 {k}개 — 식별 불가 (@inst에 도구를 더 넣으세요)")
+            Q = U[:, :rank]
 
         def fun(c):
             r = (y - self._nls_rhs(c)).to_numpy(dtype=float)
-            return np.where(np.isfinite(r), r, 1e6)
+            r = np.where(np.isfinite(r), r, 1e6)
+            return r if Q is None else Q.T @ r
 
         def jac(c):
             J = -self._nls_jacobian(c)          # 잔차 = y − f 이므로 ∂r/∂c = −∂f/∂c
-            return np.where(np.isfinite(J), J, 0.0)
-        sol = least_squares(fun, x0, jac=jac, method="lm" if len(y) > k else "trf",
-                            xtol=1e-15, ftol=1e-15, gtol=1e-15)
+            J = np.where(np.isfinite(J), J, 0.0)
+            return J if Q is None else Q.T @ J
+
+        def solve(start):
+            m = len(y) if Q is None else Q.shape[1]
+            return least_squares(fun, start, jac=jac, method="lm" if m > k else "trf", xtol=1e-15, ftol=1e-15, gtol=1e-15)
+        if Q is not None and self.start_values is None:      # NL-2SLS: NLS 해에서 시작(실패하면 0에서)
+            Q_, Q = Q, None
+            try:
+                first = solve(x0)
+                if first.success and np.all(np.isfinite(first.x)):
+                    x0 = first.x
+            finally:
+                Q = Q_
+        sol = solve(x0)
         if not sol.success:
-            raise ValueError(f"NLS 수렴 실패: {sol.message} (@start로 시작값을 지정해 보세요)")
+            what = "NL-2SLS" if Q is not None else "NLS"
+            raise ValueError(f"{what} 수렴 실패: {sol.message} (@start로 시작값을 지정해 보세요)")
         names = pd.Index(self.coef_names)
+        if Q is not None:
+            self._results = _reg.nltsls(y, pd.Series(sol.x, index=names), self._nls_rhs(sol.x),
+                                        self._nls_jacobian(sol.x), Z)
+            return
         self._results = _reg.nls(y, pd.Series(sol.x, index=names), self._nls_rhs(sol.x),
                                  self._nls_jacobian(sol.x))
 

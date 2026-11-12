@@ -82,3 +82,35 @@ print(mu.level["X"].round(3).tolist())
 ```
 
 관련: [튜토리얼 7](../tutorial/07-systems.md)
+
+## R66. 비선형 시스템 — 계수 공유와 도구변수
+
+계수에 비선형인 식(생산함수의 지수, 탄력성이 변하는 소비함수 등)을 함께 추정합니다. 같은 `c(n)`은 두 식이 함께 쓰는 계수(식 사이 제약)이고,
+시작값은 식 끝의 `@start`나 `start=`로 줍니다. 식 하나면 `tsls`가 비선형 2단계 최소제곱(NL-2SLS)입니다.
+
+```python
+ns = wf.system("ns")
+ns.append("CN = c(1) + c(2)*Y^c(3) + c(4)*CN(-1) @start 10 0.5 1 0.2",
+          "I = c(5) + c(6)*Y(-1)^c(3) + c(7)*R",
+          "@inst G R CN(-1) Y(-1) POIL")
+ns.three_sls()
+print(ns.coefs.round(3).to_dict())
+print(ns.wald("c(4) = 0").pvalue < 0.01)
+one = wf.equation("one").tsls("CN = c(1) + c(2)*Y^c(3) + c(4)*CN(-1) @start 10 0.5 1 0.2 @inst G R CN(-1) Y(-1) POIL")
+print(one.stats["method"], round(float(one.coefs["c(3)"]), 3))
+```
+<!-- out -->
+```text
+[ns] 3단계 최소제곱(3SLS) — 비선형 · 식 2 · 계수 7 · 표본 160기
+{'c(1)': 37.531, 'c(2)': 0.236, 'c(3)': 1.116, 'c(4)': 0.246, 'c(5)': 12.048, 'c(6)': 0.066, 'c(7)': -0.969}
+[ns] 시스템 Wald 계수 제약 검정: χ² 87.1837, p=0.0000
+True
+[one] NL-TSLS CN — n=160, R²=0.9999
+NL-TSLS 1.112
+```
+
+프로젝트의 블록이면 `equion an system demand --method 3sls --inst "G R CN(-1) Y(-1) POIL"` — 블록 파일의 c(n)은 식마다 따로라 시스템에서는
+번호를 이어 붙이고(`c(1)` → `c(5)`), 같은 번호를 같은 계수로 묶으려면 `--shared`. 식 하나의 NL-2SLS는 `equion est "CN = c(1) + … @inst …" --for demand:CN`
+(기록의 추정법 이름 `NL-TSLS`).
+
+관련: [해설 — 추정](../explain/estimation.md#시스템-추정--wfsystem) · [R39](#r39-시스템-추정-결과를-모델로)

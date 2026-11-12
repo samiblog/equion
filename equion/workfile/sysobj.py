@@ -10,7 +10,9 @@
     s.wald("c(3) = c(5)")
     wf.model("m").merge(s)      # 추정한 계수를 고정한 식들로 모델에
 
-식은 계수 c(n)을 쓴 꼴(`Y = c(1) + c(2)*X`)이나 추정식 꼴(`Y c X`, 계수 번호는 이어서 자동)로 쓴다. 계수에 선형이어야 한다.
+식은 계수 c(n)을 쓴 꼴(`Y = c(1) + c(2)*X`)이나 추정식 꼴(`Y c X`, 계수 번호는 이어서 자동)로 쓴다. 여러 식에 같은 c(n)이 있으면
+같은 계수다(식 사이 제약). 계수에 비선형인 식(`Y = c(1) + c(2)*X^c(3)`)도 된다(D64) — 그때는 비선형 최소제곱 꼴로 풀고(NL-OLS·NL-SUR·
+NL-2SLS·NL-3SLS·비선형 FIML), 시작값은 start=…나 식 끝의 `@start …`(그 식의 c(n) 차례), 없으면 0. 모든 식이 계수에 선형이면 선형 추정 그대로.
 식 끝의 `@inst …`는 그 식만의 도구, `@inst …` 한 줄은 모든 식의 도구(상수항은 늘 포함).
 """
 
@@ -37,9 +39,11 @@ _LABEL = {"ols": "시스템 최소제곱(OLS)", "sur": "SUR(실행 가능한 GLS
 class _SysEq:
     """시스템 안의 식 하나: 원문, c(n) 꼴 글자, IR(좌변·우변), 목표변수, 도구."""
 
-    def __init__(self, text, ctext, lhs, rhs, target, coef_labels, inst):
+    def __init__(self, text, ctext, lhs, rhs, target, coef_labels, inst, start=None):
         self.text, self.ctext, self.lhs, self.rhs = text, ctext, lhs, rhs
         self.target, self.coef_labels, self.inst = target, coef_labels, inst
+        self.start = dict(start or {})                 # 식 끝의 @start — {계수 번호: 시작값}
+        self.nonlinear = any(ir.coef_indices(ir.deriv(rhs, ir.Coef(k))) for k in ir.coef_indices(rhs))
 
     @property
     def coefs(self) -> List[int]:
@@ -140,10 +144,14 @@ class SystemObject:
                     labels[k] = "c" if nm == "const" else nm
                     parts.append(f"c({k})" if nm == "const" else f"c({k})*({nm})")
                 ctext = f"{e.dependent_var} = " + " + ".join(parts)
-            for k in ir.coef_indices(rhs):
-                if ir.coef_indices(ir.deriv(rhs, ir.Coef(k))):
-                    raise ValueError(f"시스템 추정은 계수에 선형인 식만 됩니다(c({k})가 비선형) — {line}")
-            out.append(_SysEq(line, ctext, e.lhs_ir, rhs, e.target, labels, inst))
+            start = {}
+            if d.get("start"):
+                if kind != "nls":
+                    raise ValueError(f"@start는 계수 c(n)을 쓴 식에만 — {line}")
+                if len(d["start"]) != len(e._coef_numbers):
+                    raise ValueError(f"@start 값 {len(d['start'])}개 ≠ 계수 {len(e._coef_numbers)}개 — {line}")
+                start = {k: float(v) for k, v in zip(e._coef_numbers, d["start"])}
+            out.append(_SysEq(line, ctext, e.lhs_ir, rhs, e.target, labels, inst, start))
         targets = [q.target for q in out]
         dup = sorted({t for t in targets if targets.count(t) > 1})
         if dup:
@@ -200,6 +208,107 @@ class SystemObject:
             out["A"], out["B"] = A, B
         return out
 
+    @property
+    def nonlinear(self) -> bool:
+        """계수에 비선형인 식이 있나(그러면 비선형 추정 — D64)."""
+        return any(q.nonlinear for q in self._parse())
+
+    def _start(self, coefs, start=None) -> np.ndarray:
+        """시작값 — start(사전 {'c(3)': 0.5} · {3: 0.5} · 계수 차례의 목록) > 식 끝의 @start > 0."""
+        vals = {}
+        for q in self._parse():
+            for k, v in q.start.items():
+                vals.setdefault(k, v)
+        if start is not None:
+            if isinstance(start, dict):
+                for key, v in start.items():
+                    k = int(str(key).strip().lower().removeprefix("c(").removesuffix(")")) if not isinstance(key, int) else key
+                    if k not in coefs:
+                        raise ValueError(f"시스템에 없는 계수의 시작값: c({k})")
+                    vals[k] = float(v)
+            else:
+                arr = np.asarray(start, dtype=float).ravel()
+                if arr.size != len(coefs):
+                    raise ValueError(f"start 길이 {arr.size} ≠ 계수 {len(coefs)}개({', '.join(f'c({k})' for k in coefs)})")
+                vals = dict(zip(coefs, arr))
+        return np.array([vals.get(k, 0.0) for k in coefs], dtype=float)
+
+    def _nl_setup(self, inst_override=None, need_inst=False, need_jac=False):
+        """계수에 비선형인 시스템의 표본과 함수들 — 잔차 · 기울기 ∂fᵢ/∂b(· FIML이면 Jₜ = ∂εₜ/∂yₜ와 ∂Jₜ/∂b)."""
+        eqs = self._parse()
+        wf = self._wf
+        frame = wf._data.data
+        T_all = len(frame)
+        get = lambda n: frame[n].to_numpy(dtype=float)  # noqa: E731
+        coefs = sorted(set().union(*(q.coefs for q in eqs)))
+        pos = {k: j for j, k in enumerate(coefs)}
+        ok = np.ones(T_all, dtype=bool)
+        lhs = []
+        Zs = []
+        for q in eqs:
+            for node in (q.lhs, q.rhs):
+                for name, lag in ir.leaves(node):
+                    ok &= np.isfinite(ir.shift_array(get(name), lag))
+            lhs.append(ir.evaluate(q.lhs, get))
+            if need_inst:
+                terms = list(inst_override) if inst_override else (q.inst or self._inst)
+                if not terms:
+                    raise ValueError(f"도구변수가 없습니다 — 식 '{q.text}'(식 끝 @inst … 또는 @inst 줄, inst=[…])")
+                Zf = _eval_terms(wf, terms)
+                Z = np.column_stack([np.ones(T_all), Zf]) if Zf.size else np.ones((T_all, 1))
+                ok &= np.isfinite(Z).all(axis=1)
+                Zs.append(Z)
+        s, e = wf._bounds()
+        win = np.zeros(T_all, dtype=bool)
+        win[s:e + 1] = True
+        ok &= win
+        rows = np.flatnonzero(ok)
+        if len(rows) <= len(coefs) // len(eqs) + 1:
+            raise ValueError(f"모든 식이 함께 관측되는 기간이 너무 짧습니다({len(rows)}기)")
+        dnodes = [{k: ir.deriv(q.rhs, ir.Coef(k)) for k in q.coefs} for q in eqs]
+
+        def cd(b):
+            return {k: float(b[pos[k]]) for k in coefs}
+
+        def resid(b):
+            c = cd(b)
+            return np.column_stack([(lhs[i] - ir.evaluate(q.rhs, get, c, length=T_all))[rows] for i, q in enumerate(eqs)])
+
+        def jac(b):
+            c = cd(b)
+            out = []
+            for i, q in enumerate(eqs):
+                G = np.zeros((len(rows), len(coefs)))
+                for k, node in dnodes[i].items():
+                    G[:, pos[k]] = np.broadcast_to(ir.evaluate(node, get, c, length=T_all), (T_all,))[rows]
+                out.append(G)
+            return out
+        a = {"coefs": coefs, "rows": rows, "resid": resid, "jac": jac, "Zs": [Z[rows] for Z in Zs] if need_inst else None}
+        if need_jac:
+            m = len(eqs)
+            targets = [q.target for q in eqs]
+            Jn = [[ir.deriv(ir.sub(q.lhs, q.rhs), ir.Var(t, 0)) for t in targets] for q in eqs]
+            dJn = [[{k: ir.deriv(Jn[i][j], ir.Coef(k)) for k in ir.coef_indices(Jn[i][j])} for j in range(m)] for i in range(m)]
+
+            def J_fn(b):
+                c = cd(b)
+                J = np.zeros((len(rows), m, m))
+                for i in range(m):
+                    for j in range(m):
+                        J[:, i, j] = np.broadcast_to(ir.evaluate(Jn[i][j], get, c, length=T_all), (T_all,))[rows]
+                return J
+
+            def dJ_fn(b):
+                c = cd(b)
+                D = np.zeros((len(coefs), len(rows), m, m))
+                for i in range(m):
+                    for j in range(m):
+                        for k, node in dJn[i][j].items():
+                            D[pos[k], :, i, j] = np.broadcast_to(ir.evaluate(node, get, c, length=T_all), (T_all,))[rows]
+                return D
+            a["J"], a["dJ"] = J_fn, dJ_fn
+        return a
+
     def _restrict(self, restrict, coefs):
         if not restrict:
             return None, None
@@ -214,6 +323,9 @@ class SystemObject:
     # ---- 추정 -------------------------------------------------------------
     def _run(self, method, restrict=None, inst=None, **opts):
         iv = method in ("tsls", "3sls")
+        if self.nonlinear:
+            return self._run_nonlinear(method, restrict, inst, **opts)
+        opts.pop("start", None) if method != "fiml" else None
         a = self._arrays(inst, need_inst=iv, need_jac=method == "fiml")
         R, q = self._restrict(restrict, a["coefs"])
         if method == "fiml":
@@ -238,7 +350,36 @@ class SystemObject:
             + (f" · 로그우도 {fit.loglik:.2f}" if np.isfinite(fit.loglik) else ""))
         return self
 
-    def ols(self, restrict=None):
+    def _run_nonlinear(self, method, restrict=None, inst=None, **opts):
+        """계수에 비선형인 시스템(D64) — NL-OLS·NL-SUR·NL-2SLS·NL-3SLS·비선형 FIML."""
+        iv = method in ("tsls", "3sls")
+        a = self._nl_setup(inst, need_inst=iv, need_jac=method == "fiml")
+        R, q = self._restrict(restrict, a["coefs"])
+        given = opts.pop("start", None)
+        start = self._start(a["coefs"], given)
+        if method == "fiml":
+            if given is None and not any(q_.start for q_ in self._parse()):
+                start = _sys.fit_nonlinear(a["resid"], a["jac"], start, "ols", R=R, q=q).params
+            fit = _sys.fit_fiml_nonlinear(a["resid"], a["jac"], a["J"], a["dJ"], start, R=R, q=q)
+        else:
+            fit = _sys.fit_nonlinear(a["resid"], a["jac"], start, method, Zs=a["Zs"], R=R, q=q,
+                                     iterate=bool(opts.get("iterate")))
+        self.fit, self._sample, self._coefs = fit, a["rows"], a["coefs"]
+        key = "sur-it" if method == "sur" and opts.get("iterate") else method
+        self.method = key
+        self.options = {"method": method, "restrict": list(restrict) if restrict else None,
+                        "inst": list(inst) if inst else None,
+                        **({"start": [float(x) for x in np.ravel(given)] if not isinstance(given, dict)
+                            else {str(k): float(v) for k, v in given.items()}} if given is not None else {}),
+                        **{k: v for k, v in opts.items() if k in ("iterate",)}}
+        self.version += 1
+        T = len(a["rows"])
+        say(f"[{self.name}] {_LABEL[key]} — 비선형 · 식 {fit.resid.shape[1]} · 계수 {len(a['coefs'])} · 표본 {T}기"
+            + (f" · 로그우도 {fit.loglik:.2f}" if np.isfinite(fit.loglik) else "")
+            + ("" if fit.extra.get("converged", True) else " · ⚠ 수렴하지 않음(기울기가 남음)"))
+        return self
+
+    def ols(self, restrict=None, start=None):
         """식마다 최소제곱 — 공유 계수·restrict 제약은 함께 반영하고, 공분산은 식 사이 상관을 반영한 샌드위치.
 
         예
@@ -249,10 +390,11 @@ class SystemObject:
             >>> round(float(s.ols().coefs["c(2)"]), 2)
             0.25
         """
-        return self._run("ols", restrict)
+        return self._run("ols", restrict, start=start)
 
-    def sur(self, iterate: bool = False, restrict=None):
+    def sur(self, iterate: bool = False, restrict=None, start=None):
         """SUR(Zellner, 실행 가능한 GLS) — OLS 잔차의 Σ̂로 GLS. iterate=True면 Σ̂·계수를 수렴할 때까지(= 정규 최우).
+        계수에 비선형인 식이 있으면 NL-SUR(εᵀ(Σ̂⁻¹⊗I)ε 최소 — Σ̂는 NL-OLS 잔차에서), start는 시작값(사전·목록 — 식의 @start보다 앞).
 
         예
             >>> wf = eqn.datasets.load("klein_like")
@@ -262,10 +404,11 @@ class SystemObject:
             >>> s.sur(iterate=True).method
             'sur-it'
         """
-        return self._run("sur", restrict, iterate=iterate)
+        return self._run("sur", restrict, iterate=iterate, start=start)
 
-    def tsls(self, inst: Sequence[str] = None, restrict=None):
+    def tsls(self, inst: Sequence[str] = None, restrict=None, start=None):
         """시스템 2단계 최소제곱 — 식마다 도구변수로 투영해 추정. inst를 주면 모든 식에 그 도구.
+        계수에 비선형인 식이 있으면 NL-2SLS(Σᵢ εᵢᵀP_Zᵢεᵢ 최소), start는 시작값.
 
         오류
             ValueError: 도구가 없는 식, 도구가 계수보다 적은 식
@@ -278,10 +421,11 @@ class SystemObject:
             >>> round(float(s.tsls().coefs["c(2)"]), 2)
             0.16
         """
-        return self._run("tsls", restrict, inst=_split_inst(inst))
+        return self._run("tsls", restrict, inst=_split_inst(inst), start=start)
 
-    def three_sls(self, inst: Sequence[str] = None, restrict=None, iterate: bool = False):
+    def three_sls(self, inst: Sequence[str] = None, restrict=None, iterate: bool = False, start=None):
         """3단계 최소제곱 — 2SLS 잔차의 Σ̂로 투영 자료에 GLS(식 사이 오차 상관까지 쓴다). iterate=True면 반복.
+        계수에 비선형인 식이 있으면 NL-3SLS(GMM 꼴 mᵀS⁻¹m — 도구가 모든 식에 같으면 εᵀ(Σ̂⁻¹⊗P_Z)ε), start는 시작값.
 
         예
             >>> wf = eqn.datasets.load("klein_like")
@@ -291,10 +435,11 @@ class SystemObject:
             >>> s.three_sls().coefs.round(2)[["c(2)", "c(6)"]].tolist()
             [0.16, -0.06]
         """
-        return self._run("3sls", restrict, inst=_split_inst(inst), iterate=iterate)
+        return self._run("3sls", restrict, inst=_split_inst(inst), iterate=iterate, start=start)
 
     def fiml(self, restrict=None, start=None):
         """완전정보 최우 — 집중 로그우도 −(T/2)log|Σ̂| + Σ log|det ∂ε/∂y|를 최대화(해석적 기울기 BFGS + Newton 마무리).
+        계수에 비선형인 식이 있으면 비선형 FIML(야코비안과 그 계수 미분을 식의 기호 미분으로 — 시작값 기본은 NL-OLS).
 
         내생변수는 시스템 식의 목표변수다. 시작값 기본은 시스템 OLS, 공분산은 관측 정보(헤시안). 시스템에는 항등식을 넣을 수 없으므로
         항등식이 정하는 같은 기 내생변수(예: Klein 모형의 이윤·총수요)가 설명변수에 있으면 그것을 외생으로 다룬다 — 그런 모형은

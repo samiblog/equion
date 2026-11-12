@@ -2372,11 +2372,12 @@ sc.clear()
 |---|---|---|
 | [`append`](#systemobjectappend) | `(*lines)` | 식을 더한다(여러 줄 글자도 됨). 추정식 꼴(`Y c X` — 계수 번호는 이어서 자동)이나 `c(n)` 꼴(`Y = c(1) + c(2)*X`)로 쓴다. |
 | `equations` | `속성` | 시스템의 식(글자 목록, @inst 줄 제외). |
-| [`ols`](#systemobjectols) | `(restrict=None)` | 식마다 최소제곱 — 공유 계수·restrict 제약은 함께 반영하고, 공분산은 식 사이 상관을 반영한 샌드위치. |
-| [`sur`](#systemobjectsur) | `(iterate=False, restrict=None)` | SUR(Zellner, 실행 가능한 GLS) — OLS 잔차의 Σ̂로 GLS. iterate=True면 Σ̂·계수를 수렴할 때까지(= 정규 최우). |
-| [`tsls`](#systemobjecttsls) | `(inst=None, restrict=None)` | 시스템 2단계 최소제곱 — 식마다 도구변수로 투영해 추정. inst를 주면 모든 식에 그 도구. |
-| [`three_sls`](#systemobjectthree_sls) | `(inst=None, restrict=None, iterate=False)` | 3단계 최소제곱 — 2SLS 잔차의 Σ̂로 투영 자료에 GLS(식 사이 오차 상관까지 쓴다). iterate=True면 반복. |
-| [`fiml`](#systemobjectfiml) | `(restrict=None, start=None)` | 완전정보 최우 — 집중 로그우도 −(T/2)log\|Σ̂\| + Σ log\|det ∂ε/∂y\|를 최대화(해석적 기울기 BFGS + Newton 마무리). |
+| `nonlinear` | `속성` | 계수에 비선형인 식이 있나(그러면 비선형 추정 — D64). |
+| [`ols`](#systemobjectols) | `(restrict=None, start=None)` | 식마다 최소제곱 — 공유 계수·restrict 제약은 함께 반영하고, 공분산은 식 사이 상관을 반영한 샌드위치. |
+| [`sur`](#systemobjectsur) | `(iterate=False, restrict=None, start=None)` | SUR(Zellner, 실행 가능한 GLS) — OLS 잔차의 Σ̂로 GLS. iterate=True면 Σ̂·계수를 수렴할 때까지(= 정규 최우). 계수에 비선형인 식이 있으면 NL-SUR(εᵀ(Σ̂⁻¹⊗I)ε 최소 — Σ̂는 NL-OLS 잔차에서), start는 시작값(사전·목록 — 식의 @start보다 앞). |
+| [`tsls`](#systemobjecttsls) | `(inst=None, restrict=None, start=None)` | 시스템 2단계 최소제곱 — 식마다 도구변수로 투영해 추정. inst를 주면 모든 식에 그 도구. 계수에 비선형인 식이 있으면 NL-2SLS(Σᵢ εᵢᵀP_Zᵢεᵢ 최소), start는 시작값. |
+| [`three_sls`](#systemobjectthree_sls) | `(inst=None, restrict=None, iterate=False, start=None)` | 3단계 최소제곱 — 2SLS 잔차의 Σ̂로 투영 자료에 GLS(식 사이 오차 상관까지 쓴다). iterate=True면 반복. 계수에 비선형인 식이 있으면 NL-3SLS(GMM 꼴 mᵀS⁻¹m — 도구가 모든 식에 같으면 εᵀ(Σ̂⁻¹⊗P_Z)ε), start는 시작값. |
+| [`fiml`](#systemobjectfiml) | `(restrict=None, start=None)` | 완전정보 최우 — 집중 로그우도 −(T/2)log\|Σ̂\| + Σ log\|det ∂ε/∂y\|를 최대화(해석적 기울기 BFGS + Newton 마무리). 계수에 비선형인 식이 있으면 비선형 FIML(야코비안과 그 계수 미분을 식의 기호 미분으로 — 시작값 기본은 NL-OLS). |
 | `coefs` | `속성` | 계수(Series, 이름 c(1)…). |
 | `stderrs` | `속성` | 계수 표준오차(Series). |
 | `zstats` | `속성` | 계수의 z값(Series — 시스템 추정은 정규 근사). |
@@ -2415,7 +2416,7 @@ len(s.equations)
 
 ### SystemObject.ols
 
-`ols(restrict=None)`
+`ols(restrict=None, start=None)`
 
 식마다 최소제곱 — 공유 계수·restrict 제약은 함께 반영하고, 공분산은 식 사이 상관을 반영한 샌드위치.
 
@@ -2433,9 +2434,9 @@ round(float(s.ols().coefs["c(2)"]), 2)
 
 ### SystemObject.sur
 
-`sur(iterate=False, restrict=None)`
+`sur(iterate=False, restrict=None, start=None)`
 
-SUR(Zellner, 실행 가능한 GLS) — OLS 잔차의 Σ̂로 GLS. iterate=True면 Σ̂·계수를 수렴할 때까지(= 정규 최우).
+SUR(Zellner, 실행 가능한 GLS) — OLS 잔차의 Σ̂로 GLS. iterate=True면 Σ̂·계수를 수렴할 때까지(= 정규 최우). 계수에 비선형인 식이 있으면 NL-SUR(εᵀ(Σ̂⁻¹⊗I)ε 최소 — Σ̂는 NL-OLS 잔차에서), start는 시작값(사전·목록 — 식의 @start보다 앞).
 
 **예**
 
@@ -2451,9 +2452,9 @@ s.sur(iterate=True).method
 
 ### SystemObject.tsls
 
-`tsls(inst=None, restrict=None)`
+`tsls(inst=None, restrict=None, start=None)`
 
-시스템 2단계 최소제곱 — 식마다 도구변수로 투영해 추정. inst를 주면 모든 식에 그 도구.
+시스템 2단계 최소제곱 — 식마다 도구변수로 투영해 추정. inst를 주면 모든 식에 그 도구. 계수에 비선형인 식이 있으면 NL-2SLS(Σᵢ εᵢᵀP_Zᵢεᵢ 최소), start는 시작값.
 
 **오류**
 
@@ -2473,9 +2474,9 @@ round(float(s.tsls().coefs["c(2)"]), 2)
 
 ### SystemObject.three_sls
 
-`three_sls(inst=None, restrict=None, iterate=False)`
+`three_sls(inst=None, restrict=None, iterate=False, start=None)`
 
-3단계 최소제곱 — 2SLS 잔차의 Σ̂로 투영 자료에 GLS(식 사이 오차 상관까지 쓴다). iterate=True면 반복.
+3단계 최소제곱 — 2SLS 잔차의 Σ̂로 투영 자료에 GLS(식 사이 오차 상관까지 쓴다). iterate=True면 반복. 계수에 비선형인 식이 있으면 NL-3SLS(GMM 꼴 mᵀS⁻¹m — 도구가 모든 식에 같으면 εᵀ(Σ̂⁻¹⊗P_Z)ε), start는 시작값.
 
 **예**
 
@@ -2493,7 +2494,7 @@ s.three_sls().coefs.round(2)[["c(2)", "c(6)"]].tolist()
 
 `fiml(restrict=None, start=None)`
 
-완전정보 최우 — 집중 로그우도 −(T/2)log|Σ̂| + Σ log|det ∂ε/∂y|를 최대화(해석적 기울기 BFGS + Newton 마무리).
+완전정보 최우 — 집중 로그우도 −(T/2)log|Σ̂| + Σ log|det ∂ε/∂y|를 최대화(해석적 기울기 BFGS + Newton 마무리). 계수에 비선형인 식이 있으면 비선형 FIML(야코비안과 그 계수 미분을 식의 기호 미분으로 — 시작값 기본은 NL-OLS).
 
 내생변수는 시스템 식의 목표변수다. 시작값 기본은 시스템 OLS, 공분산은 관측 정보(헤시안). 시스템에는 항등식을 넣을 수 없으므로  
 항등식이 정하는 같은 기 내생변수(예: Klein 모형의 이윤·총수요)가 설명변수에 있으면 그것을 외생으로 다룬다 — 그런 모형은  
@@ -2946,6 +2947,7 @@ print(wf.equation("eq_i").ls("I c Y(-1) R").output().md().splitlines()[0])
 | [`gmm`](#eqnstatsgmm) | `(y, X, Z, weight='white', lags=None, iterate=False, maxiter=500, tol=1e-10)` | 선형 GMM — 모멘트 E[zₜ(yₜ − xₜb)] = 0. 1단계 TSLS 잔차로 가중행렬 W = S⁻¹을 만들어 다시 추정하고(2단계), iterate=True면 W를 고쳐 가며 반복한다. weight: 'white' · 'hac'(Bartlett, lags). J 통계량(Hansen)은 extra에. |
 | [`liml`](#eqnstatsliml) | `(y, X, Z, exog=None)` | 제한정보 최우(LIML, k-class) — b = [Xᵀ(I − κM_Z)X]⁻¹ Xᵀ(I − κM_Z)y, κ는 최소 고윳값. exog로 외생 회귀변수를 표시한다. |
 | [`nls`](#eqnstatsnls) | `(y, params, fitted, J)` | 비선형 최소제곱의 결과 객체를 만든다 — 해(params)·적합값과 해에서의 기울기 J(관측치 × 계수)로 표준오차를 계산한다. |
+| [`nltsls`](#eqnstatsnltsls) | `(y, params, fitted, J, Z)` | 비선형 2단계 최소제곱(NL-2SLS)의 결과 객체 — 잔차 e를 도구 Z의 열공간에 투영한 제곱합 eᵀP_Z e를 최소화한 해(params)에서, 공분산 σ̂²(ĴᵀĴ)⁻¹(Ĵ = P_Z J, σ̂² = eᵀe/(n−k))와 Sargan 과대식별 검정 n·eᵀP_Z e / eᵀe(자유도 = 도구의 계수 − 계수 수)를 낸다. J는 해에서의 기울기 ∂f/∂c(관측치 × 계수). 계수에 선형인 식이면 TSLS와 같다. |
 | [`fixed`](#eqnstatsfixed) | `(y, params, fitted)` | 고정(외부) 계수의 결과 객체 — 표준오차 없음, 적합도 통계만. |
 | [`pinv_svd`](#eqnstatspinv_svd) | `(X, rcond=1e-15)` | (유사역행렬, 특이값) — 특이값이 최댓값×rcond 이하인 방향은 버린다(완전 공선에서도 최소 노름 해). |
 | [`constant_info`](#eqnstatsconstant_info) | `(X)` | (상수항 수 0\|1, 상수열 위치 또는 None). 명시 상수열이 없으면 암묵적 상수(예: 계절 더미 합 = 1)도 찾는다. |
@@ -3115,6 +3117,28 @@ y = pd.Series(1 + 2 * x + rng.normal(size=100))
 b = eqn.stats.ols(y, X).params
 r = eqn.stats.nls(y, b, X @ b, X.to_numpy())             # 선형 식이면 OLS와 같다
 bool(np.allclose(r.bse, eqn.stats.ols(y, X).bse))
+# True
+```
+
+### eqn.stats.nltsls
+
+`nltsls(y, params, fitted, J, Z)`
+
+비선형 2단계 최소제곱(NL-2SLS)의 결과 객체 — 잔차 e를 도구 Z의 열공간에 투영한 제곱합 eᵀP_Z e를 최소화한 해(params)에서, 공분산 σ̂²(ĴᵀĴ)⁻¹(Ĵ = P_Z J, σ̂² = eᵀe/(n−k))와 Sargan 과대식별 검정 n·eᵀP_Z e / eᵀe(자유도 = 도구의 계수 − 계수 수)를 낸다. J는 해에서의 기울기 ∂f/∂c(관측치 × 계수). 계수에 선형인 식이면 TSLS와 같다.
+
+**예**
+
+<!-- skip -->
+```python
+rng = np.random.default_rng(0)
+z = rng.normal(size=200)
+x = z + rng.normal(size=200)
+X = pd.DataFrame({"const": 1.0, "x": x})
+y = pd.Series(1 + 2 * x + rng.normal(size=200))
+Z = pd.DataFrame({"const": 1.0, "z": z})
+t = eqn.stats.tsls(y, X, Z)
+r = eqn.stats.nltsls(y, t.params, X @ t.params, X.to_numpy(), Z)    # 선형 식이면 TSLS와 같다
+bool(np.allclose(r.bse, t.bse))
 # True
 ```
 

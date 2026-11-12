@@ -639,6 +639,30 @@ def _main(tmp, t0):
     tm = sm.table(1)
     check("월간: 가정 12달(10~12월 포함)을 모두 쓰고(가정 칸) · 9월~끝의 식 보정이 요인 나누기에서 '가정'으로 — 라벨을 글자가 아니라 기간으로 견준다(QA)",
           list(m1.flags["RM"].loc["2020M10":"2020M12"]) == ["가정"] * 3 and "나머지" not in tm.columns and (tm["가정"].abs() > 0.5).any(), str(tm)[:300])
+
+    print("=" * 80)
+    print("M. 비선형 추정 — 블록의 계수에 비선형인 식 · an system · est의 NL-2SLS (D64)")
+    print("=" * 80)
+    pn = quiet(Project.create, os.path.join(tmp, "nonlinear_prj"))
+    blk = os.path.join(pn.root, "EQUATIONS", "demand.txt")
+    write(blk, read(blk).replace("CN c Y CN(-1)            # 소비", "CN = c(1) + c(2)*Y^c(3) + c(4)*CN(-1) @start 10 0.5 1 0.2   # 소비(비선형)")
+          .replace("I c Y(-1) R              # 투자", "I = c(1) + c(2)*Y(-1)^c(3) + c(4)*R @start 4 0.15 1 -1   # 투자(비선형)"))
+    pn = quiet(Project.open, pn.root)
+    a1 = quiet(pn.an, "system", "demand", method="sur")
+    a2 = quiet(pn.an, "system", "demand", method="sur", shared=True)
+    t1, t2 = a1.table(1), a2.table(1)
+    check("an system: 계수에 비선형인 블록 식 — 기본은 식마다 c(n)을 따로(번호를 이어 붙임 — 계수 8개), --shared면 같은 번호 = 같은 계수(4개)",
+          a1.meta["result"]["nonlinear"] and len(t1) == 8 and len(t2) == 4 and "번호를 이어 붙였다" in " ".join(a1.meta["implicit"])
+          and "--shared" in " ".join(a2.meta["implicit"]), f"{len(t1)} {len(t2)}")
+    a3 = quiet(pn.an, "system", "demand", method="fiml")
+    k3 = quiet(pn.an_keep, a3.id) if hasattr(pn, "an_keep") else None
+    check("an system --method fiml(비선형 FIML) · 식 후보로 남길 수 있다", a3.meta["result"]["method"] == "fiml"
+          and a3.meta["makes"]["kind"] == "candidate" and len(a3.meta["makes"]["equations"]) == 2, str(a3.meta["makes"])[:200])
+    code, out, _ = run(["est", "CN = c(1) + c(2)*Y^c(3) + c(4)*CN(-1) @start 10 0.5 1 0.2 @inst G R CN(-1) Y(-1) POIL", "--for", "demand:CN"], pn.root)
+    code2, out2, _ = run(["an", "system", "demand", "--method", "3sls", "--inst", "G R CN(-1) Y(-1) POIL", "--shared"], pn.root)
+    code3, out3, _ = run(["hs", "main"], pn.root)
+    check("명령줄: est의 도구변수 c(n) 식은 NL-TSLS(기록에 그 이름) · an system --shared · 비선형 식으로 과거 재현",
+          code == 0 and "NL-TSLS" in out and code2 == 0 and "비선형" in out2 and code3 == 0 and "정상 60" in out3, (out + out2)[:400])
     print()
     print(f"결과: {len(PASS)}/{len(PASS) + len(FAIL)} 통과 ({time.time() - t0:.1f}초)")
     if FAIL:

@@ -33,3 +33,14 @@ s.three_sls()
 km = kw.model("km").merge(s).append("X = CONS + I + G", "PR = X - T - WP", "K = K(-1) + I")
 mu = km.multipliers("G", 1.0, "1960", "1965")
 print(mu.level["X"].round(3).tolist())
+
+# %% R66. 비선형 시스템 — 계수 공유와 도구변수
+ns = wf.system("ns")
+ns.append("CN = c(1) + c(2)*Y^c(3) + c(4)*CN(-1) @start 10 0.5 1 0.2",
+          "I = c(5) + c(6)*Y(-1)^c(3) + c(7)*R",
+          "@inst G R CN(-1) Y(-1) POIL")
+ns.three_sls()
+print(ns.coefs.round(3).to_dict())
+print(ns.wald("c(4) = 0").pvalue < 0.01)
+one = wf.equation("one").tsls("CN = c(1) + c(2)*Y^c(3) + c(4)*CN(-1) @start 10 0.5 1 0.2 @inst G R CN(-1) Y(-1) POIL")
+print(one.stats["method"], round(float(one.coefs["c(3)"]), 3))

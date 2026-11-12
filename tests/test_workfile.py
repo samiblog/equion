@@ -468,6 +468,49 @@ def main():
               and close(w5.page("annual").page("q")["RD"].dropna(), rd_, 1e-15))
 
     print("\n" + "=" * 80)
+    print("비선형 추정 — 식 하나의 NL-2SLS · 비선형 시스템 객체 (D64)")
+    print("=" * 80)
+    wn = eqn.datasets.load("toy_q")
+    lin_ = quiet(wn.equation("lin_").tsls, "CN c Y CN(-1) @inst G R CN(-1) Y(-1)")
+    cn_ = quiet(wn.equation("cn_").tsls, "CN = c(1) + c(2)*Y + c(3)*CN(-1) @inst G R CN(-1) Y(-1)")
+    check("NL-2SLS: c(n) 꼴로 쓴 선형 식을 tsls하면 선형 TSLS와 같은 계수·표준오차, 추정법 이름 NL-TSLS · Sargan",
+          close(cn_.coefs.to_numpy(), lin_.coefs.to_numpy(), 1e-8) and close(cn_.stderrs.to_numpy(), lin_.stderrs.to_numpy(), 1e-6)
+          and cn_.stats["method"] == "NL-TSLS" and cn_.stats["sargan_df"] == 2)
+    nl_ = quiet(wn.equation("nl_").tsls, "CN = c(1) + c(2)*Y^c(3) + c(4)*CN(-1) @start 10 0.5 1 0.2 @inst G R CN(-1) Y(-1) POIL")
+    txt_ = nl_.output().text() if hasattr(nl_.output(), "text") else str(nl_.output())
+    check("NL-2SLS: 계수에 비선형인 식 · 결과 표에 Sargan 과대식별 검정 · c(n) 식은 nls·tsls·fixed만",
+          nl_.method == "tsls" and abs(float(nl_.coefs["c(3)"]) - 1) < 0.05 and "Sargan" in txt_
+          and raises(lambda: quiet(wn.equation("g_").gmm, "CN = c(1) + c(2)*Y @inst G R"), Exception, "c(n)"))
+    sn = wn.system("nlsys")
+    quiet(sn.append, "CN = c(1) + c(2)*Y^c(3) + c(4)*CN(-1) @start 10 0.5 1 0.2", "I = c(5) + c(6)*Y(-1)^c(3) + c(7)*R",
+          "@inst G R CN(-1) Y(-1) POIL")
+    got = {}
+    for meth in ("ols", "sur", "tsls", "three_sls", "fiml"):
+        quiet(getattr(sn, meth))
+        got[meth] = sn.coefs.copy()
+    check("비선형 시스템 객체: 다섯 추정법이 모두 풀리고 공유 계수 c(3)은 하나(두 식의 표에 함께), nonlinear 표시",
+          sn.nonlinear and all(len(v) == 7 for v in got.values()) and all(abs(float(v["c(3)"]) - 1) < 0.05 for v in got.values())
+          and "식1:c(3) · 식2:c(3)" in sn.output().data.to_string(), str({k: round(float(v["c(3)"]), 4) for k, v in got.items()}))
+    quiet(sn.sur, start={"c(1)": 10, "c(2)": 0.5, "c(3)": 1.0, "c(4)": 0.2, "c(5)": 4, "c(6)": 0.15, "c(7)": -1})
+    w_ = sn.wald("c(4) = 0")
+    eqs_ = quiet(sn.make_equations)
+    check("비선형 시스템: start 사전 · Wald 검정 · 계수를 고정한 식으로 모델에(make_equations)",
+          w_.statistic > 10 and [e.name for e in eqs_] == ["nlsys_cn", "nlsys_i"] and eqs_[0].method == "fixed"
+          and close(float(eqs_[0].coefs["c(3)"]), float(sn.coefs["c(3)"]), 1e-12))
+    bad = wn.system("bad")
+    quiet(bad.append, "CN = c(1) + c(2)*Y^c(3) @start 1 2", "I c Y(-1) R")
+    bad2 = wn.system("bad2")
+    quiet(bad2.append, "CN = c(1) + c(2)*Y^c(3)", "I c Y(-1) R @start 1 2 3")
+    check("비선형 시스템: @start 수가 계수와 다르면 · 추정식 꼴에 @start면 오류 · 없는 계수의 시작값",
+          raises(lambda: quiet(bad.sur), ValueError, "@start") and raises(lambda: quiet(bad2.sur), ValueError, "@start")
+          and raises(lambda: quiet(sn.sur, start={"c(9)": 1}), ValueError, "없는 계수"))
+    with tempfile.TemporaryDirectory() as tmp:
+        quiet(wn.save, os.path.join(tmp, "nl.eqw"))
+        wn2 = quiet(eqn.wfopen, os.path.join(tmp, "nl.eqw"))
+        check("비선형 시스템: 저장·열기 — 같은 설정(start 포함)으로 다시 추정해 같은 계수",
+              close(wn2.system("nlsys").coefs.to_numpy(), sn.coefs.to_numpy(), 1e-8))
+
+    print("\n" + "=" * 80)
     total = len(PASS) + len(FAIL)
     print(f"  RESULT: {len(PASS)} PASS / {len(FAIL)} FAIL  (total {total})  — {time.time() - t0:.1f}s")
     print("  " + ("[OK] ALL PASSED!" if not FAIL else "실패: " + ", ".join(FAIL)))

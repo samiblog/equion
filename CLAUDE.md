@@ -15,7 +15,7 @@ Simulation(HS)·전망·시나리오를 수행한다. **방정식(회귀 체계)
 - **이름(D16)**: 패키지·import·명령 `equion`(별칭 `import equion as eqn`), 데스크톱 앱 **Equion Desk**
   (설치 파일 `EquionDesk-<버전>-setup.exe`, Windows 전용 — D29). 0.5.0에서 `macromodel` → `equion`으로 바꿨다 —
   옛 `.mmw` 워크파일·`macromodel-run` 보고서·레거시 pickle(`macromodel.*` 경로)·`MACROMODEL_PARAMS`는 계속 읽는다.
-- Equion **0.8.0** (2026-11-11, 공개 버전 하나 — 엔진 형식 표시 `ENGINE_VERSION`은 내부 값). 결정 D1~D63(`docs/DECISIONS.md`),
+- Equion **0.8.0** (2026-11-11, 공개 버전 하나 — 엔진 형식 표시 `ENGINE_VERSION`은 내부 값). 결정 D1~D64(`docs/DECISIONS.md`),
   진행 `docs/ROADMAP.md`, 바뀐 점 `CHANGELOG.md`. 사용자 문서 첫 페이지 `docs/README.md`(D27), 문서 검사 `docs/build_docs.py`.
 - **세 단계(D1)**: ① 라이브러리 — 워크파일 API `import equion as eqn` (완료) ② CLI `equion run` (완료)
   ③ 데스크톱 앱 Equion Desk(lectern 스타일, **Windows 전용**(D29) — 패키지는 3 OS 그대로) — **개발 계획 확정(D31)**:
@@ -49,17 +49,17 @@ uv run equion guide                           # Claude용 모형 작업 안내(e
 uv run python docs/build_docs.py              # 문서 예제 실행 → 출력 채우기 · examples/ 내보내기 (--check: 바꾸지 않고 검사, --only 경로)
 
 uv run python tests/test_engine.py            # 엔진 회귀 104/104 (일관성·DSL·보안·구조·HS·시나리오·기간 모듈·입력 한도/퍼징·안정성·기여도 분해·희소·stacked MCE…)
-uv run python tests/test_workfile.py          # 워크파일 API 83/83 (로그·npz 저장·선택 의존성·메타데이터·페이지·주기 변환·Denton/Chow-Lin·STL 포함)
+uv run python tests/test_workfile.py          # 워크파일 API 89/89 (로그·npz 저장·선택 의존성·메타데이터·페이지·주기 변환·Denton/Chow-Lin·STL 포함)
 uv run python tests/test_cli.py               # 명령줄 72/72 (보안·Windows 인코딩·명령 한 줄 실행기 포함)
 uv run python tests/test_scenarios.py         # 상황별 시나리오 92/92 (합성 자료 — 경계·오용·연/월·명령줄·예제 자료·기간 표기·플랫폼 무관)
-uv run python tests/test_stats.py             # 자체 통계 180/180 (OLS·WLS·GMM·LIML·PDL·AR 오차·ECM·예측 평가·시스템(SUR·3SLS·FIML)·VAR·VECM·강건 공분산·진단·단위근·기초 통계)
+uv run python tests/test_stats.py             # 자체 통계 186/186 (OLS·WLS·GMM·LIML·PDL·AR 오차·ECM·예측 평가·시스템(SUR·3SLS·FIML)·비선형(NL-2SLS·비선형 시스템·FIML)·VAR·VECM·강건 공분산·진단·단위근·기초 통계)
 uv run python tests/test_ast_formula.py       # 66/66 (레거시 formula 유틸)
 uv run python tests/test_100_equations.py     # 100/100
 uv run python tests/test_error_equations.py   # 에러 검증 시각화
 uv run python tests/test_journeys.py          # 사용자 관점 시나리오 44/44 (docs/TEST_SCENARIOS.md — 한 해 운영·협업·실패와 회복·적대적 입력·이식성·명령줄·규모·2차판 J8)
 uv run python tests/test_guide.py             # Claude용 안내·스킬 21/21 (자동 표가 코드와 같음·예시 명령이 모두 읽힘·방정식 예·guide 명령·예제 CLAUDE.md)
 uv run python tests/test_script.py            # 스크립트·재연 72/72 (문법·값 바꿔 넣기·허용 목록·받은 원자료·실행 기록·expect·Python 단계·미리보기·검사·재연·초안·Python으로·명령줄·완료 기준)
-uv run python tests/test_analysis.py          # 분석·노트·보고서 126/126 (등록부·보는 분석 = 엔진·남기기(정의·후보)·노트(블록 더하기)·보고서·명령줄·분석 시나리오 A1~A5·기초 통계 분석·요인 나누기)
+uv run python tests/test_analysis.py          # 분석·노트·보고서 129/129 (등록부·보는 분석 = 엔진·남기기(정의·후보)·노트(블록 더하기)·보고서·명령줄·분석 시나리오 A1~A5·기초 통계 분석·요인 나누기)
 uv run python tests/test_work.py              # 작업 명령·기록 182/182 (저장소·바뀜 기록·md·est·기준·adopt·compare·HS 기록·replay·sim·est --adopted·propose·export·명령줄·장면 2·4·5)
 uv run python tests/test_project.py           # 프로젝트 250/250 (equion.toml·부품·조립 검사·블록 HS·항등식 검사·자료 정의·회차·상대 기간·assemble/ident/data 명령·원자료 미리보기·정의 쓰기·모형과 블록 정의·보기·Desk에 알리기·묶음과 식 한 줄·시나리오 쓰기·시점이 열로 가는 표·이정표·묶어 보내기)
 uv run python tests/test_docs.py              # 문서 검사(build_docs --check: 예제·출력·링크·API 설명과 예제·doctest)
@@ -91,8 +91,8 @@ uv run --package equion-desk --group ui python desk/tests/ui_check.py   # 앱 �
 | `data/source.py` | **불러오기 틀(D34)**: 원자료(csv·xlsx)를 틀(시트·열 이름 줄·단위 줄·시점 열·결측 표시·천 단위)대로 읽기 — 흔한 시점 꼴(`2003년 4/4분기`·`2003.10`…), 칸 위치(`D7`)와 함께 결측·숫자 아닌 칸, cp949 csv, 파일 해시, 시점이 열로 가는 표(`time_axis`·`time_row`·`name_col` — D60)와 여러 줄 머리(`header_row = [3, 4]`) |
 | `data/transform.py` | 주기 변환(집계·확장)·Denton·Chow-Lin·STL·고전 분해(D26) — 시간 인덱스 연산은 periods를 거친다 |
 | `data/periods.py` | **기간·주기 연산은 모두 여기**(주기 추론·Period 변환·기간 첫날 인덱스·리샘플·개월 이동·`locate`) — 다른 모듈은 pandas 시간 API를 직접 부르지 않는다(pandas 버전 변화 흡수). 인덱스에 pandas freq를 달지 않는다(분기 라벨 `.loc["2001Q2"]`가 회계 분기로 어긋남). 다른 주기의 시점 표기(연간에 `2000Q1`)는 오류. `worktable/freq.py`는 옛 이름 재노출 |
-| `estimation/equation.py` | `Equation` — OLS·TSLS·NLS(해석적 자코비안)·fixed(결과는 `equion.stats`), 계수 공분산 `cov`·`lags`, 중심화 R², 시스템 인터페이스(`target`·`system_rhs`·`coef_vector`), 번들 직렬화 |
-| `stats/` | **자체 통계(D17·D20~22)**: `regression.py`(OLS 유사역행렬 — 0.5.0까지의 외부 패키지와 같은 계산 순서, TSLS·NLS·fixed 결과 `Results`) · `robust.py`(HC0~3·HAC) · `diagnostics.py`(LM·Ljung-Box·White·BP·ARCH·JB·RESET·Wald·Chow·CUSUM·재귀) · `unitroot.py`(ADF·KPSS·Engle-Granger·Johansen) · `describe.py`(기술 통계·상관·ACF·PACF·교차상관·히스토그램·쌍별 그랜저 — D50) · `_tables.py`(MacKinnon·MHM 수치표, 고지 `THIRD-PARTY-NOTICES.md`) · `forecast.py`(예측 평가·Diebold-Mariano) · `system.py`(SUR·2SLS·3SLS·FIML) · `var.py`(VAR·VECM) · `result.py`(`TestResult`) |
+| `estimation/equation.py` | `Equation` — OLS·TSLS·NLS(해석적 자코비안 — c(n) 식에 `@inst`면 NL-2SLS, D64)·fixed(결과는 `equion.stats`), 계수 공분산 `cov`·`lags`, 중심화 R², 시스템 인터페이스(`target`·`system_rhs`·`coef_vector`), 번들 직렬화 |
+| `stats/` | **자체 통계(D17·D20~22)**: `regression.py`(OLS 유사역행렬 — 0.5.0까지의 외부 패키지와 같은 계산 순서, TSLS·NLS·fixed 결과 `Results`) · `robust.py`(HC0~3·HAC) · `diagnostics.py`(LM·Ljung-Box·White·BP·ARCH·JB·RESET·Wald·Chow·CUSUM·재귀) · `unitroot.py`(ADF·KPSS·Engle-Granger·Johansen) · `describe.py`(기술 통계·상관·ACF·PACF·교차상관·히스토그램·쌍별 그랜저 — D50) · `_tables.py`(MacKinnon·MHM 수치표, 고지 `THIRD-PARTY-NOTICES.md`) · `forecast.py`(예측 평가·Diebold-Mariano) · `system.py`(SUR·2SLS·3SLS·FIML, 계수에 비선형인 시스템 `fit_nonlinear`·`fit_fiml_nonlinear` — D64) · `var.py`(VAR·VECM) · `result.py`(`TestResult`) |
 | `system/analyzer.py` | `SystemEquation`·`ModelSystem`: 정규화 매칭(Kuhn)·정방성/중복/미지 변수 검사·블록 분해(Tarjan)·구조 캐시 |
 | `system/compiler.py` | 블록 잔차·자코비안 파이썬 함수 생성(색인 참조, builtins 없음) |
 | `system/solver.py` | Newton(스케일링·라인서치, 큰 블록은 희소 LU) / Gauss-Seidel / Broyden / hybr / lm + 폴백 |
@@ -101,7 +101,7 @@ uv run --package equion-desk --group ui python desk/tests/ui_check.py   # 앱 �
 | `system/analysis.py` | 동태 안정성(선형화 동반행렬 고윳값)·시나리오 기여도 분해(Shapley) |
 | `scenario/scenario.py` | `Scenario`(override·exclude·add-factor·충격·control)·전망 보조·확률적 모의·control·승수 |
 | `reporting/results.py` · `charts.py` · `markdown.py` | 결과 CSV(상태 열 포함) / 표시·차트 / md 렌더러(기록 카드·출력 객체 `.md()` — 파이프 표·vega-lite 선·막대·색 격자·산점도) |
-| `workfile/` | **워크파일 API(라이브러리 1단계)**: `workfile.py`(`Workfile`·`wfopen`·`wfcreate`·smpl·genr·read/write·`.eqw` 저장·`ecm`·`forecast_eval`·`meta`·`page`·`convert`·`seas`) · `objects.py`(방정식·모델·시나리오·그래프·표 객체, `SolveResult`, `ECMResult`) · `sysobj.py`(시스템 객체) · `varobj.py`(VAR·VECM 객체) · `output.py`(출력 객체·스풀·`eqn.show`·`eqn.verbose`) · `runtime.py`(`eqn.params`). 엔진 API 위의 얇은 층 |
+| `workfile/` | **워크파일 API(라이브러리 1단계)**: `workfile.py`(`Workfile`·`wfopen`·`wfcreate`·smpl·genr·read/write·`.eqw` 저장·`ecm`·`forecast_eval`·`meta`·`page`·`convert`·`seas`) · `objects.py`(방정식·모델·시나리오·그래프·표 객체, `SolveResult`, `ECMResult`) · `sysobj.py`(시스템 객체 — 계수에 비선형인 식도, D64) · `varobj.py`(VAR·VECM 객체) · `output.py`(출력 객체·스풀·`eqn.show`·`eqn.verbose`) · `runtime.py`(`eqn.params`). 엔진 API 위의 얇은 층 |
 | `projects/` | **프로젝트 — 부품·조립 층(D32, 0.8 E1)**: `config.py`(`equion.toml` 읽기·검사 — 문제를 모아 `ProjectError`, 모형·블록 정의를 고친 새 내용 `model_text`·`block_text`) · `parts.py`(블록 파일 → 부품 `블록:목표`, 추정 없이 목표·변수) · `assembly.py`(조립 — include·exclude, 겹친 목표·모르는 변수·외생 자료 끝·블록 사이 연결·풀이 블록 → `AssemblyReport`) · `identity.py`(항등식 실측 검사) · `project.py`(`Project` — `assemble`·`model`·`hs`(블록 HS)·`ident`·`used_by`·바꿔 끼우기·`model_define`·`block_define`·`group_define`·`group_remove`·`part_add`·`part_remove`·`views`·`view_define`, `eqn.project`) · `vintage.py`(**자료 정의·회차(D34, E2)** — `series.toml`·`derived.txt` 검사, 회차 만들기 `work/data/<회차>/`(series·flags·meta·build·summary, 내용 해시로 같은 회차), 목록·차이·원자료 넣기, 원자료 미리보기 `preview_source`·정의 쓰기 `define_text`, tomlkit으로 주석 지키며 고치기) · `records.py`(**작업 명령(E3)** — `est`(판단 기준 `[criteria]`)·`adopt`(채택표 `EQUATIONS/adopted.toml` — 모형은 채택 계수로)·`compare`·`hs` 기록(조립 명세 `assembly.json`·`--swap`·`--vs`·`--replay`)·`reestimate`(`est --adopted --adopt if_pass`)) · `sim.py`(전망 기록 — 가정 `ASSUMPTIONS/`·보정항 `ADDFACTORS/`·시나리오 `SCENARIOS/`, `[forecast]`) · `scenarios.py`(시나리오 쓰기 — `scenario define·remove`, 충격 글 `POIL=+20%@start:end`, D55) · `inbox.py`(받은 원자료 `DATA/raw/inbox/` — 출처 짝짓기·틀 검사·넣기) · `analyses.py`(**분석(E4)** — 등록부의 분석 23개 구현(기초 통계 D50)·`an keep`(정의·식 후보)) · `split.py`(요인 나누기 `an split` — 두 전망 기록을 자료 → 가정 → 식으로 다시 풀어 나눔, D59) · `milestones.py`(이정표 `work/milestones/` — 정의 사본·회차·고정한 기록, 지금과·되돌리기, D61) · `bundle.py`(묶어 보내기·묶음 열기 — zip 하나, `bundle.json`, 폴더 밖 경로 거절, D61) · `partedit.py`(블록 파일의 식 한 줄 더하기·빼기 — `block add·remove`, D51) · `notes.py`(노트 `notes/*.md` — ```` ```equion ```` 블록·결과 구역·낡음·손으로 고친 구역·블록 더하기 `note add`) · `reports.py`(보고서 `reports/*.md` — 결과만 보내기·검사·새 기록으로 바꾸기) · `proposals.py`(제안 `work/proposals/` — 낡음·적용·버림) · `export.py`(`export --xlsx`) · `deskreq.py`(Desk에 알리기 — `equion desk show`: 이름을 확인하고 `work/desk/requests.jsonl`에 한 줄, 패키지는 앱을 불러오지 않는다) · `views.py`(보기 `VIEWS/*.toml` — 어느 시리즈를 어떤 모양으로 볼지: `load_views`·`view_text`, 계산의 입력이 아니다) · `template.py`(`equion new --template desk` — 원자료 toy_q·toy_m과 자료 정의). `Project.data_build·data_use·data_list·data_diff·data_impact·data_add·data_preview·data_define`·`span`(상대 기간 `last-N`·`next:N`). 워크파일 API 위의 얇은 층 — 추정·풀이는 엔진. `eqn.project`는 함수라 하위 패키지 이름은 `projects` |
 | `work/` | **작업 기록(D33)**: `store.py`(`WorkStore` — `work/<종류>/<이름>/`·`log.jsonl`·고정·메모, 쓰기는 임시 폴더 → 옮기기) · `history.py`(바뀜 기록 `work/history/` — 전후·차이·'바깥' 고침·되돌리기) |
 | `script/` | **Equion 스크립트(D36, E5)**: `language.py`(`.eqs` 문법 — 주석·`##`·`param`·`{이름}`·`expect`·`run` 포함·`py`, 허용 목록 검사) · `session.py`(`Session` — 단계를 같은 프로세스에서 명령줄 그대로, 단계 기록·`expect` 지표·`--fail-on`, 내보낸 Python도 이것) · `record.py`(실행 기록 `work/run/<이름>/` — `script.eqs`·`src/`·`defs/`·`steps/`·카드) · `runner.py`(실행·미리보기·검사·재연 — 프로젝트 사본에서 다시 돌려 숫자 비교) · `export.py`(작업 기록 → 초안, `.eqs` → Python). `eqn.script` |
@@ -190,7 +190,7 @@ uv run --package equion-desk --group ui python desk/tests/ui_check.py   # 앱 �
 ## 다음 단계 (참고)
 
 - **0.8.0(2026-11-11 — 개발 계획 단계 E 끝)**: E1 프로젝트·조립 · E2 자료 정의·회차 · E3 작업 명령·기록 · E4 분석·노트·보고서 ·
-  E5 Equion 스크립트(`.eqs`)·재연 · E6 안내·문서. 0.9 후보: 비선형 추정(제안 중), scikit-learn 확장(제안 중).
+  E5 Equion 스크립트(`.eqs`)·재연 · E6 안내·문서. 0.9: 비선형 추정(D64 — 만듦). scikit-learn 확장은 이번에 넣지 않는다(사용자 지시).
   외부 DB 연동(ECOS·KOSIS 받기)은 하지 않는다(D63 — 원자료는 사람이 받아 넣는다). Windows 10·WebView2 없는 PC는 대상이 아니다(D63).
 - **공개 전 확인(D30)**: 이름 상표(D16 — KIPRIS·USPTO). 공개 뒤 `macro_model`은 이 저장소의 태그를 가져다 쓰고 패키지 코드를 지운다.
 - **Desk 2차판 화면(2026-11-12, D50~D54 — `docs/DESK_V2.md`)**: 대상에서 출발 — 세 열 1/3 · 왼쪽 작업대 줄과 탭 다섯(변수·분석·모형·파일·기록) · 변수 여럿 고르기·우클릭 메뉴 ·

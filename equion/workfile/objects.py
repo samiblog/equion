@@ -80,7 +80,7 @@ class EquationObject:
         self.version += 1
         if loud:
             st = eq.statistics
-            say(f"[{self.name}] {eq.method.upper()} {eq.dependent_var} — n={st.get('n_obs')}, "
+            say(f"[{self.name}] {st.get('method') or eq.method.upper()} {eq.dependent_var} — n={st.get('n_obs')}, "
                 f"R²={st.get('r_squared', float('nan')):.4f}")
         return self
 
@@ -704,6 +704,8 @@ class EquationObject:
             foot.append(f"(상수항 없음 — 비중심 R² {f('r_squared_uncentered')})")
         if "j_statistic" in st:
             foot.append(f"Hansen J {f('j_statistic')} (자유도 {st.get('j_df')}, p={f('j_pvalue')}) — 과대식별 제약이 맞는가")
+        if "sargan_statistic" in st and st.get("sargan_df", 0) > 0:
+            foot.append(f"Sargan {f('sargan_statistic')} (자유도 {st.get('sargan_df')}, p={f('sargan_pvalue')}) — 과대식별 제약이 맞는가")
         if "ar_inverted_roots" in st:
             roots = ", ".join(f"{a:.3f}" + (f"{b:+.3f}i" if abs(b) > 1e-12 else "") for a, b in st["ar_inverted_roots"])
             foot.append(f"역 AR 근: {roots}" + ("" if st.get("ar_stationary", True) else "  ⚠ 단위원 밖 — 비정상 AR"))

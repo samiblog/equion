@@ -223,7 +223,7 @@ equion run --replay run:monthly_0001                  # 그때 그대로 다시 
     dlog(P) c dlog(Y) dlog(POIL)           # 로그 차분
     Y = CN + I + G                         # 항등식(좌변의 첫 변수가 목표)
     I c Y(-1 to -2) R @smpl 1990Q1 2019Q4  # 시차 범위 · 표본
-    Q = c(1)*K^c(2)*L^c(3)                 # 비선형(NLS)
+    Q = c(1)*K^c(2)*L^c(3)                 # 비선형(NLS) — 시작값은 끝에 @start 1 0.3 0.7, 도구변수를 붙이면 NL-2SLS
 
 | 쓸 수 있는 것 | 예 |
 |---|---|
