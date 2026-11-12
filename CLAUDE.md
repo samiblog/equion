@@ -15,7 +15,7 @@ Simulation(HS)·전망·시나리오를 수행한다. **방정식(회귀 체계)
 - **이름(D16)**: 패키지·import·명령 `equion`(별칭 `import equion as eqn`), 데스크톱 앱 **Equion Desk**
   (설치 파일 `EquionDesk-<버전>-setup.exe`, Windows 전용 — D29). 0.5.0에서 `macromodel` → `equion`으로 바꿨다 —
   옛 `.mmw` 워크파일·`macromodel-run` 보고서·레거시 pickle(`macromodel.*` 경로)·`MACROMODEL_PARAMS`는 계속 읽는다.
-- Equion **0.8.0** (2026-11-11, 공개 버전 하나 — 엔진 형식 표시 `ENGINE_VERSION`은 내부 값). 결정 D1~D62(`docs/DECISIONS.md`),
+- Equion **0.8.0** (2026-11-11, 공개 버전 하나 — 엔진 형식 표시 `ENGINE_VERSION`은 내부 값). 결정 D1~D63(`docs/DECISIONS.md`),
   진행 `docs/ROADMAP.md`, 바뀐 점 `CHANGELOG.md`. 사용자 문서 첫 페이지 `docs/README.md`(D27), 문서 검사 `docs/build_docs.py`.
 - **세 단계(D1)**: ① 라이브러리 — 워크파일 API `import equion as eqn` (완료) ② CLI `equion run` (완료)
   ③ 데스크톱 앱 Equion Desk(lectern 스타일, **Windows 전용**(D29) — 패키지는 3 OS 그대로) — **개발 계획 확정(D31)**:
@@ -190,7 +190,8 @@ uv run --package equion-desk --group ui python desk/tests/ui_check.py   # 앱 �
 ## 다음 단계 (참고)
 
 - **0.8.0(2026-11-11 — 개발 계획 단계 E 끝)**: E1 프로젝트·조립 · E2 자료 정의·회차 · E3 작업 명령·기록 · E4 분석·노트·보고서 ·
-  E5 Equion 스크립트(`.eqs`)·재연 · E6 안내·문서. 0.9 후보: 외부 데이터(ECOS·KOSIS), 비선형 시스템 추정.
+  E5 Equion 스크립트(`.eqs`)·재연 · E6 안내·문서. 0.9 후보: 비선형 추정(제안 중), scikit-learn 확장(제안 중).
+  외부 DB 연동(ECOS·KOSIS 받기)은 하지 않는다(D63 — 원자료는 사람이 받아 넣는다). Windows 10·WebView2 없는 PC는 대상이 아니다(D63).
 - **공개 전 확인(D30)**: 이름 상표(D16 — KIPRIS·USPTO). 공개 뒤 `macro_model`은 이 저장소의 태그를 가져다 쓰고 패키지 코드를 지운다.
 - **Desk 2차판 화면(2026-11-12, D50~D54 — `docs/DESK_V2.md`)**: 대상에서 출발 — 세 열 1/3 · 왼쪽 작업대 줄과 탭 다섯(변수·분석·모형·파일·기록) · 변수 여럿 고르기·우클릭 메뉴 ·
   묶음 · 변수 창·그룹 창 · 분석 탭(개별 식 = 모형 밖 블록의 식, 새 것은 블록 `single`) · 터미널 다섯 · 명령 창. Desk는 `0.2.0rc1`(2차판 출시 후보 — D62, 사전 릴리스 `desk-v0.2.0rc1`).
