@@ -13,7 +13,7 @@ dependencies = [
     "equion",
     "flask>=3.1,<4",
     "waitress>=3.0,<4",
-    "watchdog>=6.0,<7",
+    "watchdog>=6.0,<8",
     "pywebview>=6.2,<7; sys_platform == 'win32'",
 ]
 
